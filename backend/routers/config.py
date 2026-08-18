@@ -17,8 +17,10 @@ router = APIRouter()
 
 
 # Configuración por defecto del negocio.
+# Son valores de arranque para que el sistema funcione sin configurar nada; el
+# comerciante los reemplaza desde Menú → Configuración del Negocio.
 CONFIG_DEFAULT = {
-    "negocio_nombre": "Mi Supermercado",
+    "negocio_nombre": "Mi Negocio",
     "negocio_cuit": "",
     "negocio_direccion": "",
     "negocio_localidad": "",

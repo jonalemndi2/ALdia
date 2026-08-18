@@ -54,7 +54,7 @@ const App = {
             const html = `
             <div class="text-center mb-4">
                 <h2 class="text-primary"><i class="bi bi-grid-3x3-gap-fill"></i> ALdia - Panel de Control</h2>
-                <p class="text-muted">Sistema de Gestión Comercial Agropecuaria</p>
+                <p class="text-muted">Sistema de Gestión Comercial</p>
             </div>
             <div class="row g-3 mb-4">
                 <div class="col-md-3">

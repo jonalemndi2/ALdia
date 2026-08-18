@@ -73,6 +73,32 @@ Desde otras PCs:         http://192.168.0.10:8000
 > ⚠️ **Cambiá la contraseña del administrador apenas ingreses.** Es pública en esta
 > documentación y en el código.
 
+### Con qué te encontrás la primera vez
+
+ALdia arranca con la **base vacía**: no trae datos de ejemplo ni de ningún otro
+comercio. En el primer arranque solo se crea lo mínimo para poder entrar y empezar
+a cargar tu negocio.
+
+| | Estado inicial |
+|---|---|
+| Clientes, proveedores, artículos | **0** |
+| Facturas, remitos, cobros, movimientos de caja | **0** |
+| Usuarios | **1** (`admin`) |
+| Módulos del sistema | **10**, todos habilitados |
+| Facturación electrónica AFIP | **Deshabilitada** (requiere tu certificado) |
+| Registro de auditoría | **Activo desde el primer arranque** |
+
+Primeros pasos recomendados:
+
+1. Cambiar la contraseña de `admin` (**Menú → Usuarios**).
+2. Cargar los datos de tu comercio: nombre, CUIT, condición frente al IVA y punto
+   de venta (**Menú → Configuración del Negocio**). El nombre aparece en la barra
+   superior y en los comprobantes.
+3. Crear los usuarios reales con su rol (caja, ventas, depósito…) en vez de que
+   todos compartan `admin`. **El registro de auditoría solo sirve si cada persona
+   entra con su propio usuario.**
+4. Cargar artículos, clientes y proveedores, o empezar a operar directamente.
+
 ### Otras terminales
 
 En cualquier PC de la misma red, abrir el navegador en la dirección del servidor.
@@ -152,12 +178,41 @@ archivo (preferentemente con el servidor detenido). Para restaurar, reemplazalo.
 Automatizar esta copia es responsabilidad de quien instala el sistema: una tarea
 programada que copie el archivo a otro disco o a la nube.
 
+## Registro de auditoría
+
+Cada operación que **modifica** datos queda asentada automáticamente: quién la hizo,
+con qué rol, cuándo, desde qué dirección, sobre qué registro, y —en los cambios
+sensibles— **el valor anterior y el nuevo**. También se registran los intentos
+**rechazados**, que suelen ser los más reveladores.
+
+```
+18/08 10:22  admin     administrador  stock       modificación   artículo 901   [precio: 15.000,00 → 22.500,50]
+18/08 10:22  caja1     caja           cta. cte.   cobro          cobro 1        [saldo: 54.451,21 → 34.451,21]
+18/08 10:22  caja1     caja           stock       modificación   artículo 901   RECHAZADO (sin permiso)
+18/08 10:22  admin     administrador  ventas      anulación      factura 2      [stock: 98 → 100]
+```
+
+Se consulta desde **Menú → Auditoría** (administrador y auditor), con filtros por
+fecha, usuario, módulo y resultado, y exportación a CSV.
+
+**Es inmutable**: no existe ningún endpoint que lo borre ni lo edite — tampoco para el
+administrador. Vive en un esquema separado, de modo que sobrevive incluso al borrado
+completo de la base.
+
+> **Límites honestos.** Quien tenga acceso al archivo `backend/aldia.db` puede editarlo
+> por fuera de la aplicación sin dejar rastro: ahí la protección son los permisos del
+> sistema operativo y las copias de seguridad. Y solo se registran las escrituras, no
+> las consultas.
+
 ## Estructura del proyecto
 
 ```
 backend/            API FastAPI
   main.py           arranque, montaje de routers y control de acceso
   security.py       clave de sesión, permisos por rol, anti fuerza bruta
+  auditoria.py      registro inmutable de operaciones
+  dinero.py         importes en centavos enteros y redondeo comercial
+  afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
   models.py         tablas (SQLAlchemy)
   schemas.py        validación (Pydantic): CUIT, IVA, importes
   routers/          un archivo por módulo
@@ -167,7 +222,7 @@ Web/                frontend (SPA)
 mcp/                servidor MCP para asistentes de IA
 skills/             skills de tareas comerciales
 docs/               documentación (AFIP, etc.)
-BITACORA.md         registro de la auditoría y las correcciones
+certificados/       certificados de AFIP (ignorado por git)
 ```
 
 ## Contribuir
