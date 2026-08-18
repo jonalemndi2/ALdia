@@ -25,6 +25,13 @@ from sqlalchemy import inspect, text
 
 # tabla -> [(columna, tipo SQL, comentario)]
 COLUMNAS_NUEVAS = {
+    "usuarios": [
+        # Una instalacion que ya venia funcionando puede tener el admin con la
+        # contrasena de fabrica, que esta publicada en el README. Se marca en 1
+        # para todos los usuarios existentes: la proxima vez que entren van a
+        # tener que definir una propia.
+        ("debe_cambiar_password", "BOOLEAN NOT NULL DEFAULT 1"),
+    ],
     "ncp": [
         # Importe de la nota de credito (devolucion a proveedor), en centavos.
         # Antes la devolucion RESTABA del saldo del proveedor pero solo dejaba

@@ -71,8 +71,11 @@ Desde otras PCs:         http://192.168.0.10:8000
 
 - **Usuario:** `admin` · **Contraseña:** `admin123`
 
-> ⚠️ **Cambiá la contraseña del administrador apenas ingreses.** Es pública en esta
-> documentación y en el código.
+El sistema **te obliga a cambiarla** antes de dejarte hacer nada: esta contraseña
+es pública (está en este README), así que una instalación que la conserve tiene un
+acceso conocido por cualquiera. Lo mismo vale para cada empleado que des de alta:
+la contraseña que le pongas es provisoria y él la reemplaza al entrar, así el
+registro de auditoría refleja a personas y no a una clave compartida.
 
 ### Con qué te encontrás la primera vez
 

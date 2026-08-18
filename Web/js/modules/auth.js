@@ -13,6 +13,10 @@ const Auth = {
                 const user = await API.auth.getMe();
                 this.currentUser = user;
                 sessionStorage.setItem('aldia_user', JSON.stringify(user));
+                if (user.debe_cambiar_password) {
+                    this.showCambioPassword();
+                    return;
+                }
                 this.onLoginSuccess();
             } catch (err) {
                 // Token inválido/expirado, limpiar y mostrar login
@@ -78,6 +82,14 @@ const Auth = {
             this.currentUser = result.user;
             API.setToken(result.access_token);
             sessionStorage.setItem('aldia_user', JSON.stringify(result.user));
+
+            // Con la contraseña inicial el servidor rechaza todo lo demás:
+            // llevar directo al cambio en vez de mostrar un sistema inoperable.
+            if (result.user.debe_cambiar_password) {
+                this.showCambioPassword();
+                return;
+            }
+
             Utils.toast(`Bienvenido ${result.user.username} (${result.user.rol})`, 'Login', 'success');
             this.onLoginSuccess();
         } catch (err) {
@@ -88,6 +100,75 @@ const Auth = {
                 formInputs.forEach(i => i.classList.remove('is-invalid'));
             }, 2000);
         }
+    },
+
+    /**
+     * Pantalla de cambio obligatorio. No hay forma de saltearla: el servidor
+     * rechaza con 403 cualquier otra operación mientras la contraseña siga
+     * siendo la inicial, así que esconder el botón no sería el control real.
+     */
+    showCambioPassword() {
+        document.getElementById('mainNavbar').classList.add('d-none');
+        const dyn = document.getElementById('dynamicView');
+        dyn.innerHTML = `
+            <div class="row justify-content-center" style="margin-top: 8vh;">
+                <div class="col-md-5">
+                    <div class="card shadow border-warning">
+                        <div class="card-header bg-warning text-dark py-3">
+                            <h5 class="mb-0"><i class="bi bi-shield-exclamation"></i>
+                                Defina su contraseña</h5>
+                        </div>
+                        <div class="card-body p-4">
+                            <p class="text-muted">
+                                Está usando la contraseña inicial del sistema, que es
+                                <strong>pública</strong>: figura en la documentación del
+                                proyecto. Elija una propia para poder continuar.
+                            </p>
+                            <form id="cambioPassForm">
+                                <div class="mb-3">
+                                    <label class="form-label">Contraseña actual</label>
+                                    <input type="password" id="passActual" class="form-control" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Contraseña nueva</label>
+                                    <input type="password" id="passNueva" class="form-control" required>
+                                    <div class="form-text">Mínimo 8 caracteres.</div>
+                                </div>
+                                <div class="mb-4">
+                                    <label class="form-label">Repetir la nueva</label>
+                                    <input type="password" id="passRepetir" class="form-control" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    Guardar y continuar
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.getElementById('homeView').classList.add('d-none');
+        dyn.classList.remove('d-none');
+
+        document.getElementById('cambioPassForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const actual = document.getElementById('passActual').value;
+            const nueva = document.getElementById('passNueva').value;
+            const repetir = document.getElementById('passRepetir').value;
+
+            if (nueva !== repetir) {
+                Utils.toast('Las dos contraseñas nuevas no coinciden', 'Contraseña', 'error');
+                return;
+            }
+            try {
+                await API.auth.cambiarPassword(actual, nueva);
+                this.currentUser.debe_cambiar_password = false;
+                sessionStorage.setItem('aldia_user', JSON.stringify(this.currentUser));
+                Utils.toast('Contraseña actualizada', 'Contraseña', 'success');
+                this.onLoginSuccess();
+            } catch (err) {
+                Utils.toast(err.message || 'No se pudo cambiar la contraseña', 'Error', 'error');
+            }
+        });
     },
 
     async onLoginSuccess() {

@@ -118,6 +118,12 @@ class Usuario(Base):
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(200), nullable=False)
     rol = Column(String(50), nullable=False)
+    # Obliga a cambiar la contrasena antes de poder usar el sistema. Se activa
+    # en el admin que se siembra en el primer arranque y en todo usuario nuevo.
+    # El caso que evita: la contrasena inicial esta documentada en el README
+    # publico, asi que una instalacion que nunca la cambio queda con un acceso
+    # conocido por cualquiera. Con esto, quedarse con la de fabrica es imposible.
+    debe_cambiar_password = Column(Boolean, default=False, nullable=False)
 
 
 class Secuencia(Base):

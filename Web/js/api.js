@@ -234,7 +234,13 @@ const API = {
         getMe() { return API.get('/auth/me'); },
         getUsuarios() { return API.get('/auth/usuarios'); },
         crearUsuario(data) { return API.post('/auth/register', data); },
-        eliminarUsuario(id) { return API.delete(`/auth/usuarios/${id}`); }
+        eliminarUsuario(id) { return API.delete(`/auth/usuarios/${id}`); },
+        cambiarPassword(passwordActual, passwordNueva) {
+            return API.post('/auth/cambiar-password', {
+                password_actual: passwordActual,
+                password_nueva: passwordNueva
+            });
+        }
     },
 
     // ==================== ADMIN ====================

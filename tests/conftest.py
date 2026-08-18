@@ -43,12 +43,31 @@ def app_cliente():
             pass
 
 
+PASSWORD_ADMIN = "clave-de-pruebas-del-admin"
+
+
 @pytest.fixture(scope="session")
 def token_admin(app_cliente):
+    """Token de administrador ya operativo.
+
+    El sistema obliga a cambiar la contrasena de fabrica antes de dejar operar
+    (ver test_password_inicial.py), asi que las pruebas hacen lo mismo que hara
+    cualquier instalacion real: entrar, cambiarla, y recien despues trabajar.
+    """
     r = app_cliente.post("/api/auth/login",
                          json={"username": "admin", "password": "admin123"})
     assert r.status_code == 200, f"El login de admin falló: {r.text}"
-    return r.json()["access_token"]
+    token = r.json()["access_token"]
+
+    if r.json()["user"].get("debe_cambiar_password"):
+        cambio = app_cliente.post(
+            "/api/auth/cambiar-password",
+            json={"password_actual": "admin123", "password_nueva": PASSWORD_ADMIN},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert cambio.status_code == 200, cambio.text
+
+    return token
 
 
 @pytest.fixture(scope="session")

@@ -52,25 +52,39 @@ class TestAutenticacion:
 
 
 class TestAutorizacionPorRol:
-    @pytest.fixture(scope="class")
-    def token_caja(self, admin):
+    @staticmethod
+    def _usuario_operativo(admin, app_cliente, nombre, rol):
+        """Crea un usuario y le cambia la contrasena inicial.
+
+        El cambio NO es opcional para estas pruebas: un usuario recien creado
+        recibe 403 en todo hasta cambiarla, y entonces las pruebas de rol
+        pasarian por el motivo equivocado — creyendo que verifican permisos
+        cuando en realidad verifican el bloqueo por contrasena.
+        """
+        provisoria, definitiva = "clave-provisoria-x", f"clave-propia-{nombre}"
         admin.post("/api/auth/register",
-                   json={"username": "caja_test", "password": "clave-de-prueba-1",
-                         "rol": "caja"})
-        r = admin.post("/api/auth/login",
-                       json={"username": "caja_test", "password": "clave-de-prueba-1"})
-        assert r.status_code == 200
-        return r.json()["access_token"]
+                   json={"username": nombre, "password": provisoria, "rol": rol})
+        r = app_cliente.post("/api/auth/login",
+                             json={"username": nombre, "password": provisoria},
+                             headers={"Authorization": ""})
+        assert r.status_code == 200, r.text
+        token = r.json()["access_token"]
+
+        cambio = app_cliente.post(
+            "/api/auth/cambiar-password",
+            json={"password_actual": provisoria, "password_nueva": definitiva},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert cambio.status_code == 200, cambio.text
+        return token
 
     @pytest.fixture(scope="class")
-    def token_auditor(self, admin):
-        admin.post("/api/auth/register",
-                   json={"username": "auditor_test", "password": "clave-de-prueba-2",
-                         "rol": "auditor"})
-        r = admin.post("/api/auth/login",
-                       json={"username": "auditor_test", "password": "clave-de-prueba-2"})
-        assert r.status_code == 200
-        return r.json()["access_token"]
+    def token_caja(self, admin, app_cliente):
+        return self._usuario_operativo(admin, app_cliente, "caja_test", "caja")
+
+    @pytest.fixture(scope="class")
+    def token_auditor(self, admin, app_cliente):
+        return self._usuario_operativo(admin, app_cliente, "auditor_test", "auditor")
 
     def test_caja_no_escribe_en_stock(self, app_cliente, token_caja):
         r = app_cliente.post("/api/stock/",

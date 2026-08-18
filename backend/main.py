@@ -47,12 +47,17 @@ def inicializar_datos():
     try:
         seed_modulos(db)
         seed_config(db)
-        # Crear usuario administrador por defecto si no existe ninguno
+        # Crear usuario administrador por defecto si no existe ninguno.
+        # Nace con debe_cambiar_password=True: puede iniciar sesion, pero el
+        # sistema no lo deja operar hasta definir una contrasena propia. La de
+        # fabrica esta publicada en el README, asi que dejarla puesta equivale
+        # a no tener contrasena.
         if db.query(Usuario).count() == 0:
             db.add(Usuario(
                 username="admin",
                 password_hash=hash_password("admin123"),
                 rol="administrador",
+                debe_cambiar_password=True,
             ))
             db.commit()
     finally:

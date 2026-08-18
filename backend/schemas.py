@@ -98,9 +98,17 @@ class UsuarioResponse(BaseModel):
     id: int
     username: str
     rol: str
+    # True mientras el usuario siga con la contrasena inicial: puede iniciar
+    # sesion, pero el sistema no lo deja operar hasta que la cambie.
+    debe_cambiar_password: bool = False
 
     class Config:
         from_attributes = True
+
+
+class CambioPassword(BaseModel):
+    password_actual: str
+    password_nueva: str
 
 
 # ==================== CLIENTES ====================

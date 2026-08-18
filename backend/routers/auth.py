@@ -10,7 +10,7 @@ import jwt
 
 from database import get_db, Base
 from models import Usuario
-from schemas import LoginRequest, TokenResponse, UsuarioResponse, UsuarioCreate
+from schemas import LoginRequest, TokenResponse, UsuarioResponse, UsuarioCreate, CambioPassword
 from security import (
     SECRET_KEY,
     verificar_bloqueo_login,
@@ -69,7 +69,38 @@ def current_user_dep(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ) -> Usuario:
-    """Dependencia FastAPI: obtiene el usuario autenticado desde el header Bearer."""
+    """Dependencia FastAPI: obtiene el usuario autenticado desde el header Bearer.
+
+    Si el usuario todavia tiene la contrasena inicial, aca se corta: puede
+    autenticarse, pero no puede usar el sistema hasta cambiarla. Como TODOS los
+    routers de datos dependen de esta funcion (ver main.py), el bloqueo cubre la
+    API entera sin tener que acordarse ruta por ruta.
+    """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    user = get_current_user(credentials.credentials, db)
+    if getattr(user, "debe_cambiar_password", False):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Debe cambiar la contraseña inicial antes de usar el sistema. "
+                "La contraseña de fábrica figura en la documentación pública del "
+                "proyecto: mientras no la cambie, su instalación es de acceso "
+                "conocido. Use POST /api/auth/cambiar-password."
+            ),
+        )
+    return user
+
+
+def usuario_autenticado_sin_exigir_cambio(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    """Como current_user_dep pero SIN el bloqueo por contrasena inicial.
+
+    La usa el propio endpoint de cambio de contrasena: si exigiera la contrasena
+    ya cambiada, nadie podria cambiarla nunca.
+    """
     if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=401, detail="No autenticado")
     return get_current_user(credentials.credentials, db)
@@ -103,8 +134,46 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
-        user=UsuarioResponse(id=user.id, username=user.username, rol=user.rol)
+        user=UsuarioResponse(
+            id=user.id, username=user.username, rol=user.rol,
+            # El frontend usa esta marca para llevar directo a la pantalla de
+            # cambio de contrasena en vez de mostrar un sistema que va a
+            # rechazar todo lo que intente hacer.
+            debe_cambiar_password=bool(getattr(user, "debe_cambiar_password", False)),
+        ),
     )
+
+
+@router.post("/cambiar-password")
+def cambiar_password(
+    datos: CambioPassword,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(usuario_autenticado_sin_exigir_cambio),
+):
+    """Cambiar la propia contraseña. Es lo unico que se puede hacer con la inicial.
+
+    Exige la contraseña actual: si alguien deja la sesion abierta, que no puedan
+    cambiarsela desde ahi.
+    """
+    if not verify_password(datos.password_actual, user.password_hash):
+        raise HTTPException(status_code=401, detail="La contraseña actual no es correcta")
+
+    nueva = (datos.password_nueva or "").strip()
+    if len(nueva) < 8:
+        raise HTTPException(
+            status_code=422,
+            detail="La contraseña nueva debe tener al menos 8 caracteres",
+        )
+    if verify_password(nueva, user.password_hash):
+        raise HTTPException(
+            status_code=422,
+            detail="La contraseña nueva debe ser distinta de la actual",
+        )
+
+    user.password_hash = hash_password(nueva)
+    user.debe_cambiar_password = False
+    db.commit()
+    return {"message": "Contraseña actualizada. Ya puede usar el sistema."}
 
 
 @router.post("/register", response_model=UsuarioResponse)
@@ -119,7 +188,12 @@ def register(user_data: UsuarioCreate, db: Session = Depends(get_db), _: Usuario
     new_user = Usuario(
         username=user_data.username,
         password_hash=hashed_pw,
-        rol=user_data.rol
+        rol=user_data.rol,
+        # La contrasena la eligio el administrador, no el dueno de la cuenta:
+        # el empleado la reemplaza al entrar por una que solo el conozca. Sin
+        # esto, el administrador conoce la clave de todos sus empleados y la
+        # auditoria por usuario deja de significar algo.
+        debe_cambiar_password=True,
     )
     db.add(new_user)
     db.commit()
@@ -128,8 +202,14 @@ def register(user_data: UsuarioCreate, db: Session = Depends(get_db), _: Usuario
 
 
 @router.get("/me", response_model=UsuarioResponse)
-def get_me(user: Usuario = Depends(current_user_dep)):
-    """Obtener información del usuario actual"""
+def get_me(user: Usuario = Depends(usuario_autenticado_sin_exigir_cambio)):
+    """Información del usuario actual.
+
+    NO exige la contraseña ya cambiada: es la consulta con la que el frontend
+    decide qué pantalla mostrar al recargar. Si bloqueara, el usuario que aún
+    tiene la contraseña inicial quedaría fuera del sistema sin poder cambiarla.
+    Solo devuelve datos propios, incluida la marca `debe_cambiar_password`.
+    """
     return user
 
 
