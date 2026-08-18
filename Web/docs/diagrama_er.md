@@ -44,7 +44,7 @@ erDiagram
     usuarios {
         INTEGER id PK "ID autoincremental"
         TEXT username UK "Nombre de usuario"
-        TEXT password "Contraseña (texto plano)"
+        TEXT password_hash "Contraseña (hash bcrypt con salt)"
         TEXT rol "administrador, caja, ventas..."
     }
 

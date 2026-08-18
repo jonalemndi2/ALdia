@@ -384,26 +384,19 @@ def reset_db(
 
 @router.post("/seed-data")
 def seed_data(db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    """Insertar datos de ejemplo (solo administrador).
+    """Insertar datos de ejemplo para probar el sistema (solo administrador).
 
-    Creaba usuarios con contrasenas conocidas (caja1/1234, ventas1/1234) sin
-    pedir credenciales: era una puerta de entrada directa.
+    NO CREA USUARIOS, a proposito. Antes daba de alta `caja1/1234` y
+    `ventas1/1234`: contrasenas debiles, publicadas en el codigo fuente y sin la
+    marca de cambio obligatorio, o sea cuentas permanentes de acceso conocido
+    que saltaban por completo el control de `debe_cambiar_password`.
+
+    Los usuarios los crea el administrador desde Menu -> Usuarios, uno por
+    persona, y cada uno define su propia contrasena al entrar.
+
+    Los datos de ejemplo son ficticios y estan marcados como tales para que no
+    se confundan con clientes reales del comercio.
     """
-    import bcrypt
-    
-    # Usuarios
-    users = [
-        {"username": "admin", "password": "admin123", "rol": "administrador"},
-        {"username": "caja1", "password": "1234", "rol": "caja"},
-        {"username": "ventas1", "password": "1234", "rol": "encargado_ventas"}
-    ]
-    
-    for u in users:
-        existing = db.query(Usuario).filter(Usuario.username == u["username"]).first()
-        if not existing:
-            hashed_pw = bcrypt.hashpw(u["password"].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            new_user = Usuario(username=u["username"], password_hash=hashed_pw, rol=u["rol"])
-            db.add(new_user)
     
     # Stock
     stock_items = [
@@ -428,10 +421,19 @@ def seed_data(db: Session = Depends(get_db), _: Usuario = Depends(require_admin)
             fila["precom"] = a_centavos(fila["precom"])
             db.add(StockMercaderia(**fila))
     
-    # Clientes
+    # Clientes de ejemplo.
+    # Nombres genericos y marcados como EJEMPLO a proposito: los datos anteriores
+    # (personas, estancias, cooperativas con telefono y correo) parecian clientes
+    # reales de un comercio y no corresponde publicarlos ni que alguien los
+    # confunda con su propia cartera. Los CUIT tienen digito verificador valido
+    # porque el sistema los valida de verdad.
     clientes = [
-        {"cuit": "20-12345678-9", "nombre": "Juan Pérez - Estancia La Gloria", "domicilio": "Ruta 5 Km 120", "localidad": "Junín", "provincia": "Buenos Aires", "cp": "6000", "telefono": "0236-4441234", "mail": "jperez@mail.com"},
-        {"cuit": "30-98765432-1", "nombre": "Cooperativa del Sur", "domicilio": "Av. San Martín 450", "localidad": "Trenque Lauquen", "provincia": "Buenos Aires", "cp": "6400", "telefono": "02392-421000", "mail": "info@coopsur.com"}
+        {"cuit": "20123456786", "nombre": "EJEMPLO - Cliente de mostrador",
+         "domicilio": "Calle 1 N° 100", "localidad": "Ciudad", "provincia": "Provincia",
+         "cp": "1000", "telefono": "", "mail": "", "condicion_iva": "consumidor_final"},
+        {"cuit": "30500010912", "nombre": "EJEMPLO - Comercio S.A.",
+         "domicilio": "Av. Principal 500", "localidad": "Ciudad", "provincia": "Provincia",
+         "cp": "1000", "telefono": "", "mail": "", "condicion_iva": "responsable_inscripto"},
     ]
     
     for c in clientes:
@@ -439,10 +441,14 @@ def seed_data(db: Session = Depends(get_db), _: Usuario = Depends(require_admin)
         if not existing:
             db.add(Cliente(**c))
     
-    # Proveedores
+    # Proveedores de ejemplo (mismo criterio que los clientes).
     proveedores = [
-        {"cuit": "30-55555555-1", "nombre": "Agroquímicos del Oeste S.A.", "domicilio": "Parque Industrial Lt 8", "localidad": "Pergamino", "provincia": "Buenos Aires", "cp": "2700", "telefono": "02477-430000", "mail": "ventas@aqoeste.com"},
-        {"cuit": "30-66666666-2", "nombre": "Semillas del Litoral SRL", "domicilio": "Ruta 12 Km 45", "localidad": "Paraná", "provincia": "Entre Ríos", "cp": "3100", "telefono": "0343-4250000", "mail": "contacto@semlitoral.com"}
+        {"cuit": "30710120338", "nombre": "EJEMPLO - Distribuidora S.R.L.",
+         "domicilio": "Parque Industrial", "localidad": "Ciudad", "provincia": "Provincia",
+         "cp": "1000", "telefono": "", "mail": ""},
+        {"cuit": "27230938607", "nombre": "EJEMPLO - Mayorista",
+         "domicilio": "Ruta 1 Km 10", "localidad": "Ciudad", "provincia": "Provincia",
+         "cp": "1000", "telefono": "", "mail": ""},
     ]
     
     for p in proveedores:
