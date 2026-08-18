@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
+from migraciones import dependientes
 from models import Proveedor
 from schemas import ProveedorCreate, ProveedorUpdate, ProveedorResponse
 
@@ -65,6 +66,23 @@ def delete_proveedor(cuit: str, db: Session = Depends(get_db)):
     if not proveedor:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
     
+    # Un maestro con movimientos NO se borra: su historico es lo que sostiene la
+    # cuenta corriente, el libro de IVA y los comprobantes ya emitidos. Ahora eso
+    # lo garantiza la base (clave foranea RESTRICT, ver models.py); este control
+    # esta antes para poder decir QUE lo impide, en vez de dejar que el motor
+    # devuelva un error ilegible.
+    usos = dependientes(db, "proveedores", cuit)
+    if usos:
+        detalle = ", ".join(f"{u['cantidad']} en {u['tabla']}" for u in usos)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede eliminar el proveedor porque tiene movimientos "
+                f"registrados ({detalle}). Los comprobantes ya emitidos no se "
+                "pueden dejar sin titular."
+            ),
+        )
+
     db.delete(proveedor)
     db.commit()
     return {"message": "Proveedor eliminado correctamente"}

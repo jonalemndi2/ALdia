@@ -36,8 +36,10 @@ servidor = MCPServer(
     instructions=(
         "Herramientas para operar ALdia, un sistema de gestion comercial argentino "
         "(kiosco, almacen, supermercado, agro). Permite consultar stock, clientes, "
-        "proveedores, saldos, caja y libro IVA, y registrar ventas, facturas, cobros, "
-        "pagos, gastos y movimientos de caja.\n\n"
+        "proveedores, saldos, caja, chequera, libro IVA y el registro de auditoria; "
+        "registrar remitos, facturas, notas de credito y debito, cobros, pagos, compras, "
+        "devoluciones, gastos y movimientos de caja; pedirle el CAE a AFIP; y administrar "
+        "usuarios, roles y modulos.\n\n"
         "Reglas de uso:\n"
         "- Fechas en formato YYYY-MM-DD; si el usuario dice 'hoy', omita la fecha.\n"
         "- Antes de registrar un cobro, un pago o una factura, identifique al cliente o "
@@ -48,7 +50,9 @@ servidor = MCPServer(
         "explicita del usuario y recien entonces pase confirmar=true.\n"
         "- Si una herramienta devuelve un error, leale el mensaje al usuario: viene del "
         "sistema (permisos de rol, validacion de CUIT, stock insuficiente) y suele decir "
-        "exactamente que corregir."
+        "exactamente que corregir.\n"
+        "- NUNCA invente un CAE ni de por hecho un guardado que el servidor no confirmo: "
+        "si la herramienta no devolvio el comprobante creado, la operacion no quedo hecha."
     ),
 )
 
@@ -118,6 +122,114 @@ def _resumen_producto(p: dict[str, Any]) -> dict[str, Any]:
         "precio_compra": p.get("precom"),
         "iva_pct": p.get("iva"),
     }
+
+
+
+
+# ─────────────────────────────────────────────────────────────
+# Condicion frente al IVA y clase de comprobante (A / B / C)
+#
+# Es la regla fiscal que mas se equivoca al cargar una ficha: la condicion del
+# cliente NO es un dato administrativo, decide que comprobante hay que emitirle
+# y si el IVA va discriminado. La tabla y el criterio replican los de
+# backend/schemas.py (CONDICIONES_IVA) y backend/afip.py (clase_comprobante).
+# ─────────────────────────────────────────────────────────────
+
+CONDICIONES_IVA = {
+    "responsable_inscripto": "Responsable Inscripto",
+    "monotributo": "Monotributista",
+    "exento": "IVA Sujeto Exento",
+    "consumidor_final": "Consumidor Final",
+    "no_responsable": "IVA No Alcanzado",
+}
+
+# Sinonimos que dice la gente o que muestra la pantalla, hacia la clave interna.
+_SINONIMOS_CONDICION = {
+    "ri": "responsable_inscripto",
+    "responsable": "responsable_inscripto",
+    "inscripto": "responsable_inscripto",
+    "responsable_inscripto": "responsable_inscripto",
+    "monotributo": "monotributo",
+    "monotributista": "monotributo",
+    "responsable_monotributo": "monotributo",
+    "exento": "exento",
+    "iva_sujeto_exento": "exento",
+    "sujeto_exento": "exento",
+    "consumidor_final": "consumidor_final",
+    "cf": "consumidor_final",
+    "final": "consumidor_final",
+    "no_responsable": "no_responsable",
+    "iva_no_alcanzado": "no_responsable",
+    "no_alcanzado": "no_responsable",
+}
+
+# Condiciones del EMISOR que obligan a emitir comprobantes clase C.
+_EMISOR_CLASE_C = {"monotributo", "exento", "no_responsable"}
+
+# Codigos AFIP por clase y naturaleza del comprobante.
+COMPROBANTES_POR_CLASE = {
+    "A": {"factura": 1, "nota_debito": 2, "nota_credito": 3},
+    "B": {"factura": 6, "nota_debito": 7, "nota_credito": 8},
+    "C": {"factura": 11, "nota_debito": 12, "nota_credito": 13},
+}
+
+TIPOS_COMPROBANTE = {
+    1: "Factura A", 2: "Nota de Debito A", 3: "Nota de Credito A",
+    6: "Factura B", 7: "Nota de Debito B", 8: "Nota de Credito B",
+    11: "Factura C", 12: "Nota de Debito C", 13: "Nota de Credito C",
+}
+
+# Roles de ALdia (los mismos que ofrece la pantalla Administracion -> Usuarios).
+ROLES = {
+    "administrador": "Acceso total, incluidas anulaciones, usuarios y modulos.",
+    "encargado_ventas": "Stock, clientes y ventas: remitos, facturas, altas de cliente.",
+    "encargado_compras": "Proveedores, compras, pagos y gastos.",
+    "encargado_deposito": "Stock: recepcion de mercaderia e inventario.",
+    "caja": "Clientes, cuentas corrientes y caja: cobros y movimientos de caja.",
+    "finanzas": "Caja, cuentas corrientes, gastos e IVA.",
+    "auditor": "Consulta TODO, no puede escribir nada (el backend lo bloquea).",
+}
+
+
+def _normalizar_condicion(valor: str | None) -> str:
+    """'Responsable Inscripto', 'RI', 'monotributista' -> clave interna."""
+    texto = (valor or "").strip().lower().replace(" ", "_")
+    if not texto:
+        return "consumidor_final"
+    clave = _SINONIMOS_CONDICION.get(texto, texto)
+    if clave not in CONDICIONES_IVA:
+        validas = ", ".join(CONDICIONES_IVA)
+        raise ALdiaError(
+            f"Condicion frente al IVA invalida: '{valor}'. Validas: {validas}. "
+            "Preguntele al usuario que dice la constancia de inscripcion del cliente; "
+            "no la adivine: define si se le emite factura A, B o C."
+        )
+    return clave
+
+
+def _clase_comprobante(condicion_emisor: str | None, condicion_receptor: str | None) -> str:
+    """'A', 'B' o 'C' segun las condiciones frente al IVA de emisor y receptor."""
+    emisor = _normalizar_condicion(condicion_emisor or "responsable_inscripto")
+    receptor = _normalizar_condicion(condicion_receptor)
+    if emisor in _EMISOR_CLASE_C:
+        return "C"
+    return "A" if receptor == "responsable_inscripto" else "B"
+
+
+def _condicion_del_negocio() -> str:
+    """Condicion frente al IVA del NEGOCIO (clave 'negocio_iva' de Configuracion)."""
+    try:
+        config = api().get("/api/config/") or {}
+    except ALdiaError:
+        return "responsable_inscripto"
+    try:
+        return _normalizar_condicion(config.get("negocio_iva") or "responsable_inscripto")
+    except ALdiaError:
+        return "responsable_inscripto"
+
+
+def _tipo_comprobante(clase: str, naturaleza: str) -> int:
+    return COMPROBANTES_POR_CLASE[clase][naturaleza]
 
 
 # ═════════════════════════════════════════════════════════════
@@ -739,13 +851,24 @@ def actualizar_producto(
         "- cuit: 11 digitos, con o sin guiones. ALdia valida el digito verificador y "
         "rechaza los CUIT inventados o mal tipeados.\n"
         "- nombre: razon social o nombre del cliente (obligatorio).\n"
-        "- domicilio, localidad, provincia, cp, telefono, mail: opcionales.\n\n"
+        "- condicion_iva: condicion frente al IVA. Es un dato FISCAL, no administrativo: "
+        "decide que comprobante se le emite y si el IVA va discriminado. Validas: "
+        "responsable_inscripto, monotributo, exento, consumidor_final, no_responsable. "
+        "Por defecto consumidor_final.\n"
+        "  Con un negocio responsable inscripto: cliente responsable inscripto -> "
+        "FACTURA A; monotributista, exento o consumidor final -> FACTURA B. Si el negocio "
+        "es monotributista o exento, siempre FACTURA C.\n"
+        "  Preguntele al usuario que dice la constancia de inscripcion del cliente. No lo "
+        "adivine: cargarlo mal hace que despues AFIP rechace el comprobante.\n"
+        "- domicilio, localidad, provincia, cp, telefono, mail: opcionales. El telefono "
+        "conviene cargarlo: es con lo que despues se reclama la deuda.\n\n"
         "Si el CUIT ya existe, la operacion falla: busque primero al cliente."
     ),
 )
 def alta_cliente(
     cuit: str,
     nombre: str,
+    condicion_iva: str = "consumidor_final",
     domicilio: str = "",
     localidad: str = "",
     provincia: str = "",
@@ -753,11 +876,13 @@ def alta_cliente(
     telefono: str = "",
     mail: str = "",
 ) -> dict[str, Any]:
+    condicion = _normalizar_condicion(condicion_iva)
     creado = api().post(
         "/api/clientes/",
         {
             "cuit": cuit,
             "nombre": nombre,
+            "condicion_iva": condicion,
             "domicilio": domicilio,
             "localidad": localidad,
             "provincia": provincia,
@@ -766,7 +891,18 @@ def alta_cliente(
             "mail": mail,
         },
     )
-    return {"creado": True, "cliente": creado}
+    clase = _clase_comprobante(_condicion_del_negocio(), condicion)
+    return {
+        "creado": True,
+        "cliente": creado,
+        "condicion_iva": condicion,
+        "condicion_iva_nombre": CONDICIONES_IVA.get(condicion),
+        "comprobante_que_le_corresponde": f"Factura {clase}",
+        "nota": (
+            f"A este cliente se le emite FACTURA {clase} por su condicion frente al IVA "
+            f"({CONDICIONES_IVA.get(condicion)}) y la del negocio."
+        ),
+    }
 
 
 @servidor.tool(
@@ -1469,6 +1605,952 @@ def anular_gasto(gasto_id: int, confirmar: bool = False) -> dict[str, Any]:
     _exigir_confirmacion(confirmar, f"Anular el gasto id {gasto_id}")
     cli.delete(f"/api/gastos/{int(gasto_id)}")
     return {"anulado": True, "gasto_id": int(gasto_id)}
+
+
+# ═════════════════════════════════════════════════════════════
+# 4. VENTAS: consulta de un comprobante, notas de credito y debito
+# ═════════════════════════════════════════════════════════════
+
+
+@servidor.tool(
+    title="Ver una factura (renglones y estado fiscal)",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve una factura ya emitida: cliente, fecha, subtotal, IVA, total, sus "
+        "renglones, y su ESTADO FISCAL ante AFIP.\n\n"
+        "El estado fiscal es lo importante:\n"
+        "- 'AUTORIZADA': tiene CAE y vencimiento de CAE, o sea que AFIP la aprobo.\n"
+        "- 'RECHAZADA POR AFIP': se pidio el CAE y AFIP no lo dio; el motivo viene en "
+        "observaciones. La factura existe en ALdia y le genero deuda al cliente, pero NO "
+        "es un comprobante fiscal valido.\n"
+        "- 'SIN CAE': todavia no se pidio autorizacion, o el sistema factura en modo local "
+        "(sin AFIP configurado).\n\n"
+        "Tambien informa que clase de comprobante (A, B o C) corresponde para este cliente "
+        "segun su condicion frente al IVA.\n\n"
+        "Un total NEGATIVO significa que el comprobante es una NOTA DE CREDITO."
+    ),
+)
+def ver_factura(numero: int) -> dict[str, Any]:
+    cli = api()
+    factura = cli.get(f"/api/facturas/{int(numero)}")
+    try:
+        renglones = cli.get(f"/api/facturas/{int(numero)}/ventas") or []
+    except ALdiaError:
+        renglones = []
+
+    if factura.get("cae"):
+        estado = "AUTORIZADA POR AFIP"
+    elif (factura.get("resultado") or "").upper() == "R":
+        estado = "RECHAZADA POR AFIP"
+    else:
+        estado = "SIN CAE (no autorizada por AFIP)"
+
+    try:
+        sugerido = api().get(f"/api/afip/facturas/{int(numero)}/tipo-sugerido") or {}
+    except ALdiaError:
+        sugerido = {}
+
+    total = float(factura.get("total") or 0)
+    return {
+        "factura_numero": factura.get("facturanumero"),
+        "cliente_cuit": factura.get("cliente"),
+        "fecha": factura.get("fecha"),
+        "subtotal": factura.get("subtotal"),
+        "iva": factura.get("iva"),
+        "total": total,
+        "es_nota_de_credito": total < 0,
+        "estado_fiscal": estado,
+        "cae": factura.get("cae"),
+        "cae_vencimiento": factura.get("cae_vencimiento"),
+        "punto_venta": factura.get("punto_venta"),
+        "tipo_comprobante": factura.get("tipo_comprobante"),
+        "tipo_comprobante_descripcion": TIPOS_COMPROBANTE.get(
+            factura.get("tipo_comprobante") or 0, "-"
+        ),
+        "observaciones_afip": factura.get("afip_observaciones"),
+        "clase_que_corresponde": sugerido.get("clase"),
+        "tipo_sugerido_para_cae": sugerido.get("tipo_comprobante"),
+        "condicion_iva_del_cliente": sugerido.get("condicion_receptor"),
+        "renglones": renglones,
+    }
+
+
+@servidor.tool(
+    title="Emitir nota de credito a un cliente",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION DE DINERO] Emite una NOTA DE CREDITO: un comprobante de signo negativo "
+        "que le RESTA deuda al cliente. Es lo que corresponde cuando la factura ya se "
+        "emitio y hay que corregirla hacia abajo: mercaderia devuelta, un precio facturado "
+        "de mas, una bonificacion posterior o un producto que no se entrego.\n\n"
+        "Cuando NO usarla: si la factura se emitio recien, esta mal de punta a punta y "
+        "todavia no tiene CAE, conviene anularla (herramienta de anulacion de factura) y "
+        "rehacerla. Una vez que la factura tiene CAE ya no se anula: se corrige con nota "
+        "de credito.\n\n"
+        "Dos formas de indicar el importe:\n"
+        "1. items: lista de {codigo, cantidad} y opcionalmente {precio}, cuando lo que se "
+        "acredita son articulos concretos. TODOS los articulos deben tener la MISMA "
+        "alicuota de IVA (si no, emita una nota por alicuota: el comprobante se registra "
+        "sin renglones y AFIP no puede deducir dos alicuotas de un solo importe).\n"
+        "2. importe_neto + iva_pct: para una bonificacion o un ajuste sin articulos.\n\n"
+        "Parametros:\n"
+        "- cliente: CUIT o nombre.\n"
+        "- reingresa_stock: true si la mercaderia volvio fisicamente al deposito; suma las "
+        "cantidades de 'items' al stock. Por defecto false (una bonificacion o un error de "
+        "precio no mueve mercaderia).\n"
+        "- factura_original y motivo: quedan en la respuesta y hay que anotarlos en el "
+        "comprobante impreso, porque ALdia no guarda el vinculo con la factura original.\n\n"
+        "Efectos: baja el saldo del cliente por el total y el comprobante queda registrado "
+        "con importes negativos. Despues hay que pedirle el CAE indicando el tipo de nota "
+        "de credito (3 = NC A, 8 = NC B, 13 = NC C)."
+    ),
+)
+def emitir_nota_credito(
+    cliente: str,
+    motivo: str = "",
+    items: list[dict[str, Any]] | None = None,
+    importe_neto: float | None = None,
+    iva_pct: float = 21.0,
+    factura_original: int | None = None,
+    fecha: str | None = None,
+    reingresa_stock: bool = False,
+) -> dict[str, Any]:
+    cli = api()
+    ficha = cli.resolver_cliente(cliente)
+    dia = _fecha(fecha)
+    items = list(items or [])
+
+    detalle: list[dict[str, Any]] = []
+    if items:
+        alicuotas: set[float] = set()
+        neto = 0.0
+        for it in items:
+            if "codigo" not in it:
+                raise ALdiaError(f"Falta 'codigo' en el item {it}.")
+            art = cli.producto(int(it["codigo"]))
+            cantidad = float(it.get("cantidad") or 0)
+            if cantidad <= 0:
+                raise ALdiaError(
+                    f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0."
+                )
+            precio = (
+                float(it["precio"]) if it.get("precio") is not None
+                else float(art.get("preven") or 0)
+            )
+            alicuota = float(art.get("iva") or 21.0)
+            alicuotas.add(alicuota)
+            neto += cantidad * precio
+            detalle.append({
+                "codigo": int(art["codigo"]),
+                "producto": art.get("producto"),
+                "cantidad": cantidad,
+                "precio": precio,
+                "iva_pct": alicuota,
+            })
+        if len(alicuotas) > 1:
+            listado = ", ".join(f"{a:g}%" for a in sorted(alicuotas))
+            raise ALdiaError(
+                f"Los articulos de la nota de credito tienen alicuotas distintas ({listado}). "
+                "Emita una nota de credito por cada alicuota: el comprobante se registra sin "
+                "renglones y AFIP no puede deducir dos alicuotas de un solo importe."
+            )
+        alicuota_final = alicuotas.pop()
+    elif importe_neto is not None:
+        neto = float(importe_neto)
+        if neto <= 0:
+            raise ALdiaError(
+                "El importe de la nota de credito va en POSITIVO: el signo negativo lo pone "
+                "el sistema."
+            )
+        alicuota_final = _validar_iva(iva_pct)
+    else:
+        raise ALdiaError(
+            "Indique que se acredita: 'items' (articulos devueltos) o 'importe_neto' "
+            "(bonificacion o ajuste), con su alicuota de IVA."
+        )
+
+    neto = _redondear(neto)
+    iva_importe = _redondear(neto * alicuota_final / 100.0)
+    total = _redondear(neto + iva_importe)
+
+    nota = cli.post(
+        "/api/facturas/",
+        {
+            "cliente": ficha.get("cuit"),
+            "fecha": dia,
+            "subtotal": -neto,
+            "iva": -iva_importe,
+            "total": -total,
+            "items": [],
+        },
+    )
+
+    devueltos: list[dict[str, Any]] = []
+    if reingresa_stock and detalle:
+        for linea in detalle:
+            art = cli.producto(int(linea["codigo"]))
+            antes = float(art.get("cantidad") or 0)
+            ahora = antes + float(linea["cantidad"])
+            cli.put(f"/api/stock/{int(linea['codigo'])}", {"cantidad": ahora})
+            devueltos.append({
+                "codigo": linea["codigo"],
+                "producto": linea["producto"],
+                "stock_antes": antes,
+                "stock_ahora": ahora,
+            })
+
+    clase = _clase_comprobante(_condicion_del_negocio(), ficha.get("condicion_iva"))
+    tipo_cae = _tipo_comprobante(clase, "nota_credito")
+
+    return {
+        "emitida": True,
+        "comprobante_numero": nota.get("facturanumero"),
+        "tipo": f"Nota de credito {clase}",
+        "cliente": ficha.get("nombre"),
+        "cuit": ficha.get("cuit"),
+        "fecha": dia,
+        "motivo": motivo,
+        "factura_original_declarada": factura_original,
+        "neto": neto,
+        "iva": iva_importe,
+        "total_acreditado": total,
+        "iva_pct": alicuota_final,
+        "detalle": detalle,
+        "stock_reingresado": devueltos,
+        "tipo_comprobante_para_cae": tipo_cae,
+        "nota": (
+            f"El saldo del cliente bajo {total:.2f}. El comprobante quedo con importes "
+            f"negativos, que es como ALdia registra una nota de credito. Para autorizarla "
+            f"ante AFIP pida el CAE indicando tipo_comprobante={tipo_cae} "
+            f"({TIPOS_COMPROBANTE.get(tipo_cae)}). "
+            "LIMITACION: ALdia no guarda el numero de la factura original en la nota; "
+            "anotelo en el comprobante impreso y avisele al usuario."
+        ),
+    }
+
+
+@servidor.tool(
+    title="Emitir nota de debito a un cliente",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION DE DINERO] Emite una NOTA DE DEBITO: le SUMA deuda al cliente sobre una "
+        "operacion ya facturada. Se usa para intereses por mora, gastos de flete o de "
+        "envase que no entraron en la factura, diferencias de cambio, o una factura emitida "
+        "por menos de lo que correspondia.\n\n"
+        "No mueve stock (no hay entrega de mercaderia): si lo que falta es facturar "
+        "mercaderia entregada, eso es una factura, no una nota de debito.\n\n"
+        "Parametros:\n"
+        "- cliente: CUIT o nombre.\n"
+        "- concepto: que se esta debitando (obligatorio; es lo que se escribe en el "
+        "comprobante).\n"
+        "- importe_neto: importe SIN IVA, en positivo.\n"
+        "- iva_pct: alicuota (0, 2.5, 5, 10.5, 21 o 27; por defecto 21).\n"
+        "- factura_original: numero de la factura que se ajusta, si la hay.\n\n"
+        "Para pedirle el CAE hay que indicar EXPLICITAMENTE el tipo de nota de debito "
+        "(2 = ND A, 7 = ND B, 12 = ND C): como el importe es positivo, el sistema por "
+        "defecto la tomaria como una factura."
+    ),
+)
+def emitir_nota_debito(
+    cliente: str,
+    concepto: str,
+    importe_neto: float,
+    iva_pct: float = 21.0,
+    factura_original: int | None = None,
+    fecha: str | None = None,
+) -> dict[str, Any]:
+    cli = api()
+    if not (concepto or "").strip():
+        raise ALdiaError("Falta el concepto de la nota de debito: es lo que se factura.")
+    neto = float(importe_neto)
+    if neto <= 0:
+        raise ALdiaError("El importe de la nota de debito debe ser mayor a 0.")
+    alicuota = _validar_iva(iva_pct)
+
+    ficha = cli.resolver_cliente(cliente)
+    dia = _fecha(fecha)
+    neto = _redondear(neto)
+    iva_importe = _redondear(neto * alicuota / 100.0)
+    total = _redondear(neto + iva_importe)
+
+    nota = cli.post(
+        "/api/facturas/",
+        {
+            "cliente": ficha.get("cuit"),
+            "fecha": dia,
+            "subtotal": neto,
+            "iva": iva_importe,
+            "total": total,
+            "items": [],
+        },
+    )
+
+    clase = _clase_comprobante(_condicion_del_negocio(), ficha.get("condicion_iva"))
+    tipo_cae = _tipo_comprobante(clase, "nota_debito")
+
+    return {
+        "emitida": True,
+        "comprobante_numero": nota.get("facturanumero"),
+        "tipo": f"Nota de debito {clase}",
+        "cliente": ficha.get("nombre"),
+        "cuit": ficha.get("cuit"),
+        "fecha": dia,
+        "concepto": concepto,
+        "factura_original_declarada": factura_original,
+        "neto": neto,
+        "iva": iva_importe,
+        "total_debitado": total,
+        "iva_pct": alicuota,
+        "tipo_comprobante_para_cae": tipo_cae,
+        "nota": (
+            f"El saldo del cliente subio {total:.2f}. Para autorizarla ante AFIP pida el CAE "
+            f"pasando tipo_comprobante={tipo_cae} ({TIPOS_COMPROBANTE.get(tipo_cae)}): si no "
+            "se indica, el sistema la tomaria como una factura porque el importe es positivo. "
+            "LIMITACION: ALdia no guarda el vinculo con la factura original."
+        ),
+    }
+
+
+# ═════════════════════════════════════════════════════════════
+# 5. AFIP: factura electronica
+# ═════════════════════════════════════════════════════════════
+
+
+@servidor.tool(
+    title="Ver estado de la facturacion electronica AFIP",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Informa si este ALdia puede facturar electronicamente: si la integracion esta "
+        "habilitada, si el certificado y la clave privada estan cargados, en que entorno "
+        "trabaja (HOMOLOGACION = pruebas, sin validez fiscal; PRODUCCION = comprobantes "
+        "reales), el CUIT emisor, el punto de venta, y si los servidores de AFIP responden.\n\n"
+        "Consultelo ANTES de prometerle un CAE al usuario. Si devuelve 'puede_pedir_cae: "
+        "false' o una lista de 'problemas', el sistema factura de forma local (sin CAE) y no "
+        "hay nada que el asistente pueda hacer para autorizar el comprobante: hay que cargar "
+        "el certificado de AFIP, que es una tarea del administrador."
+    ),
+)
+def ver_estado_afip() -> dict[str, Any]:
+    datos = api().get("/api/afip/estado") or {}
+    puede = bool(datos.get("habilitado")) and not datos.get("problemas")
+    return {
+        "puede_pedir_cae": puede,
+        "habilitado": datos.get("habilitado"),
+        "configurado": datos.get("configurado"),
+        "entorno": datos.get("entorno"),
+        "es_entorno_de_prueba": (datos.get("entorno") or "") == "homologacion",
+        "cuit_emisor": datos.get("cuit"),
+        "punto_venta": datos.get("punto_venta"),
+        "problemas": datos.get("problemas") or [],
+        "servidores_afip": datos.get("servidores"),
+        "certificado": datos.get("certificado"),
+        "mensaje": datos.get("mensaje"),
+        "error": datos.get("error"),
+    }
+
+
+@servidor.tool(
+    title="Solicitar CAE a AFIP para una factura",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION FISCAL] Pide a AFIP la autorizacion (CAE) de una factura YA emitida en "
+        "ALdia y guarda el resultado en el comprobante.\n\n"
+        "El CAE es el numero que le da validez fiscal al comprobante. REGLA ABSOLUTA: el "
+        "CAE lo otorga AFIP, nunca el asistente. Si esta herramienta devuelve un error, la "
+        "factura NO quedo autorizada; hay que decirselo al usuario tal cual, jamas inventar "
+        "ni suponer un CAE.\n\n"
+        "Que significa cada respuesta:\n"
+        "- Exito: devuelve cae, vencimiento del CAE y el numero de comprobante que asigno "
+        "AFIP. Si el entorno es HOMOLOGACION, el CAE es de prueba y no tiene validez fiscal: "
+        "avisele al usuario.\n"
+        "- Error 400 'AFIP no configurado': falta el certificado o la habilitacion. No se "
+        "puede autorizar; es tarea del administrador.\n"
+        "- Error 422: AFIP MIRO el comprobante y lo RECHAZO. El motivo viene en el mensaje. "
+        "El rechazo queda guardado en la factura; hay que corregir la causa (tipo de "
+        "comprobante, CUIT del cliente, importes, numeracion) y volver a pedirlo.\n"
+        "- Error 409: la factura ya tiene CAE. Pedir otro duplicaria la declaracion.\n"
+        "- Error 502: no se pudo hablar con AFIP (red, certificado, WSAA). AFIP no llego a "
+        "evaluar el comprobante; se puede reintentar mas tarde.\n\n"
+        "Parametros:\n"
+        "- numero: numero de factura de ALdia.\n"
+        "- tipo_comprobante: codigo AFIP. Si se omite, el sistema lo deduce de la condicion "
+        "frente al IVA del negocio y del cliente (1=Fac A, 6=Fac B, 11=Fac C). Hay que "
+        "indicarlo SI O SI para una NOTA DE DEBITO (2, 7 o 12), porque su importe positivo "
+        "la hace parecer una factura.\n"
+        "- punto_venta: por defecto el de la configuracion.\n"
+        "- concepto: 1=Productos (por defecto), 2=Servicios, 3=Ambos.\n"
+        "- doc_tipo / doc_nro: documento del receptor. Por defecto 80 (CUIT) y el CUIT del "
+        "cliente de la factura. Para consumidor final sin identificar: doc_tipo=99."
+    ),
+)
+def solicitar_cae(
+    numero: int,
+    tipo_comprobante: int | None = None,
+    punto_venta: int | None = None,
+    concepto: int | None = None,
+    doc_tipo: int | None = None,
+    doc_nro: str | None = None,
+) -> dict[str, Any]:
+    cli = api()
+    factura = cli.get(f"/api/facturas/{int(numero)}")
+    if factura.get("cae"):
+        raise ALdiaError(
+            f"La factura {numero} YA tiene CAE {factura.get('cae')} (vence "
+            f"{factura.get('cae_vencimiento') or 's/d'}). No se pide dos veces: duplicaria "
+            "la declaracion ante AFIP."
+        )
+    if tipo_comprobante is not None and int(tipo_comprobante) not in TIPOS_COMPROBANTE:
+        validos = ", ".join(f"{k}={v}" for k, v in TIPOS_COMPROBANTE.items())
+        raise ALdiaError(
+            f"Tipo de comprobante {tipo_comprobante} no soportado. Validos: {validos}."
+        )
+
+    cuerpo: dict[str, Any] = {
+        "tipo_comprobante": int(tipo_comprobante) if tipo_comprobante is not None else None,
+        "punto_venta": int(punto_venta) if punto_venta is not None else None,
+        "concepto": int(concepto) if concepto is not None else None,
+        "doc_tipo": int(doc_tipo) if doc_tipo is not None else None,
+        "doc_nro": doc_nro,
+    }
+    cuerpo = {k: v for k, v in cuerpo.items() if v is not None}
+
+    resultado = cli.post(f"/api/afip/facturas/{int(numero)}/solicitar-cae", cuerpo)
+    entorno = resultado.get("entorno")
+    return {
+        "autorizada": True,
+        "factura_numero": resultado.get("facturanumero"),
+        "resultado_afip": resultado.get("resultado"),
+        "cae": resultado.get("cae"),
+        "cae_vencimiento": resultado.get("cae_vencimiento"),
+        "punto_venta": resultado.get("punto_venta"),
+        "tipo_comprobante": resultado.get("tipo_comprobante"),
+        "tipo_comprobante_descripcion": TIPOS_COMPROBANTE.get(
+            resultado.get("tipo_comprobante") or 0, "-"
+        ),
+        "numero_afip": resultado.get("nro_comprobante_afip"),
+        "entorno": entorno,
+        "tiene_validez_fiscal": entorno == "produccion",
+        "observaciones": resultado.get("observaciones"),
+        "mensaje": resultado.get("mensaje"),
+    }
+
+
+# ═════════════════════════════════════════════════════════════
+# 6. COMPRAS: cuenta del proveedor, devoluciones y correccion
+# ═════════════════════════════════════════════════════════════
+
+
+@servidor.tool(
+    title="Ver saldo y cuenta corriente de un proveedor",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve cuanto se le debe a un proveedor y como se compone: las compras de "
+        "mercaderia registradas, las facturas de gasto y los pagos que se le hicieron.\n\n"
+        "El saldo es lo que el negocio LE DEBE: positivo = deuda propia pendiente.\n\n"
+        "Parametros:\n"
+        "- proveedor: CUIT (con o sin guiones) o nombre. Si el texto coincide con varios, "
+        "devuelve un error listandolos.\n"
+        "- limite: cuantos comprobantes recientes traer de cada tipo (por defecto 10)."
+    ),
+)
+def ver_saldo_proveedor(proveedor: str, limite: int = 10) -> dict[str, Any]:
+    cli = api()
+    ficha = cli.resolver_proveedor(proveedor)
+    cuit = ficha.get("cuit")
+    limite = max(1, int(limite or 10))
+
+    pagos = cli.get("/api/pagos/", proveedor=cuit) or []
+
+    try:
+        compras = [
+            c for c in (cli.get("/api/admin/movimientos/compra") or [])
+            if c.get("proveedor") == cuit
+        ]
+    except ALdiaError:
+        compras = []
+
+    # /api/gastos/ no filtra por proveedor: se filtra aca.
+    try:
+        gastos = [g for g in (cli.get("/api/gastos/") or []) if g.get("proveedor") == cuit]
+    except ALdiaError:
+        gastos = []
+
+    saldo = float(ficha.get("saldo") or 0)
+    return {
+        "cuit": cuit,
+        "nombre": ficha.get("nombre"),
+        "telefono": ficha.get("telefono"),
+        "saldo_a_pagar": saldo,
+        "estado": "AL DIA" if saldo <= 0 else "CON DEUDA",
+        "compras_recientes": [
+            {
+                "compra_id": c.get("id"),
+                "fecha": c.get("fecha"),
+                "subtotal": c.get("subtotal"),
+                "iva": c.get("iva"),
+                "total": c.get("total"),
+            }
+            for c in compras[:limite]
+        ],
+        "gastos_recientes": [
+            {
+                "gasto_id": g.get("id"),
+                "fecha": g.get("fecha"),
+                "numero_factura": g.get("numfactura"),
+                "total": g.get("total"),
+            }
+            for g in gastos[:limite]
+        ],
+        "pagos_recientes": [
+            {
+                "orden": p.get("ordpago"),
+                "fecha": p.get("fecha"),
+                "monto": p.get("monto"),
+                "tipo": p.get("tipo"),
+                "referencia": p.get("referencia"),
+            }
+            for p in pagos[:limite]
+        ],
+    }
+
+
+@servidor.tool(
+    title="Ver compras registradas a proveedores",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Lista las compras de mercaderia registradas (cabeceras de factura de proveedor), "
+        "de la mas reciente a la mas antigua, con su id, proveedor, fecha, subtotal, IVA y "
+        "total.\n\n"
+        "El 'compra_id' es el numero que hace falta para anular una compra mal cargada.\n\n"
+        "Parametros: proveedor (CUIT o nombre, opcional) y limite (por defecto 20)."
+    ),
+)
+def ver_compras(proveedor: str | None = None, limite: int = 20) -> dict[str, Any]:
+    cli = api()
+    compras = cli.get("/api/admin/movimientos/compra") or []
+    cuit = None
+    if proveedor:
+        cuit = cli.resolver_proveedor(proveedor).get("cuit")
+        compras = [c for c in compras if c.get("proveedor") == cuit]
+    compras = compras[: max(1, int(limite or 20))]
+    return {
+        "cantidad": len(compras),
+        "proveedor_filtrado": cuit,
+        "compras": [
+            {
+                "compra_id": c.get("id"),
+                "proveedor": c.get("proveedor"),
+                "fecha": c.get("fecha"),
+                "subtotal": c.get("subtotal"),
+                "iva": c.get("iva"),
+                "total": c.get("total"),
+            }
+            for c in compras
+        ],
+    }
+
+
+@servidor.tool(
+    title="Registrar devolucion de mercaderia a un proveedor",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION DE DINERO] Registra que se le devuelve mercaderia a un proveedor "
+        "(fallada, vencida, equivocada o de mas). Efectos automaticos:\n"
+        "- DESCUENTA del stock las cantidades devueltas;\n"
+        "- BAJA el saldo que se le debe al proveedor por el total (neto + IVA de cada "
+        "articulo);\n"
+        "- deja registrada una nota de credito de proveedor (NCP) con el detalle.\n"
+        "No mueve la caja: si el proveedor devuelve plata, eso se carga aparte.\n\n"
+        "Parametros:\n"
+        "- proveedor: CUIT o nombre.\n"
+        "- items: lista de {codigo, cantidad} y opcionalmente {precio}. Si no se indica "
+        "precio se usa el precio de compra actual del articulo; si la mercaderia se compro "
+        "a otro precio, indiquelo, porque el proveedor acredita lo que facturo.\n"
+        "- fecha: YYYY-MM-DD, por defecto hoy.\n"
+        "- motivo: texto libre (por que se devuelve).\n"
+        "- permitir_stock_negativo: por defecto false; si se quiere devolver mas de lo que "
+        "hay en el deposito la operacion se rechaza informando el stock real."
+    ),
+)
+def registrar_devolucion_proveedor(
+    proveedor: str,
+    items: list[dict[str, Any]],
+    fecha: str | None = None,
+    motivo: str = "",
+    permitir_stock_negativo: bool = False,
+) -> dict[str, Any]:
+    cli = api()
+    if not items:
+        raise ALdiaError("La devolucion no tiene items: indique al menos un articulo.")
+    ficha = cli.resolver_proveedor(proveedor)
+    dia = _fecha(fecha)
+
+    lineas: list[dict[str, Any]] = []
+    for it in items:
+        if "codigo" not in it:
+            raise ALdiaError(f"Falta 'codigo' en el item {it}.")
+        art = cli.producto(int(it["codigo"]))
+        cantidad = float(it.get("cantidad") or 0)
+        if cantidad <= 0:
+            raise ALdiaError(f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0.")
+        disponible = float(art.get("cantidad") or 0)
+        if cantidad > disponible and not permitir_stock_negativo:
+            raise ALdiaError(
+                f"No hay tanta mercaderia para devolver de '{art.get('producto')}' "
+                f"(codigo {art.get('codigo')}): se quieren devolver {cantidad} y hay "
+                f"{disponible}. Revise la cantidad, o repita con "
+                "permitir_stock_negativo=true si el usuario confirma que la mercaderia ya "
+                "salio del deposito."
+            )
+        precio = (
+            float(it["precio"]) if it.get("precio") is not None
+            else float(art.get("precom") or 0)
+        )
+        lineas.append({
+            "codigo": int(art["codigo"]),
+            "producto": art.get("producto") or "",
+            "cantidad": cantidad,
+            "precio": precio,
+        })
+
+    devolucion = cli.post(
+        "/api/devoluciones/",
+        {"proveedor_cuit": ficha.get("cuit"), "fecha": dia, "items": lineas},
+    )
+    saldo_ahora = float(cli.resolver_proveedor(ficha.get("cuit")).get("saldo") or 0)
+
+    return {
+        "registrada": True,
+        "nota_credito_proveedor_id": devolucion.get("id"),
+        "proveedor": ficha.get("nombre"),
+        "cuit": ficha.get("cuit"),
+        "fecha": dia,
+        "motivo": motivo,
+        "subtotal": devolucion.get("subtotal"),
+        "iva": devolucion.get("iva"),
+        "total_acreditado": devolucion.get("total"),
+        "items": lineas,
+        "saldo_proveedor_ahora": _redondear(saldo_ahora),
+        "nota": "Stock descontado y deuda con el proveedor reducida. No se movio la caja.",
+    }
+
+
+@servidor.tool(
+    title="Anular una compra a proveedor",
+    annotations=DESTRUCTIVA,
+    description=(
+        "[DESTRUCTIVA] Anula una compra de mercaderia mal cargada: borra la cabecera y sus "
+        "renglones, DESCUENTA del stock lo que habia ingresado y revierte la deuda con el "
+        "proveedor.\n\n"
+        "Uselo solo para corregir un error de carga (compra duplicada, cantidades o "
+        "proveedor equivocados). Si la mercaderia se devuelve realmente al proveedor, lo "
+        "que corresponde es la DEVOLUCION, no la anulacion: la devolucion deja el "
+        "comprobante y la nota de credito, la anulacion borra el rastro de la compra.\n\n"
+        "Requiere rol administrador. El 'compra_id' se obtiene con la herramienta de "
+        "consulta de compras. Pida autorizacion explicita del usuario (proveedor, fecha e "
+        "importe) y recien entonces llame con confirmar=true.\n\n"
+        "Ojo: el precio de compra que la compra dejo grabado en cada articulo NO vuelve "
+        "solo al valor anterior; si hace falta, corrijalo con la actualizacion de producto."
+    ),
+)
+def anular_compra(compra_id: int, confirmar: bool = False) -> dict[str, Any]:
+    cli = api()
+    compras = cli.get("/api/admin/movimientos/compra") or []
+    ficha = next((c for c in compras if int(c.get("id") or 0) == int(compra_id)), None)
+    if not ficha:
+        raise ALdiaError(
+            f"No existe la compra {compra_id}. Liste las compras registradas para ver los "
+            "ids disponibles."
+        )
+    _exigir_confirmacion(
+        confirmar,
+        f"Anular la compra {compra_id} (proveedor {ficha.get('proveedor')}, fecha "
+        f"{ficha.get('fecha')}, total {ficha.get('total')})",
+    )
+    cli.delete(f"/api/admin/movimientos/compra/{int(compra_id)}")
+    return {
+        "anulada": True,
+        "compra": ficha,
+        "nota": "Stock descontado y saldo del proveedor revertido. El precio de compra del "
+                "articulo quedo como estaba tras la compra: reviselo si hace falta.",
+    }
+
+
+# ═════════════════════════════════════════════════════════════
+# 7. ADMINISTRACION: usuarios, modulos y datos del negocio
+# ═════════════════════════════════════════════════════════════
+
+
+def _modulos_del_rol(rol: str) -> list[str]:
+    """Modulos que va a ver un usuario con ese rol, segun la tabla de modulos."""
+    rol = (rol or "").strip().lower()
+    try:
+        modulos = api().get("/api/modulos/") or []
+    except ALdiaError:
+        return []
+    if rol == "administrador":
+        return [m.get("clave") for m in modulos if m.get("habilitado")]
+    return [
+        m.get("clave")
+        for m in modulos
+        if m.get("habilitado")
+        and rol in [r.strip().lower() for r in (m.get("roles") or "").split(",")]
+    ]
+
+
+@servidor.tool(
+    title="Ver usuarios del sistema",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Lista los usuarios de ALdia con su id, nombre de usuario y rol, y los modulos que "
+        "cada rol puede ver. Requiere rol administrador.\n\n"
+        "Las contrasenas no se guardan en claro ni se pueden consultar: solo se pueden "
+        "reemplazar dando de alta otro usuario o cambiandolas desde el sistema."
+    ),
+)
+def ver_usuarios() -> dict[str, Any]:
+    usuarios = api().get("/api/auth/usuarios") or []
+    cache: dict[str, list[str]] = {}
+    salida = []
+    for u in usuarios:
+        rol = (u.get("rol") or "").lower()
+        if rol not in cache:
+            cache[rol] = _modulos_del_rol(rol)
+        salida.append({
+            "id": u.get("id"),
+            "usuario": u.get("username"),
+            "rol": u.get("rol"),
+            "modulos_que_ve": cache[rol],
+            "rol_reconocido": rol in ROLES,
+        })
+    return {"cantidad": len(salida), "usuarios": salida, "roles_disponibles": ROLES}
+
+
+@servidor.tool(
+    title="Alta de usuario del sistema",
+    annotations=ESCRITURA,
+    description=(
+        "Crea un usuario de ALdia con un rol. Requiere rol administrador.\n\n"
+        "El ROL es lo que decide que puede hacer la persona; elegirlo mal es dejar a un "
+        "empleado sin poder trabajar o darle acceso a la caja sin necesidad:\n"
+        "- administrador: todo, incluidas anulaciones, usuarios y modulos.\n"
+        "- encargado_ventas: stock, clientes y ventas (remitos y facturas).\n"
+        "- encargado_compras: proveedores, compras, pagos y gastos.\n"
+        "- encargado_deposito: stock (recepcion de mercaderia e inventario).\n"
+        "- caja: clientes, cuentas corrientes y caja (cobros y movimientos).\n"
+        "- finanzas: caja, cuentas corrientes, gastos e IVA.\n"
+        "- auditor: consulta todo y no puede escribir NADA (el backend lo bloquea).\n\n"
+        "Parametros:\n"
+        "- usuario: nombre de usuario (sin espacios; con el que va a iniciar sesion).\n"
+        "- password: contrasena inicial. NO la elija usted ni la invente: pidasela al "
+        "usuario, o dejela en manos del administrador. Nunca la repita en la conversacion "
+        "ni la guarde en ningun lado; ALdia la almacena hasheada con bcrypt.\n"
+        "- rol: uno de los de arriba.\n\n"
+        "La respuesta informa que modulos va a ver esa persona al entrar, para poder "
+        "verificar que el rol es el correcto."
+    ),
+)
+def alta_usuario(usuario: str, password: str, rol: str) -> dict[str, Any]:
+    nombre = (usuario or "").strip()
+    if not nombre:
+        raise ALdiaError("Falta el nombre de usuario.")
+    if " " in nombre:
+        raise ALdiaError(
+            f"El nombre de usuario no puede tener espacios: '{nombre}'. Use por ejemplo "
+            f"'{nombre.replace(' ', '.').lower()}'."
+        )
+    rol_limpio = (rol or "").strip().lower()
+    if rol_limpio not in ROLES:
+        validos = ", ".join(ROLES)
+        raise ALdiaError(
+            f"Rol invalido: '{rol}'. Los roles de ALdia son: {validos}. "
+            "Un rol que no este en esa lista crea un usuario que puede entrar pero no ve "
+            "ningun modulo. Preguntele al usuario que tiene que poder hacer esa persona."
+        )
+    if not password or len(password) < 8:
+        raise ALdiaError(
+            "La contrasena tiene que tener al menos 8 caracteres. Pidasela al usuario: no "
+            "la invente usted."
+        )
+    if len(password.encode("utf-8")) > 72:
+        raise ALdiaError(
+            "La contrasena es demasiado larga: bcrypt solo toma los primeros 72 bytes. "
+            "Use una mas corta."
+        )
+
+    creado = api().post(
+        "/api/auth/register",
+        {"username": nombre, "password": password, "rol": rol_limpio},
+    )
+    return {
+        "creado": True,
+        "id": creado.get("id"),
+        "usuario": creado.get("username"),
+        "rol": creado.get("rol"),
+        "descripcion_del_rol": ROLES[rol_limpio],
+        "modulos_que_ve": _modulos_del_rol(rol_limpio),
+        "nota": "La contrasena quedo guardada con bcrypt; el sistema no la puede volver a "
+                "mostrar. Que la persona la cambie en su primer ingreso.",
+    }
+
+
+@servidor.tool(
+    title="Dar de baja un usuario del sistema",
+    annotations=DESTRUCTIVA,
+    description=(
+        "[DESTRUCTIVA] Elimina un usuario de ALdia. Requiere rol administrador y no se "
+        "puede eliminar el usuario con el que se esta operando.\n\n"
+        "Los movimientos que esa persona hizo NO se borran: quedan en el registro de "
+        "auditoria con su nombre. Es la baja correcta cuando alguien deja de trabajar en el "
+        "comercio.\n\n"
+        "El user_id se obtiene con la consulta de usuarios. Informe al usuario a quien va a "
+        "dar de baja (nombre y rol), espere su autorizacion y recien entonces llame con "
+        "confirmar=true."
+    ),
+)
+def baja_usuario(user_id: int, confirmar: bool = False) -> dict[str, Any]:
+    cli = api()
+    usuarios = cli.get("/api/auth/usuarios") or []
+    ficha = next((u for u in usuarios if int(u.get("id") or 0) == int(user_id)), None)
+    if not ficha:
+        raise ALdiaError(f"No existe el usuario con id {user_id}. Liste los usuarios primero.")
+    _exigir_confirmacion(
+        confirmar,
+        f"Dar de baja al usuario '{ficha.get('username')}' (rol {ficha.get('rol')})",
+    )
+    cli.delete(f"/api/auth/usuarios/{int(user_id)}")
+    return {
+        "eliminado": True,
+        "usuario": ficha.get("username"),
+        "rol": ficha.get("rol"),
+        "nota": "El historial de auditoria de esa persona se conserva.",
+    }
+
+
+@servidor.tool(
+    title="Ver modulos del sistema y sus permisos",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Lista los modulos de ALdia (stock, clientes, ventas, proveedores, gastos, cuentas "
+        "corrientes, caja, iva, administracion) con su estado (habilitado o no) y que roles "
+        "tienen acceso a cada uno. Requiere rol administrador.\n\n"
+        "Es la respuesta a 'a Fulano no le aparece tal pantalla': o el modulo esta "
+        "deshabilitado para toda la instalacion, o el rol de esa persona no figura en la "
+        "lista de roles del modulo."
+    ),
+)
+def ver_modulos() -> dict[str, Any]:
+    modulos = api().get("/api/modulos/") or []
+    return {
+        "cantidad": len(modulos),
+        "modulos": [
+            {
+                "clave": m.get("clave"),
+                "nombre": m.get("nombre"),
+                "categoria": m.get("categoria"),
+                "habilitado": m.get("habilitado"),
+                "roles_con_acceso": [
+                    r.strip() for r in (m.get("roles") or "").split(",") if r.strip()
+                ],
+            }
+            for m in modulos
+        ],
+    }
+
+
+@servidor.tool(
+    title="Habilitar, deshabilitar o repermisar un modulo",
+    annotations=ESCRITURA,
+    description=(
+        "Cambia la configuracion de un modulo del sistema. Requiere rol administrador.\n\n"
+        "Dos usos distintos:\n"
+        "- habilitado=false: apaga el modulo para TODA la instalacion; deja de aparecer "
+        "para todos los usuarios y sus endpoints devuelven error. Es como se vende el "
+        "sistema por partes (un kiosco que no usa IVA ni proveedores).\n"
+        "- roles: lista de roles con acceso, separados por coma y sin espacios "
+        "(ej. 'administrador,caja,finanzas'). REEMPLAZA la lista anterior: para agregar un "
+        "rol hay que enviar la lista completa. Consulte primero los modulos para no perder "
+        "accesos.\n\n"
+        "Deshabilitar un modulo o sacarle un rol puede dejar a alguien sin poder trabajar: "
+        "diga que cambia y para quienes, y espere la confirmacion del usuario. El "
+        "administrador siempre conserva el acceso."
+    ),
+)
+def configurar_modulo(
+    clave: str,
+    habilitado: bool | None = None,
+    roles: str | None = None,
+    nombre: str | None = None,
+) -> dict[str, Any]:
+    cli = api()
+    modulos = cli.get("/api/modulos/") or []
+    antes = next((m for m in modulos if m.get("clave") == clave), None)
+    if not antes:
+        disponibles = ", ".join(str(m.get("clave")) for m in modulos)
+        raise ALdiaError(f"No existe el modulo '{clave}'. Modulos: {disponibles}.")
+
+    cambios: dict[str, Any] = {}
+    if habilitado is not None:
+        cambios["habilitado"] = bool(habilitado)
+    if roles is not None:
+        lista = [r.strip().lower() for r in str(roles).split(",") if r.strip()]
+        desconocidos = [r for r in lista if r not in ROLES]
+        if desconocidos:
+            raise ALdiaError(
+                f"Roles desconocidos: {', '.join(desconocidos)}. Los roles de ALdia son: "
+                f"{', '.join(ROLES)}."
+            )
+        if "administrador" not in lista:
+            lista.insert(0, "administrador")
+        cambios["roles"] = ",".join(lista)
+    if nombre is not None:
+        cambios["nombre"] = nombre
+    if not cambios:
+        raise ALdiaError("No se indico ningun cambio para el modulo.")
+
+    ahora = cli.put(f"/api/modulos/{clave}", cambios)
+    return {
+        "actualizado": True,
+        "modulo": clave,
+        "antes": {"habilitado": antes.get("habilitado"), "roles": antes.get("roles")},
+        "ahora": {"habilitado": ahora.get("habilitado"), "roles": ahora.get("roles")},
+    }
+
+
+@servidor.tool(
+    title="Ver datos y condicion fiscal del negocio",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve los datos del comercio que usa el sistema: nombre, CUIT, domicilio, "
+        "telefono, punto de venta, moneda y —lo mas importante— su CONDICION FRENTE AL "
+        "IVA.\n\n"
+        "La condicion del negocio, cruzada con la del cliente, decide que clase de "
+        "comprobante hay que emitirle:\n"
+        "- Negocio responsable inscripto + cliente responsable inscripto -> FACTURA A.\n"
+        "- Negocio responsable inscripto + cliente monotributista, exento o consumidor "
+        "final -> FACTURA B.\n"
+        "- Negocio monotributista o exento -> siempre FACTURA C, sin IVA discriminado.\n\n"
+        "Estos datos se cambian desde Administracion en el sistema, no desde el asistente."
+    ),
+)
+def ver_configuracion_negocio() -> dict[str, Any]:
+    config = api().get("/api/config/") or {}
+    condicion = _normalizar_condicion(config.get("negocio_iva") or "responsable_inscripto")
+    clases = {
+        cliente: _clase_comprobante(condicion, cliente) for cliente in CONDICIONES_IVA
+    }
+    return {
+        "nombre": config.get("negocio_nombre"),
+        "cuit": config.get("negocio_cuit"),
+        "direccion": config.get("negocio_direccion"),
+        "localidad": config.get("negocio_localidad"),
+        "telefono": config.get("negocio_telefono"),
+        "punto_venta": config.get("negocio_punto_venta"),
+        "moneda": config.get("negocio_moneda"),
+        "condicion_iva": condicion,
+        "condicion_iva_nombre": CONDICIONES_IVA.get(condicion),
+        "comprobante_por_condicion_del_cliente": clases,
+    }
 
 
 def main() -> None:

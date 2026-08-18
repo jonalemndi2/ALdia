@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+import saldos
 from database import get_db
 from dinero import a_pesos
 from models import GastoFactura, CompraGasto, Proveedor, Caja
 from schemas import GastoCreate, GastoResponse
+from secuencias import siguiente_numero
 
 router = APIRouter()
 
@@ -36,8 +38,9 @@ def create_gasto(gasto_data: GastoCreate, db: Session = Depends(get_db)):
             detail=f"El proveedor {gasto_data.proveedor} no existe: no se puede cargar el gasto",
         )
 
-    last = db.query(GastoFactura).order_by(GastoFactura.id.desc()).first()
-    new_id = (last.id + 1) if last else 1
+    # Numero de gasto desde el contador de la serie "gasto", no un max+1.
+    # Ver backend/secuencias.py.
+    new_id = siguiente_numero(db, "gasto")
 
     datos = gasto_data.model_dump(exclude={"items"})
     new_gasto = GastoFactura(id=new_id, **datos)
@@ -52,8 +55,9 @@ def create_gasto(gasto_data: GastoCreate, db: Session = Depends(get_db)):
             iva=item.iva,
         ))
 
-    # 2) El gasto genera deuda con el proveedor.
-    proveedor.saldo = (proveedor.saldo or 0) + (gasto_data.total or 0)  # centavos
+    # 2) El gasto genera deuda con el proveedor. La escritura del saldo pasa
+    #    SIEMPRE por backend/saldos.py (centavos enteros).
+    saldos.aplicar_a_proveedor(db, proveedor.cuit, +(gasto_data.total or 0))
 
     # 3) Egreso de caja, atomico con el gasto.
     db.add(Caja(
@@ -96,9 +100,7 @@ def delete_gasto(gasto_id: int, db: Session = Depends(get_db)):
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
-    proveedor = db.query(Proveedor).filter(Proveedor.cuit == gasto.proveedor).first()
-    if proveedor:
-        proveedor.saldo = (proveedor.saldo or 0) - (gasto.total or 0)
+    saldos.aplicar_a_proveedor(db, gasto.proveedor, -(gasto.total or 0))
 
     mov = db.query(Caja).filter(Caja.referencia == f"GASTO {gasto_id}").first()
     if mov:

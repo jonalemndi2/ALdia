@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models import Remito, Venta, StockMercaderia
+from models import Cliente, Remito, Venta, StockMercaderia
 from schemas import (
     RemitoCreate, RemitoResponse, VentaCreate, VentaResponse,
     RemitoNoFacturadoResponse,
 )
+from secuencias import siguiente_numero
 
 router = APIRouter()
 
@@ -51,10 +52,20 @@ def get_remito(remito_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=RemitoResponse)
 def create_remito(remito_data: RemitoCreate, db: Session = Depends(get_db)):
-    # Get next ID
-    last = db.query(Remito).order_by(Remito.id.desc()).first()
-    new_id = (last.id + 1) if last else 1
-    
+    # El cliente tiene que existir. Antes NO se validaba en absoluto: se podia
+    # emitir un remito a un CUIT inventado y quedaba en la base para siempre.
+    # Ahora ademas hay una clave foranea real, asi que sin este control el
+    # usuario veria un error 500 del motor en vez de un mensaje claro.
+    cliente = db.query(Cliente).filter(Cliente.cuit == remito_data.cliente).first()
+    if not cliente:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El cliente {remito_data.cliente} no existe: no se puede emitir el remito",
+        )
+
+    # Numero de remito desde el contador de la serie. Ver backend/secuencias.py.
+    new_id = siguiente_numero(db, "remito")
+
     new_remito = Remito(
         id=new_id,
         cliente=remito_data.cliente,
@@ -67,6 +78,15 @@ def create_remito(remito_data: RemitoCreate, db: Session = Depends(get_db)):
     # El frontend manda las lineas dentro del mismo POST: se persisten como
     # ventas y se descuenta el stock entregado.
     for item in remito_data.items:
+        # El articulo tiene que existir: `ventas.codigo` es clave foranea contra
+        # stockmercaderia. Antes un codigo inexistente se grababa igual y el
+        # renglon quedaba apuntando a la nada (y sin descontar stock).
+        producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
+        if not producto:
+            raise HTTPException(
+                status_code=404,
+                detail=f"El producto {item.codigo} no existe: no se puede remitir",
+            )
         db.add(Venta(
             codigo=item.codigo,
             producto=item.producto,
@@ -78,9 +98,7 @@ def create_remito(remito_data: RemitoCreate, db: Session = Depends(get_db)):
             cliente=remito_data.cliente,
             fecha=remito_data.fecha,
         ))
-        producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
-        if producto:
-            producto.cantidad = (producto.cantidad or 0) - item.cantidad
+        producto.cantidad = (producto.cantidad or 0) - item.cantidad
 
     db.commit()
     db.refresh(new_remito)

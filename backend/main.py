@@ -4,12 +4,15 @@ Servidor FastAPI con SQLite real y SQLAlchemy ORM
 """
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 import os
+import sys
 import uvicorn
 
-from database import engine, Base, SessionLocal
-from migraciones import aplicar_migraciones
+from database import engine, Base, SessionLocal, transaccion_de_escritura
+from migraciones import aplicar_migraciones, aplicar_claves_foraneas
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
     cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip
@@ -23,6 +26,14 @@ Base.metadata.create_all(bind=engine)
 # Agregar a las tablas ya existentes las columnas nuevas (ALTER TABLE ADD COLUMN,
 # seguro en SQLite: no reescribe la tabla ni toca los datos del comercio).
 aplicar_migraciones(engine)
+
+# Poner las claves foraneas REALES en las tablas que ya existian. SQLite no
+# permite agregar una FK con ALTER TABLE, asi que hay que recrear la tabla; el
+# procedimiento -- y sobre todo la verificacion previa de huerfanos que decide si
+# se aplica o no -- esta explicado en migraciones.py. Nunca aborta el arranque:
+# si una tabla tiene datos que violarian las reglas nuevas, la deja como estaba y
+# lo informa por consola y en /api/admin/verificar-integridad.
+aplicar_claves_foraneas(engine)
 
 
 def inicializar_datos():
@@ -78,6 +89,41 @@ if _origenes:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+class TransaccionDeEscrituraMiddleware:
+    """Marca las peticiones que escriben, para que su transaccion sea IMMEDIATE.
+
+    Es el interruptor que hace que dos cajas facturando en el mismo segundo hagan
+    fila en vez de pisarse (ver el encabezado de database.py). Va como middleware
+    ASGI puro y no como `@app.middleware("http")` a proposito: BaseHTTPMiddleware
+    ejecuta la aplicacion en OTRA tarea, y el ContextVar que se setea aca no
+    llegaria al hilo donde corre la ruta. Un middleware ASGI puro comparte el
+    contexto, y de ahi lo copia el pool de hilos de FastAPI.
+
+    Se declara aca, envolviendo a toda la aplicacion, para que NINGUNA ruta de
+    escritura -- ni las que se agreguen manana -- pueda quedarse afuera.
+    """
+
+    METODOS_DE_ESCRITURA = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        testigo = transaccion_de_escritura.set(
+            scope.get("method", "GET") in self.METODOS_DE_ESCRITURA
+        )
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            transaccion_de_escritura.reset(testigo)
+
+
+app.add_middleware(TransaccionDeEscrituraMiddleware)
 
 
 @app.middleware("http")
@@ -168,6 +214,36 @@ app.include_router(
     compras.router_devoluciones, prefix="/api/devoluciones", tags=["Devoluciones"],
     dependencies=[Depends(require_modulo("proveedores"))],
 )
+
+
+@app.exception_handler(IntegrityError)
+async def error_de_integridad(request, exc):  # noqa: ARG001
+    """Traduce una violacion de integridad de la base a un error entendible.
+
+    Ahora que las claves foraneas se verifican de verdad (ver database.py), la
+    base puede rechazar una operacion que antes pasaba. Sin esto, el usuario
+    veria un 500 "Internal Server Error" y el mensaje real quedaria solo en la
+    consola del servidor, que en una instalacion de comercio nadie mira.
+
+    Es una RED DE SEGURIDAD, no el control principal: cada ruta valida antes lo
+    que le corresponde y devuelve un 404/409 con el detalle concreto. Esto cubre
+    los casos que se escapen y, sobre todo, las rutas que se agreguen manana.
+    409 (conflicto) y no 400: el pedido esta bien formado, lo que no se puede es
+    aplicarlo contra el estado actual de la base.
+    """
+    detalle = str(getattr(exc, "orig", exc))
+    if "FOREIGN KEY" in detalle.upper():
+        mensaje = (
+            "La operacion dejaria un registro apuntando a un cliente, proveedor o "
+            "producto que no existe, o intenta borrar una ficha que todavia tiene "
+            "movimientos. Verifique los datos antes de reintentar."
+        )
+    elif "UNIQUE" in detalle.upper():
+        mensaje = "Ya existe un registro con esa clave: no se puede duplicar."
+    else:
+        mensaje = "La operacion viola una regla de integridad de la base de datos."
+    print(f"[integridad] {request.method} {request.url.path}: {detalle}", file=sys.stderr)
+    return JSONResponse(status_code=409, content={"detail": mensaje})
 
 
 @app.get("/api/health")

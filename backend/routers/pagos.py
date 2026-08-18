@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+import saldos
 from database import get_db
 from models import Pago, Proveedor, Caja, Chequera
 from schemas import PagoCreate, PagoResponse
+from secuencias import siguiente_numero
 
 router = APIRouter()
 
@@ -41,16 +43,18 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
             detail=f"El proveedor {pago_data.proveedor} no existe: no se puede registrar el pago",
         )
 
-    last = db.query(Pago).order_by(Pago.ordpago.desc()).first()
-    new_ord = (last.ordpago + 1) if last else 1
+    # Numero de orden de pago desde el contador de la serie "pago".
+    # Ver backend/secuencias.py.
+    new_ord = siguiente_numero(db, "pago")
 
     # Los campos del cheque no son columnas de `pagos`: se usan mas abajo.
     datos = pago_data.model_dump(exclude={"banco", "vencimiento", "cheque_id"})
     new_pago = Pago(ordpago=new_ord, **datos)
     db.add(new_pago)
 
-    # 1) El pago cancela deuda propia: baja el saldo del proveedor.
-    proveedor.saldo = (proveedor.saldo or 0) - pago_data.monto  # centavos: exacto
+    # 1) El pago cancela deuda propia: baja el saldo del proveedor. La escritura
+    #    del saldo pasa SIEMPRE por backend/saldos.py (centavos enteros, exacto).
+    saldos.aplicar_a_proveedor(db, proveedor.cuit, -pago_data.monto)
 
     # 2) Salida de dinero.
     if pago_data.cheque_id is not None:
@@ -99,9 +103,7 @@ def delete_pago(ordpago: int, db: Session = Depends(get_db)):
     if not pago:
         raise HTTPException(status_code=404, detail="Pago no encontrado")
 
-    proveedor = db.query(Proveedor).filter(Proveedor.cuit == pago.proveedor).first()
-    if proveedor:
-        proveedor.saldo = (proveedor.saldo or 0) + (pago.monto or 0)
+    saldos.aplicar_a_proveedor(db, pago.proveedor, +(pago.monto or 0))
 
     mov = db.query(Caja).filter(Caja.referencia == f"PAGO {ordpago}").first()
     if mov:

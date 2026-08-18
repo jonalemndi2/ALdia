@@ -8,20 +8,17 @@ que el mount estatico de "/" respondia 405. Aca se exponen ambos endpoints.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+import saldos
 from database import get_db
 from dinero import a_pesos, aplicar_alicuota, multiplicar
 from models import (
     Proveedor, StockMercaderia, FacturaProveedor, Compra, NCP
 )
 from schemas import CompraCreate, DevolucionCreate
+from secuencias import siguiente_numero
 
 router = APIRouter()
 router_devoluciones = APIRouter()
-
-
-def _siguiente_id(db: Session, modelo, columna) -> int:
-    ultimo = db.query(modelo).order_by(columna.desc()).first()
-    return (getattr(ultimo, columna.key) + 1) if ultimo else 1
 
 
 @router.post("/")
@@ -43,11 +40,20 @@ def create_compra(data: CompraCreate, db: Session = Depends(get_db)):
     for item in data.items:
         linea = multiplicar(item.precio, item.cantidad)
         subtotal += linea
+        # El articulo tiene que existir: `compras.codigo` es clave foranea contra
+        # stockmercaderia. Antes un codigo inexistente se aceptaba, se liquidaba
+        # con el 21% por defecto y el renglon quedaba apuntando a la nada.
         producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
-        iva_pct = producto.iva if producto and producto.iva is not None else 21.0
+        if not producto:
+            raise HTTPException(
+                status_code=404,
+                detail=f"El producto {item.codigo} no existe: no se puede cargar la compra",
+            )
+        iva_pct = producto.iva if producto.iva is not None else 21.0
         iva_total += aplicar_alicuota(linea, iva_pct)
 
-    factprov_id = _siguiente_id(db, FacturaProveedor, FacturaProveedor.id)
+    # Numero de la factura de compra desde el contador. Ver backend/secuencias.py.
+    factprov_id = siguiente_numero(db, "compra")
     cabecera = FacturaProveedor(
         id=factprov_id,
         proveedor=data.proveedor,
@@ -72,7 +78,7 @@ def create_compra(data: CompraCreate, db: Session = Depends(get_db)):
             producto.cantidad = (producto.cantidad or 0) + item.cantidad
             producto.precom = item.precio
 
-    proveedor.saldo = (proveedor.saldo or 0) + subtotal + iva_total
+    saldos.aplicar_a_proveedor(db, proveedor.cuit, +(subtotal + iva_total))
 
     db.commit()
     db.refresh(cabecera)
@@ -109,15 +115,20 @@ def create_devolucion(data: DevolucionCreate, db: Session = Depends(get_db)):
             producto.cantidad = (producto.cantidad or 0) - item.cantidad
 
     total = subtotal + iva_total
-    proveedor.saldo = (proveedor.saldo or 0) - total
+    saldos.aplicar_a_proveedor(db, proveedor.cuit, -total)
 
-    ncp_id = _siguiente_id(db, NCP, NCP.id)
+    ncp_id = siguiente_numero(db, "nota_credito_proveedor")
     detalle = ", ".join(f"{i.producto} x{i.cantidad}" for i in data.items)
     db.add(NCP(
         id=ncp_id,
         proveedor=data.proveedor,
         fecha=data.fecha,
         descripcion=f"Devolución: {detalle}"[:500],
+        # El IMPORTE de la devolucion ahora queda registrado. Antes solo se
+        # restaba del saldo del proveedor y no se guardaba en ningun lado, con
+        # lo cual el saldo no se podia recalcular desde los movimientos y toda
+        # verificacion de consistencia daba una diferencia inexplicable.
+        monto=total,
     ))
 
     db.commit()

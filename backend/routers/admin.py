@@ -6,8 +6,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Dict, Any
 
+import saldos
+import secuencias
 from database import get_db, engine, Base
 from dinero import a_centavos, a_pesos
+from migraciones import estado_claves_foraneas, verificar_huerfanos
 from models import (
     Cliente, Proveedor, StockMercaderia, Caja, Remito, Factura, Usuario,
     Venta, Cobro, Pago, FacturaProveedor, Compra, GastoFactura
@@ -73,6 +76,123 @@ def get_morosos(db: Session = Depends(get_db)):
         }
         for c in clientes
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Verificaciones de consistencia de la base.
+#
+# Son de SOLO LECTURA y no cambian nada: contestan "lo que dice la base, ¿sigue
+# cerrando?". La correccion es un endpoint aparte y explicito (mas abajo), para
+# que arreglar un saldo sea siempre una decision de alguien y no un efecto
+# colateral de abrir una pantalla.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/verificar-saldos")
+def verificar_saldos(db: Session = Depends(get_db)):
+    """Recalcula cada saldo desde los movimientos y lo compara con el guardado.
+
+    `clientes.saldo` y `proveedores.saldo` son datos DERIVADOS que ademas se
+    guardan. Este endpoint es lo que impide que se desvien EN SILENCIO: informa
+    cada diferencia con nombre, CUIT e importe. Ver backend/saldos.py para la
+    definicion exacta del saldo y para el limite conocido del calculo.
+
+    No modifica nada. Para corregir: POST /api/admin/reparar-saldos.
+    """
+    informe = saldos.verificar(db)
+    return {
+        "consistente": informe["consistente"],
+        "clientes_revisados": informe["clientes_revisados"],
+        "proveedores_revisados": informe["proveedores_revisados"],
+        "cantidad_diferencias": informe["cantidad_diferencias"],
+        # Los importes salen en PESOS: el contrato de la API con el frontend es
+        # en pesos, la base habla en centavos (ver backend/dinero.py).
+        "desvio_total": a_pesos(informe["desvio_total"]),
+        "diferencias": [
+            {
+                "tipo": d["tipo"],
+                "cuit": d["cuit"],
+                "nombre": d["nombre"],
+                "saldo_guardado": a_pesos(d["saldo_guardado"]),
+                "saldo_calculado": a_pesos(d["saldo_calculado"]),
+                "diferencia": a_pesos(d["diferencia"]),
+            }
+            for d in informe["diferencias"]
+        ],
+    }
+
+
+@router.get("/verificar-integridad")
+def verificar_integridad(db: Session = Depends(get_db)):
+    """Estado de la integridad referencial y de los numeradores de comprobantes.
+
+    Tres cosas en una sola consulta, que son las tres que pueden estar mal sin
+    que se note:
+
+      * si la verificacion de claves foraneas esta realmente ENCENDIDA (SQLite
+        la trae apagada: ver database.py),
+      * que tablas quedaron sin sus claves foraneas y por que,
+      * si hay filas HUERFANAS, o sea que apuntan a un cliente, proveedor o
+        articulo que no existe.
+
+    No modifica nada.
+    """
+    esquema = estado_claves_foraneas(engine)
+    huerfanos = verificar_huerfanos(engine)
+    return {
+        "verificacion_fk_activa": esquema["verificacion_activa"],
+        "claves_declaradas": esquema["claves_declaradas"],
+        "tablas_con_fk": esquema["tablas_con_fk"],
+        "tablas_sin_fk": esquema["tablas_sin_fk"],
+        "integra": not huerfanos and not esquema["tablas_sin_fk"],
+        "filas_huerfanas": sum(h["filas_huerfanas"] for h in huerfanos),
+        "huerfanos": huerfanos,
+        "numeradores": secuencias.estado(db),
+    }
+
+
+@router.post("/reparar-saldos")
+def reparar_saldos(
+    confirmacion: str = "",
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(require_admin),
+):
+    """Pisa los saldos guardados con los recalculados. Solo administrador.
+
+    Es explicito a proposito y por partida triple: exige rol administrador, exige
+    repetir una confirmacion (para que no lo dispare un enlace abierto por
+    descuido en el navegador de un admin logueado), y es un POST separado de la
+    verificacion. Corregir un saldo es una decision contable.
+
+    QUEDA REGISTRADO EN LA AUDITORIA sin hacer nada especial: el middleware de
+    backend/auditoria.py asienta todo POST a /api/*, y los eventos ORM ya
+    observan el campo `saldo` de clientes y proveedores, asi que en el registro
+    queda el valor anterior y el nuevo de CADA ficha corregida.
+    """
+    if confirmacion != "RECALCULAR SALDOS":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Esta operacion sobrescribe los saldos de clientes y proveedores. "
+                "Repita exactamente confirmacion='RECALCULAR SALDOS'"
+            ),
+        )
+    resultado = saldos.reparar(db)
+    db.commit()
+    return {
+        "message": f"Se corrigieron {resultado['corregidos']} saldo(s)",
+        "corregidos": resultado["corregidos"],
+        "desvio_corregido": a_pesos(resultado["desvio_corregido"]),
+        "detalle": [
+            {
+                "tipo": d["tipo"],
+                "cuit": d["cuit"],
+                "nombre": d["nombre"],
+                "saldo_anterior": a_pesos(d["saldo_guardado"]),
+                "saldo_corregido": a_pesos(d["saldo_calculado"]),
+            }
+            for d in resultado["detalle"]
+        ],
+    }
 
 
 @router.get("/resumen")
@@ -187,10 +307,18 @@ def eliminar_movimiento(
             db.delete(venta)
 
     elif tipo == "factura":
-        # Los remitos vuelven a quedar pendientes de facturacion.
-        # No se toca clientes.saldo: la creacion de la factura tampoco lo modifica,
-        # revertirlo aca dejaria los saldos descuadrados.
+        # Los remitos vuelven a quedar pendientes de facturacion, y la deuda que
+        # la factura genero se cancela.
+        #
+        # CORRECCION: antes esta rama NO tocaba clientes.saldo, con el comentario
+        # de que "la creacion de la factura tampoco lo modifica". Eso dejo de ser
+        # cierto (POST /api/facturas/ suma el total al saldo), asi que anular por
+        # aca dejaba la deuda viva para siempre mientras anular por
+        # DELETE /api/facturas/{n} si la cancelaba: dos caminos para la misma
+        # operacion con dos resultados distintos. Ese es exactamente el desvio
+        # que ahora detecta GET /api/admin/verificar-saldos.
         db.query(Venta).filter(Venta.idfactura == mov_id).update({Venta.idfactura: 0})
+        saldos.aplicar_a_cliente(db, registro.cliente, -(registro.total or 0))
 
     elif tipo == "compra":
         # Descontar del stock lo ingresado y revertir el saldo del proveedor.
@@ -199,13 +327,16 @@ def eliminar_movimiento(
             if item:
                 item.cantidad = (item.cantidad or 0) - (compra.cantidad or 0)
             db.delete(compra)
-        proveedor = db.query(Proveedor).filter(Proveedor.cuit == registro.proveedor).first()
-        if proveedor:
-            proveedor.saldo = (proveedor.saldo or 0) - (registro.total or 0)
+        saldos.aplicar_a_proveedor(db, registro.proveedor, -(registro.total or 0))
 
-    # cobro / pago: solo se borra el registro. Los POST de /api/cobros/ y
-    # /api/pagos/ no modifican clientes.saldo ni proveedores.saldo, asi que
-    # revertirlos aca introduciria un descuadre.
+    elif tipo == "cobro":
+        # Anular un cobro devuelve la deuda al cliente (misma regla que
+        # DELETE /api/cobros/{n}).
+        saldos.aplicar_a_cliente(db, registro.cliente, +(registro.monto or 0))
+
+    elif tipo == "pago":
+        # Anular un pago devuelve la deuda con el proveedor.
+        saldos.aplicar_a_proveedor(db, registro.proveedor, +(registro.monto or 0))
 
     db.delete(registro)
     db.commit()

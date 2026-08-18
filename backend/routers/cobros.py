@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+import saldos
 from database import get_db
 from models import Cobro, Cliente, Caja, Chequera
 from schemas import CobroCreate, CobroResponse
+from secuencias import siguiente_numero
 
 router = APIRouter()
 
@@ -43,16 +45,18 @@ def create_cobro(cobro_data: CobroCreate, db: Session = Depends(get_db)):
             detail=f"El cliente {cobro_data.cliente} no existe: no se puede registrar el cobro",
         )
 
-    last = db.query(Cobro).order_by(Cobro.ordcobro.desc()).first()
-    new_ord = (last.ordcobro + 1) if last else 1
+    # Numero de recibo desde el contador de la serie "cobro", no un max+1.
+    # Ver backend/secuencias.py.
+    new_ord = siguiente_numero(db, "cobro")
 
     # Los campos del cheque no son columnas de `cobros`: se usan mas abajo.
     datos = cobro_data.model_dump(exclude={"banco", "vencimiento", "cheque_id"})
     new_cobro = Cobro(ordcobro=new_ord, **datos)
     db.add(new_cobro)
 
-    # 1) El cobro cancela deuda: baja el saldo del cliente.
-    cliente.saldo = (cliente.saldo or 0) - cobro_data.monto  # centavos: exacto
+    # 1) El cobro cancela deuda: baja el saldo del cliente. La escritura del
+    #    saldo pasa SIEMPRE por backend/saldos.py (centavos enteros, exacto).
+    saldos.aplicar_a_cliente(db, cliente.cuit, -cobro_data.monto)
 
     # 2) Ingreso de dinero. Un cheque no entra a caja hasta que se cobra: se
     #    registra en la chequera como valor a depositar.
@@ -90,9 +94,7 @@ def delete_cobro(ordcobro: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Cobro no encontrado")
 
     # Revertir el saldo: si el cobro lo bajo, anularlo lo devuelve.
-    cliente = db.query(Cliente).filter(Cliente.cuit == cobro.cliente).first()
-    if cliente:
-        cliente.saldo = (cliente.saldo or 0) + (cobro.monto or 0)
+    saldos.aplicar_a_cliente(db, cobro.cliente, +(cobro.monto or 0))
 
     # Revertir el movimiento de caja generado al crearlo.
     mov = db.query(Caja).filter(Caja.referencia == f"COBRO {ordcobro}").first()

@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+import saldos
 from database import get_db
 from models import Factura, Venta, Cliente, StockMercaderia
 from schemas import FacturaCreate, FacturaResponse, VentaResponse
+from secuencias import siguiente_numero
 
 router = APIRouter()
 
@@ -48,10 +50,22 @@ def get_factura(factura_num: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=FacturaResponse)
 def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
-    # Get next invoice number
-    last = db.query(Factura).order_by(Factura.facturanumero.desc()).first()
-    new_num = (last.facturanumero + 1) if last else 1
-    
+    # El cliente tiene que existir. Antes esto no se validaba y la factura se
+    # grababa igual con un CUIT cualquiera; ahora ademas hay una clave foranea
+    # real contra `clientes`, asi que sin este control el usuario veria un error
+    # 500 del motor en lugar de un mensaje que se entiende.
+    cliente = db.query(Cliente).filter(Cliente.cuit == factura_data.cliente).first()
+    if not cliente:
+        raise HTTPException(
+            status_code=404,
+            detail=f"El cliente {factura_data.cliente} no existe: no se puede facturar",
+        )
+
+    # Numero de comprobante: lo da el contador de la serie "factura", no un
+    # max+1. Ver backend/secuencias.py (dos cajas simultaneas ya no se pisan, y
+    # anular la ultima factura no hace que se reuse su numero).
+    new_num = siguiente_numero(db, "factura")
+
     new_factura = Factura(
         facturanumero=new_num,
         cliente=factura_data.cliente,
@@ -111,12 +125,11 @@ def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
     # La factura genera deuda en la cuenta corriente del cliente. Antes esto lo
     # hacia el navegador contra una base local que ya no existe, con lo cual la
     # cuenta corriente nunca se actualizaba realmente.
-    cliente = db.query(Cliente).filter(Cliente.cuit == new_factura.cliente).first()
-    if cliente:
-        # Saldos EN CENTAVOS: suma de enteros, exacta. Antes eran floats y
-        # cada factura metia un error de fraccion de centavo en la cuenta
-        # corriente, que se acumulaba comprobante tras comprobante.
-        cliente.saldo = (cliente.saldo or 0) + (factura_data.total or 0)
+    #
+    # El saldo NO se asigna a mano: se pide el movimiento a backend/saldos.py,
+    # que es el unico lugar del sistema que escribe saldos. Centavos enteros, la
+    # suma es exacta.
+    saldos.aplicar_a_cliente(db, new_factura.cliente, +(factura_data.total or 0))
 
     db.commit()
     db.refresh(new_factura)
@@ -148,9 +161,9 @@ def delete_factura(factura_num: int, db: Session = Depends(get_db)):
         Venta.idfactura == factura_num, Venta.nmov != NMOV_SIN_REMITO
     ).update({Venta.idfactura: 0}, synchronize_session=False)
 
-    cliente = db.query(Cliente).filter(Cliente.cuit == factura.cliente).first()
-    if cliente:
-        cliente.saldo = (cliente.saldo or 0) - (factura.total or 0)
+    # Anular la factura cancela la deuda que genero. Mismo camino unico de
+    # escritura de saldos que en el alta.
+    saldos.aplicar_a_cliente(db, factura.cliente, -(factura.total or 0))
 
     db.delete(factura)
     db.commit()
