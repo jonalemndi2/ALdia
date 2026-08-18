@@ -1,0 +1,18 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.36
+pydantic>=2.9.0
+bcrypt>=4.2.0
+python-multipart>=0.0.9
+PyJWT>=2.9.0
+
+# Factura electrónica AFIP (backend/afip.py)
+# zeep: cliente SOAP para WSAA y WSFEv1.
+# cryptography: firma CMS/PKCS#7 del pedido de ticket de acceso y lectura del
+# certificado X.509. Si faltan, el sistema arranca igual: la integración AFIP
+# avisa que no están instaladas en vez de romper.
+zeep>=4.2.1
+cryptography>=42.0.0
+# segno: genera el codigo QR obligatorio del comprobante (RG 4892). Es Python
+# puro, no necesita Pillow ni compilar nada.
+segno>=1.6.0

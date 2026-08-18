@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────
+# SECRETOS Y DATOS DEL COMERCIO
+# Nada de esto debe llegar nunca a GitHub.
+# ─────────────────────────────────────────────────────────────
+
+# Clave de firma de sesiones: se genera unica por instalacion.
+# Si se filtra, cualquiera puede fabricarse un token de administrador.
+backend/.aldia_secret
+.aldia_secret
+
+# Certificados de AFIP: son la identidad fiscal del comercio.
+# Con la clave privada, un tercero puede facturar en tu nombre.
+# Se versiona la carpeta con su instructivo, NUNCA el material criptografico.
+certificados/*
+!certificados/LEEME.txt
+certs/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.csr
+
+# Base de datos: contiene clientes, CUIT, facturacion y hashes de contrasenas.
+backend/aldia.db
+backend/aldia.db-journal
+backend/aldia.db-wal
+backend/aldia.db-shm
+*.bak
+*.sqlite
+*.sqlite3
+
+# Ticket de acceso de AFIP (cacheado, vence a las 12 h)
+backend/.afip_ta*
+*.ta.xml
+
+# Variables de entorno locales
+.env
+.env.*
+!.env.example
+
+# ─────────────────────────────────────────────────────────────
+# Entorno y artefactos de build
+# ─────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+node_modules/
+
+# Logs y temporales
+*.log
+*.tmp
+
+# Archivos grandes / de trabajo que no son parte del proyecto
+*.zip
+Web/js/db.js.eliminado
+
+# Sistema operativo / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/

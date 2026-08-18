@@ -1,0 +1,263 @@
+/* ===== ALDIA Web - Custom Styles ===== */
+
+:root {
+    --primary-dark: #1a237e;
+    --accent-green: #2e7d32;
+    --accent-orange: #e65100;
+}
+
+body {
+    background-color: #f4f6f9;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.main-content {
+    margin-top: 70px;
+    padding: 20px;
+}
+
+/* Navbar: evitar que los items se partan en dos lineas (ej. "Ctas. Ctes."),
+   lo que agrandaba la barra fija y tapaba el contenido. */
+#mainNavbar .nav-link,
+#mainNavbar .navbar-text,
+#mainNavbar .navbar-brand {
+    white-space: nowrap;
+}
+#mainNavbar .navbar-nav .nav-link {
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+}
+#mainNavbar .navbar-text {
+    display: flex;
+    align-items: center;
+}
+@media (min-width: 992px) and (max-width: 1400px) {
+    #mainNavbar .navbar-nav .nav-link {
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+        font-size: 0.92rem;
+    }
+    #mainNavbar .navbar-text { font-size: 0.85rem; }
+}
+
+/* Dashboard Cards */
+.dash-card {
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.dash-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+.dashboard-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+.dashboard-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+
+/* Data Tables */
+.table-aldia {
+    font-size: 0.85rem;
+}
+.table-aldia thead th {
+    background-color: #343a40;
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+}
+.table-aldia tbody tr {
+    cursor: pointer;
+}
+.table-aldia tbody tr:hover {
+    background-color: #e3f2fd;
+}
+.table-aldia tbody tr.selected-row {
+    background-color: #bbdefb !important;
+}
+
+/* Grid Container */
+.grid-container {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+/* Flex Grid (like MSFlexGrid) */
+.flex-grid {
+    width: 100%;
+    font-size: 0.85rem;
+}
+.flex-grid thead th {
+    background-color: #1565c0;
+    color: white;
+    padding: 6px 8px;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+}
+.flex-grid tbody td {
+    padding: 4px 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+.flex-grid tbody tr:nth-child(even) {
+    background-color: #f5f5f5;
+}
+.flex-grid tbody tr.item-row:hover {
+    background-color: #e8f5e9;
+}
+
+/* View Panels */
+.view-panel {
+    animation: fadeIn 0.2s ease-in;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Section Headers */
+.section-header {
+    background: linear-gradient(135deg, #1565c0, #0d47a1);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+.section-header h4 {
+    margin: 0;
+    font-weight: 600;
+}
+
+/* Form Styling */
+.form-label-sm {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 2px;
+}
+
+/* Cards in forms */
+.form-card {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    background: white;
+}
+
+/* Summary Cards */
+.summary-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+    color: white;
+    padding: 16px;
+}
+.summary-card.success {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+.summary-card.danger {
+    background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+}
+.summary-card.warning {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+/* Product Search Dropdown */
+.search-results {
+    position: absolute;
+    z-index: 1050;
+    width: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #ced4da;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.search-results .search-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+.search-results .search-item:hover {
+    background-color: #e3f2fd;
+}
+
+/* Toasts: se muestran por encima del modal pero NO deben interceptar los
+   clics del usuario. Sin esto, un toast en la esquina inferior derecha tapa
+   los botones del pie del modal (Guardar/Cancelar) y el formulario no se
+   puede confirmar. */
+.toast-container {
+    z-index: 1090;
+    pointer-events: none;
+}
+.toast-container .toast {
+    pointer-events: none;
+}
+.toast-container .toast .btn-close {
+    pointer-events: auto;
+}
+
+/* Totals Row */
+.totals-row {
+    background-color: #e8eaf6;
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+
+/* Print styles */
+@media print {
+    .navbar, .no-print, .toast-container { display: none !important; }
+    .main-content { margin-top: 0; }
+    .section-header { background: #333 !important; -webkit-print-color-adjust: exact; }
+}
+
+/* Dropdown submenu */
+.dropdown-submenu {
+    position: relative;
+}
+.dropdown-submenu .dropdown-submenu-menu {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: 0;
+}
+.dropdown-submenu:hover .dropdown-submenu-menu {
+    display: block;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .main-content { padding: 10px; }
+    .table-aldia { font-size: 0.75rem; }
+    .section-header h4 { font-size: 1rem; }
+}
+
+/* Badge indicadores */
+.badge-total {
+    font-size: 1.2rem;
+    padding: 8px 16px;
+}
+
+/* Loading Spinner */
+.loading-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.8);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}

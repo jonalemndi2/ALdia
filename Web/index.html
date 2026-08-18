@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALdia - Sistema de Gestión Comercial</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="css/app.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar / Menú Principal -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top d-none" id="mainNavbar">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="#" data-action="App.showHome">
+                <i class="bi bi-shop"></i> ALDIA
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navContent">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navContent">
+                <ul class="navbar-nav me-auto">
+                    <!-- Menu -->
+                    <li class="nav-item dropdown" data-modulo="administracion,auditoria">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-list"></i> Menú
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="App.showHome">Menu Principal</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" data-action="Admin.showModulos" data-role-required="administrador">Módulos del Sistema</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Admin.showConfiguracion" data-role-required="administrador">Configuración del Negocio</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Admin.showUsuarios" data-role-required="administrador">Usuarios</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <!-- Registro de auditoria: solo consulta, para administrador y auditor. -->
+                            <li><a class="dropdown-item" href="#" data-action="Auditoria.showConsulta" data-role-required="administrador,auditor"><i class="bi bi-clipboard-check"></i> Registro de Auditoría</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" data-action="Admin.showEliminarMov" data-role-required="auditor,finanzas">Eliminar Movimiento</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Admin.showChequearDB" data-role-required="administrador">Chequear Base de Datos</a></li>
+                        </ul>
+                    </li>
+                    <!-- Stock -->
+                    <li class="nav-item dropdown" data-modulo="stock">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-box-seam"></i> Stock
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Stock.showExistencia">Existencia</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Stock.nuevoProducto">Nuevo Producto</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Stock.cambiarPrecio">Cambiar Precio</a></li>
+                        </ul>
+                    </li>
+                    <!-- Clientes -->
+                    <li class="nav-item dropdown" data-modulo="clientes">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-people"></i> Clientes
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Clientes.showClientes">Clientes</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Clientes.showDeudores">Deudores</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Clientes.nuevoCliente">Nuevo Cliente</a></li>
+                        </ul>
+                    </li>
+                    <!-- Ventas -->
+                    <li class="nav-item dropdown" data-modulo="ventas">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-receipt"></i> Ventas
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Remitos.emitirRemito">Emitir Remito</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Facturas.remitirFactura">Remitir Factura</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Remitos.reimprimir">Reimprimir Remitos</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li class="dropdown-submenu">
+                                <a class="dropdown-item">Emitir Factura &raquo;</a>
+                                <ul class="dropdown-menu dropdown-submenu-menu">
+                                    <li><a class="dropdown-item" href="#" data-action="Facturas.emitirFactura">Factura</a></li>
+                                    <li><a class="dropdown-item" href="#" data-action="Facturas.facturaSinEntrega">Factura sin Entrega</a></li>
+                                    <li><a class="dropdown-item" href="#" data-action="Facturas.notaDebitoCreditoCliente">Nota de Débito/Crédito</a></li>
+                                </ul>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" data-action="Remitos.remitosNoFacturados">Remitos No Facturados</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Facturas.facturasNoRemitidas">Facturas no Remitidas</a></li>
+                        </ul>
+                    </li>
+                    <!-- Proveedores -->
+                    <li class="nav-item dropdown" data-modulo="proveedores">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-truck"></i> Proveedores
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Proveedores.showProveedores">Proveedores</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Proveedores.cargarCompra">Cargar Compra</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Proveedores.nuevoProveedor">Nuevo Proveedor</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Proveedores.devolucion">Devolución a Proveedores</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Pagos.showPagos">Pago a Proveedores</a></li>
+                        </ul>
+                    </li>
+                    <!-- Gastos -->
+                    <li class="nav-item dropdown" data-modulo="gastos">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-cash-stack"></i> Gastos
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Gastos.showFacturaGasto">Cargar Gasto</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Gastos.notaDebitoProveedor">Nota de Débito</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Gastos.notaCreditoProveedor">Nota de Crédito</a></li>
+                        </ul>
+                    </li>
+                    <!-- Cuentas Corrientes -->
+                    <li class="nav-item" data-modulo="cuentas_corrientes">
+                        <a class="nav-link" href="#" data-action="Cobros.showCuentas">
+                            <i class="bi bi-journal-text"></i> Ctas. Ctes.
+                        </a>
+                    </li>
+                    <!-- Caja -->
+                    <li class="nav-item dropdown" data-modulo="caja">
+                        <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+                            <i class="bi bi-safe"></i> Caja
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-action="Caja.showCajaChica">Caja Chica</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Caja.showBancos">Bancos</a></li>
+                            <li><a class="dropdown-item" href="#" data-action="Caja.showChequera">Chequera</a></li>
+                        </ul>
+                    </li>
+                    <!-- IVA -->
+                    <li class="nav-item" data-modulo="iva">
+                        <a class="nav-link" href="#" data-action="IVA.showConsulta">
+                            <i class="bi bi-percent"></i> IVA
+                        </a>
+                    </li>
+                </ul>
+                <div class="navbar-text text-light me-3">
+                    <small id="dbStatus" class="text-warning"><i class="bi bi-database"></i> Conectando...</small>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Contenido Principal -->
+    <div class="container-fluid main-content" id="mainContent">
+        <!-- Home / Dashboard -->
+        <div id="homeView" class="view-panel">
+            <div class="row mb-4">
+                <div class="col-12 text-center">
+                    <h2 class="text-primary"><i class="bi bi-shop"></i> ALDIA - Sistema de Gestión Comercial</h2>
+                    <p class="text-muted">Sistema de Gestión Comercial Agrícola v2.0 Web</p>
+                </div>
+            </div>
+            <div class="row g-3" id="dashboardCards">
+                <div class="col-md-3">
+                    <div class="card border-primary h-100 dash-card" data-action="Stock.showExistencia" style="cursor:pointer">
+                        <div class="card-body text-center">
+                            <i class="bi bi-box-seam display-4 text-primary"></i>
+                            <h5 class="card-title mt-2">Stock</h5>
+                            <p class="card-text text-muted" id="dashStockCount">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-success h-100 dash-card" data-action="Clientes.showClientes" style="cursor:pointer">
+                        <div class="card-body text-center">
+                            <i class="bi bi-people display-4 text-success"></i>
+                            <h5 class="card-title mt-2">Clientes</h5>
+                            <p class="card-text text-muted" id="dashClientCount">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-warning h-100 dash-card" data-action="Proveedores.showProveedores" style="cursor:pointer">
+                        <div class="card-body text-center">
+                            <i class="bi bi-truck display-4 text-warning"></i>
+                            <h5 class="card-title mt-2">Proveedores</h5>
+                            <p class="card-text text-muted" id="dashProvCount">-</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card border-info h-100 dash-card" data-action="Caja.showCajaChica" style="cursor:pointer">
+                        <div class="card-body text-center">
+                            <i class="bi bi-safe display-4 text-info"></i>
+                            <h5 class="card-title mt-2">Caja</h5>
+                            <p class="card-text text-muted" id="dashCajaTotal">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vista dinámica para cada módulo -->
+        <div id="dynamicView" class="view-panel d-none"></div>
+    </div>
+
+    <!--
+        AGPL-3.0, artículo 13: quien use este programa a través de una red tiene
+        derecho a obtener su código fuente. Por eso el enlace es parte de la
+        aplicación y no solo del repositorio. Si publicás una versión modificada,
+        cambiá este enlace para que apunte a TU código.
+    -->
+    <footer class="text-center text-muted py-3 no-print" style="font-size:.8rem">
+        ALdia — software libre bajo
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">AGPL-3.0</a>.
+        <a id="enlaceCodigoFuente" href="https://github.com/" target="_blank" rel="noopener">Código fuente</a>.
+    </footer>
+
+    <!-- Modal genérico -->
+    <div class="modal fade" id="genericModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="genericModalTitle">-</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="genericModalBody"></div>
+                <div class="modal-footer" id="genericModalFooter">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de confirmación -->
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmTitle">Confirmar</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="confirmBody"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="confirmBtn">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notificaciones -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="appToast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">ALdia</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastBody"></div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay d-none">
+        <div class="text-center">
+            <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status"></div>
+            <p class="mt-3 text-muted">Cargando ALdia...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Se eliminaron sql.js y js/db.js: eran una base SQLite DENTRO del
+         navegador. Al migrar todo a la API REST dejaron de usarse, y mantenerlos
+         cargados era peligroso: cualquier resto de DB.* guardaba en una base
+         local que se perdia, sin dar error. Ahora falla de forma visible. -->
+    <script src="js/api.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/modules/stock.js"></script>
+    <script src="js/modules/clientes.js"></script>
+    <script src="js/modules/proveedores.js"></script>
+    <script src="js/modules/remitos.js"></script>
+    <script src="js/modules/facturas.js"></script>
+    <script src="js/modules/cobros.js"></script>
+    <script src="js/modules/pagos.js"></script>
+    <script src="js/modules/caja.js"></script>
+    <script src="js/modules/gastos.js"></script>
+    <script src="js/modules/iva.js"></script>
+    <script src="js/modules/admin.js"></script>
+    <script src="js/modules/auditoria.js"></script>
+    <script src="js/modules/auth.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        // Placeholders defensivos para handlers inline: no sobrescriben módulos ya cargados
+        (function(){
+            const modules = ['Stock','Clientes','Proveedores','Remitos','Facturas','Cobros','Pagos','Caja','Gastos','IVA','Admin','Auditoria','App','Utils'];
+            modules.forEach(name => {
+                if (!window[name]) {
+                    window[name] = new Proxy({}, {
+                        get(target, prop) {
+                            if (typeof prop === 'string') {
+                                return function(){
+                                    if (window.Utils && Utils.toast) Utils.toast(`${name} no cargado aún: ${prop}()`, 'Módulo', 'warning');
+                                    else console.warn(`${name}.${prop}() llamado pero módulo no está cargado`);
+                                };
+                            }
+                            return undefined;
+                        }
+                    });
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

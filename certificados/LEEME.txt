@@ -1,0 +1,17 @@
+CERTIFICADOS DE AFIP - NO SUBIR NUNCA A GITHUB
+==============================================
+
+Esta carpeta esta ignorada por git (.gitignore -> certificados/).
+Aca van los DOS archivos que identifican fiscalmente al comercio ante AFIP:
+
+    afip.key   clave privada (la genera usted, NO se la da a nadie)
+    afip.crt   certificado que descarga del sitio de AFIP
+
+Con esos dos archivos cualquiera puede facturar en nombre del CUIT del comercio.
+Trate la clave privada como si fuera la clave fiscal.
+
+Como se obtienen: ver docs/AFIP.md en el proyecto.
+
+Si sus archivos tienen otro nombre o estan en otra carpeta, indique la ruta con
+las variables AFIP_CERT y AFIP_CLAVE (o las claves afip_cert / afip_clave en la
+tabla de Configuracion del sistema).
