@@ -11,7 +11,7 @@ cd /d "%~dp0backend"
 
 REM Usar el entorno virtual si existe; si no, usar Python del sistema.
 REM IMPORTANTE: la ruta va SIEMPRE entre comillas. Si la carpeta del proyecto
-REM tiene espacios (ej. "G:\Programas IA\ALdia a web"), sin comillas Windows
+REM tiene espacios (ej. "G:\Programas IA\ALdia"), sin comillas Windows
 REM intenta ejecutar "G:\Programas" y falla con errorlevel 9009, lo que antes
 REM se reportaba como "faltan dependencias" aunque estuvieran todas instaladas.
 if exist "%~dp0.venv\Scripts\python.exe" (

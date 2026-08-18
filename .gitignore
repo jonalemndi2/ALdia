@@ -67,3 +67,6 @@ Desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# Entorno del servidor MCP (se crea con: cd mcp && python -m venv .venv)
+mcp/.venv/

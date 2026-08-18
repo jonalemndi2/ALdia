@@ -63,7 +63,7 @@ openssl req -new -key afip.key -subj "/C=AR/O=NOMBRE DEL COMERCIO/CN=aldia/seria
 Copiar los dos archivos a la carpeta `certificados/` del proyecto:
 
 ```
-ALdia a web/
+ALdia/
 └── certificados/          <- ignorada por git, NUNCA llega a GitHub
     ├── afip.key           <- su clave privada
     └── afip.crt           <- el certificado que descargó de AFIP

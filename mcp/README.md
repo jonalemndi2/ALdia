@@ -60,7 +60,7 @@ Recomendaciones:
 ## Instalación
 
 ```bat
-cd "ruta\a\ALdia a web\mcp"
+cd "ruta\a\ALdia\mcp"
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
@@ -68,7 +68,7 @@ python -m venv .venv
 En Linux / macOS:
 
 ```bash
-cd "/ruta/a/ALdia a web/mcp"
+cd "/ruta/a/ALdia/mcp"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -113,9 +113,9 @@ macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 {
   "mcpServers": {
     "aldia": {
-      "command": "C:\\ruta\\a\\ALdia a web\\mcp\\.venv\\Scripts\\python.exe",
+      "command": "C:\\ruta\\a\\ALdia\\mcp\\.venv\\Scripts\\python.exe",
       "args": ["-m", "aldia_mcp"],
-      "cwd": "C:\\ruta\\a\\ALdia a web\\mcp",
+      "cwd": "C:\\ruta\\a\\ALdia\\mcp",
       "env": {
         "ALDIA_URL": "http://127.0.0.1:8000",
         "ALDIA_USER": "caja",
@@ -135,7 +135,7 @@ claude mcp add aldia \
   --env ALDIA_URL=http://127.0.0.1:8000 \
   --env ALDIA_USER=caja \
   --env ALDIA_PASSWORD='la-contrasena' \
-  -- "/ruta/a/ALdia a web/mcp/.venv/bin/python" -m aldia_mcp
+  -- "/ruta/a/ALdia/mcp/.venv/bin/python" -m aldia_mcp
 ```
 
 o, equivalente, en `.mcp.json` del proyecto:
