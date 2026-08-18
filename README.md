@@ -9,7 +9,6 @@ Incluye stock, clientes, proveedores, remitos, facturación, cuentas corrientes,
 chequera, gastos y libro IVA — con **control de acceso por rol** y **validación fiscal
 argentina** (CUIT con dígito verificador, alícuotas de IVA vigentes).
 
-> **Estado del proyecto.** El sistema está funcionando y auditado (ver [BITACORA.md](BITACORA.md)).
 > Antes de exponerlo a internet leé la sección [Seguridad](#seguridad): **hace falta HTTPS**.
 
 ## Índice
@@ -20,7 +19,9 @@ argentina** (CUIT con dígito verificador, alícuotas de IVA vigentes).
 - [Facturación electrónica AFIP](#facturación-electrónica-afip)
 - [Integración con asistentes de IA](#integración-con-asistentes-de-ia)
 - [Seguridad](#seguridad)
+- [Registro de auditoría](#registro-de-auditoría)
 - [Copias de seguridad](#copias-de-seguridad)
+- [Pruebas](#pruebas)
 - [Licencia](#licencia)
 
 ## Arquitectura
@@ -224,6 +225,18 @@ skills/             skills de tareas comerciales
 docs/               documentación (AFIP, etc.)
 certificados/       certificados de AFIP (ignorado por git)
 ```
+
+## Pruebas
+
+```bash
+.venv\Scripts\python.exe -m pip install pytest httpx
+.venv\Scripts\python.exe -m pytest tests/ -q
+```
+
+**78 pruebas** que cubren la exactitud de los importes, la autenticación y los
+permisos por rol, la validación fiscal, y el circuito comercial completo con sus
+anulaciones. No hace falta levantar el servidor ni tocan los datos del comercio:
+usan una base temporal. Ver [tests/README.md](tests/README.md).
 
 ## Contribuir
 

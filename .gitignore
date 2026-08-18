@@ -70,3 +70,6 @@ Desktop.ini
 
 # Entorno del servidor MCP (se crea con: cd mcp && python -m venv .venv)
 mcp/.venv/
+
+# Caché de pytest
+.pytest_cache/
