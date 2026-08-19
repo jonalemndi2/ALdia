@@ -11,7 +11,7 @@ una diferencia que importa mucho:
 
 | | Cliente | Proveedor |
 | --- | --- | --- |
-| Herramienta | `alta_cliente` | `alta_proveedor` |
+| Herramienta | `create_customer` | `create_vendor` |
 | Saldo positivo significa | **el cliente me debe** | **yo le debo al proveedor** |
 | Condición frente al IVA | **sí, y decide el comprobante** | no se guarda |
 
@@ -21,8 +21,8 @@ Antes de dar de alta, **busque**. El alta falla si el CUIT ya está cargado, y u
 cliente duplicado parte la cuenta corriente en dos.
 
 ```
-buscar_cliente(texto="<nombre o CUIT>")
-buscar_proveedor(texto="<nombre o CUIT>")
+find_customer(texto="<nombre o CUIT>")
+find_vendor(texto="<nombre o CUIT>")
 ```
 
 Busque por las dos puntas: por nombre ("Distribuidora") y por CUIT. ALdia guarda
@@ -60,7 +60,7 @@ o "consumidor final", la herramienta lo traduce sola.
 Para saber cómo está inscripto el negocio:
 
 ```
-ver_configuracion_negocio()
+get_business_config()
 ```
 
 Devuelve la condición del comercio y, en
@@ -75,7 +75,7 @@ discriminado, y que corregirlo después obliga a rehacer comprobantes.
 ## Paso 3 — Dar el alta
 
 ```
-alta_cliente(
+create_customer(
   cuit="30-71234567-1",
   nombre="Distribuidora del Litoral SRL",
   condicion_iva="responsable_inscripto",
@@ -85,7 +85,7 @@ alta_cliente(
 ```
 
 ```
-alta_proveedor(cuit="30-71234567-1", nombre="Frigorífico ...", telefono="...")
+create_vendor(cuit="30-71234567-1", nombre="Frigorífico ...", telefono="...")
 ```
 
 La respuesta del alta de cliente le dice qué comprobante le corresponde
@@ -113,7 +113,7 @@ Qué hacer:
 3. Si el cliente no tiene CUIT (consumidor final que sólo tiene DNI), avísele al
    usuario: ALdia exige CUIT de 11 dígitos para abrir ficha. Una venta a
    consumidor final sin identificar no necesita ficha; se cobra de mostrador
-   (`registrar_movimiento_caja`) y no va a cuenta corriente.
+   (`record_cash_movement`) y no va a cuenta corriente.
 
 Otros errores frecuentes:
 
@@ -144,5 +144,5 @@ y migrar los movimientos a mano desde el sistema.
   facturación) o pídale al usuario que aclare de dónde viene ese saldo.
 - Proveedor nuevo: ya se le pueden cargar compras y gastos (skill de carga de
   comprobantes).
-- Verifique siempre con `buscar_cliente` / `buscar_proveedor` que la ficha quedó
+- Verifique siempre con `find_customer` / `find_vendor` que la ficha quedó
   y muéstresela al usuario con el saldo en 0.

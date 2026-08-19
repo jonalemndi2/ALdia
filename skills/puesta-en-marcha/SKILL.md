@@ -13,7 +13,7 @@ El orden importa: lo que se configura primero condiciona lo que se carga despué
 ## Paso 1 — Datos fiscales del comercio (antes que nada)
 
 ```
-ver_configuracion_negocio()
+get_business_config()
 ```
 
 Se cargan desde **Menú → Configuración del Negocio**. Guíe al usuario para
@@ -42,8 +42,8 @@ proyecto. Insista en cambiarla antes de cargar nada real.
 Este es el paso que más se saltea y el que más caro sale después.
 
 ```
-ver_usuarios()
-alta_usuario(username="maria", password="...", rol="caja")
+list_users()
+create_user(username="maria", password="...", rol="caja")
 ```
 
 Roles disponibles y para quién:
@@ -69,8 +69,8 @@ le corresponde ni aunque conozca el atajo.
 ## Paso 4 — Habilitar solo lo que se usa
 
 ```
-ver_modulos()
-configurar_modulo(clave="iva", habilitado=false)     # ejemplo: no lo usa
+list_modules()
+configure_module(clave="iva", habilitado=false)     # ejemplo: no lo usa
 ```
 
 Un kiosco quizá no necesite Remitos ni Cuentas Corrientes. Menos módulos =
@@ -81,11 +81,11 @@ cualquier momento.
 
 En este orden, porque cada uno depende del anterior:
 
-1. **Proveedores** — `alta_proveedor(...)`. Se necesitan para cargar compras.
-2. **Artículos** — `alta_producto(...)` con código, descripción, unidad, precio
+1. **Proveedores** — `create_vendor(...)`. Se necesitan para cargar compras.
+2. **Artículos** — `create_product(...)` con código, descripción, unidad, precio
    de venta y alícuota de IVA. Si va a cargar el stock con una compra real,
    puede dar de alta el artículo en cero y que la compra lo llene.
-3. **Clientes** — `alta_cliente(...)`. Solo hacen falta los de **cuenta
+3. **Clientes** — `create_customer(...)`. Solo hacen falta los de **cuenta
    corriente**; las ventas de mostrador no necesitan ficha. Cargue la
    **condición frente al IVA** de cada uno: define si se le factura A, B o C.
 

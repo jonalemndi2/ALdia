@@ -12,7 +12,7 @@ out at the worst possible time.
 ## Sales tax: one manual rate
 
 ALdia applies a single rate that the business typed into its configuration, to
-everything it sells. `ver_reglas_del_pais()` returns it along with
+everything it sells. `get_country_rules()` returns it along with
 `advertencias`.
 
 That is correct for a business with **one location, selling in person, with tax

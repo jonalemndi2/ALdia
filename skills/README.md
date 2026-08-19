@@ -18,7 +18,7 @@ es un EIN y no un CUIT, se aplica sales tax y no IVA, y **no existe el CAE**.
 Antes de dar de alta a nadie o emitir un comprobante:
 
 ```
-ver_reglas_del_pais()
+get_country_rules()
 ```
 
 Le dice el país, el nombre del identificador fiscal, qué impuesto se aplica y si
@@ -40,7 +40,7 @@ consecuencias en dinero y en obligaciones fiscales.**
 En la primera operación de cada sesión:
 
 ```
-verificar_conexion()
+check_connection()
 ```
 
 Devuelve con qué usuario y rol está operando, y **a qué módulos tiene acceso**.
@@ -54,7 +54,7 @@ de intentarlo y chocar con un rechazo.
 > Las skills de abajo asumen una instalación **argentina**. Para una
 > estadounidense, use `us-setup`, `us-customers-and-vendors` y
 > `us-sales-tax-and-1099`, y descarte las de AFIP, libro IVA y chequera.
-> Si no sabe en cuál está, `ver_reglas_del_pais()` se lo dice.
+> Si no sabe en cuál está, `get_country_rules()` se lo dice.
 
 ### Argentina
 
@@ -105,9 +105,9 @@ en regla cuando no lo está.
 
 ### 2. Confirme antes de destruir
 
-Las herramientas de anulación y borrado (`anular_factura`, `anular_cobro`,
-`anular_pago`, `anular_gasto`, `anular_compra`, `borrar_movimiento_caja`,
-`baja_usuario`) exigen `confirmar=true`. Ese parámetro representa una decisión
+Las herramientas de anulación y borrado (`void_invoice`, `void_payment`,
+`void_vendor_payment`, `void_expense`, `void_purchase`, `delete_cash_movement`,
+`delete_user`) exigen `confirmar=true`. Ese parámetro representa una decisión
 **del usuario**, no suya:
 
 1. Explique qué se va a anular y qué efectos revierte (stock, saldo, caja).

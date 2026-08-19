@@ -30,11 +30,11 @@ Dígalo si el usuario va a tomar una decisión seria basándose en el registro.
 ## Paso 1 — Buscar
 
 ```
-ver_auditoria(fecha_desde="2026-08-17", fecha_hasta="2026-08-17")   # un día
-ver_auditoria(usuario="caja1")                                      # una persona
-ver_auditoria(modulo="ventas", accion="anulacion")                  # un tipo de hecho
-ver_auditoria(resultado="rechazado")                                # intentos fallidos
-ver_auditoria(texto="factura 32")                                   # un registro puntual
+get_audit_log(fecha_desde="2026-08-17", fecha_hasta="2026-08-17")   # un día
+get_audit_log(usuario="caja1")                                      # una persona
+get_audit_log(modulo="ventas", accion="anulacion")                  # un tipo de hecho
+get_audit_log(resultado="rechazado")                                # intentos fallidos
+get_audit_log(texto="factura 32")                                   # un registro puntual
 ```
 
 Combine los filtros para acotar. Para "¿quién anuló la factura 32?", lo directo
@@ -57,7 +57,7 @@ sin autorización": eso es una interpretación.
 ## Paso 3 — Los intentos rechazados son lo más interesante
 
 ```
-ver_auditoria(resultado="rechazado", fecha_desde="...")
+get_audit_log(resultado="rechazado", fecha_desde="...")
 ```
 
 Un rechazo aislado suele ser un error honesto: alguien entró a la pantalla

@@ -11,14 +11,14 @@ debería haber en la caja**, y **si eso coincide con la plata contada**.
 
 ## Antes de empezar
 
-Si es la primera operación de la sesión, ejecute `verificar_conexion`. Ahí ve
+Si es la primera operación de la sesión, ejecute `check_connection`. Ahí ve
 con qué usuario y rol está operando. Si el rol no incluye `caja`, avise: sin ese
 módulo no va a poder registrar el ajuste.
 
 ## Paso 1 — Traer el movimiento del día
 
 ```
-ver_movimientos_del_dia(fecha="YYYY-MM-DD")   # omitir fecha = hoy
+get_daily_cash_movements(fecha="YYYY-MM-DD")   # omitir fecha = hoy
 ```
 
 Devuelve, para esa fecha: movimientos de caja, cobros, pagos, gastos, facturas,
@@ -48,7 +48,7 @@ mano:
 
 Por eso el neto de caja casi nunca es "cobros − pagos". Si no cierra, mire
 primero `totales.cobros_con_cheque_no_entran_a_caja` y confirme con
-`ver_chequera(solo_pendientes=true)`.
+`list_checks(solo_pendientes=true)`.
 
 **Una factura no es plata cobrada.** Si el usuario pregunta "cuánto vendí",
 `totales.facturado_total` es la venta; el dinero efectivamente recibido es
@@ -78,17 +78,17 @@ busque la operación faltante. Un ajuste es el último recurso, no el primero.
 
 Según lo que se descubra:
 
-- **Venta o cobro no registrado** → `registrar_cobro(cliente=..., monto=...,
+- **Venta o cobro no registrado** → `record_payment(cliente=..., monto=...,
   tipo="efectivo")` si era de un cliente de cuenta corriente; si fue venta de
-  mostrador sin cliente, `registrar_movimiento_caja(concepto="Venta de
+  mostrador sin cliente, `record_cash_movement(concepto="Venta de
   mostrador", ingreso=...)`.
 - **Gasto chico pagado de la caja** → si hay comprobante del proveedor,
-  `cargar_gasto(...)` (deja el IVA para el libro); si no lo hay,
-  `registrar_movimiento_caja(concepto="...", egreso=...)`.
-- **Retiro del dueño** → `registrar_movimiento_caja(concepto="Retiro de
+  `record_expense(...)` (deja el IVA para el libro); si no lo hay,
+  `record_cash_movement(concepto="...", egreso=...)`.
+- **Retiro del dueño** → `record_cash_movement(concepto="Retiro de
   efectivo", egreso=...)`.
 - **Diferencia que no se pudo explicar** → sólo con el visto bueno del usuario:
-  `registrar_movimiento_caja(concepto="Ajuste por arqueo de caja del
+  `record_cash_movement(concepto="Ajuste por arqueo de caja del
   DD/MM", ingreso=... | egreso=...)` por el valor de la diferencia.
 
 Nunca cargue un movimiento de caja para "duplicar" un cobro, un pago o un gasto:
@@ -114,7 +114,7 @@ Cierre del 17/08/2026
 ```
 
 Y agregue lo que haya que hacer mañana: cheques a depositar
-(`ver_chequera(solo_pendientes=true)`) y clientes que prometieron pagar.
+(`list_checks(solo_pendientes=true)`) y clientes que prometieron pagar.
 
 ## Errores frecuentes
 
@@ -122,6 +122,6 @@ Y agregue lo que haya que hacer mañana: cheques a depositar
   explícita en formato `YYYY-MM-DD`.
 - Confundir `saldo_acumulado_de_caja` (histórico) con el neto del día.
 - Registrar el ajuste antes de buscar la causa.
-- Anular movimientos para "arreglar" el cierre. `borrar_movimiento_caja` y
-  `anular_cobro` son destructivas: pida autorización explícita al usuario y
+- Anular movimientos para "arreglar" el cierre. `delete_cash_movement` y
+  `void_payment` son destructivas: pida autorización explícita al usuario y
   recién entonces pase `confirmar=true`.

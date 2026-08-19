@@ -12,7 +12,7 @@ registra un cobro. Un remito no genera deuda hasta que se factura.
 ## Paso 1 — Quién debe
 
 ```
-ver_deudores(monto_minimo=0, con_antiguedad=true)
+list_debtors(monto_minimo=0, con_antiguedad=true)
 ```
 
 Devuelve los clientes con saldo pendiente ordenados de mayor a menor, con CUIT,
@@ -37,7 +37,7 @@ Ordene el trabajo por riesgo, no sólo por monto:
 Antes de reclamarle a alguien, mire su historial:
 
 ```
-ver_saldo_cliente(cliente="<CUIT o nombre>", limite=10)
+get_customer_balance(cliente="<CUIT o nombre>", limite=10)
 ```
 
 Trae saldo, facturas recientes y cobros recientes. Sirve para dos cosas: no
@@ -64,15 +64,15 @@ Reglas:
 - No prometa descuentos, planes de pago ni intereses salvo que el usuario lo
   indique.
 - **Usted no envía nada.** Entregue los mensajes al usuario junto al teléfono o
-  mail de cada cliente (vienen en `ver_deudores` / `buscar_cliente`) y que él
+  mail de cada cliente (vienen en `list_debtors` / `find_customer`) y que él
   decida.
 - Si el cliente no tiene teléfono cargado, señálelo: es un dato que conviene
-  completar con `alta_cliente` o desde el sistema.
+  completar con `create_customer` o desde el sistema.
 
 ## Paso 4 — Registrar el cobro cuando pagan
 
 ```
-registrar_cobro(cliente="<CUIT o nombre>", monto=..., tipo="efectivo",
+record_payment(cliente="<CUIT o nombre>", monto=..., tipo="efectivo",
                 referencia="<recibo u operación>", fecha="YYYY-MM-DD")
 ```
 
@@ -97,14 +97,14 @@ devuelve un error listándolos: pregúntele cuál es en vez de adivinar.
 
 Después de una tanda de cobranzas:
 
-- `ver_chequera(solo_pendientes=true)` — cheques recibidos, con vencimiento, que
+- `list_checks(solo_pendientes=true)` — cheques recibidos, con vencimiento, que
   hay que depositar. Avise los que vencen esta semana.
-- `ver_deudores()` de nuevo — para mostrar cómo quedó la deuda total.
+- `list_debtors()` de nuevo — para mostrar cómo quedó la deuda total.
 
 ## Corregir un cobro mal cargado
 
 ```
-anular_cobro(orden_de_cobro=<n>, confirmar=true)
+void_payment(orden_de_cobro=<n>, confirmar=true)
 ```
 
 Devuelve el importe al saldo del cliente y borra el ingreso de caja. Es

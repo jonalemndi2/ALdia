@@ -10,9 +10,9 @@ comprobante** es, porque cada uno tiene efectos distintos:
 
 | Es...                                              | Herramienta          | Efectos                                                              |
 | -------------------------------------------------- | -------------------- | -------------------------------------------------------------------- |
-| Mercadería para revender (entra al depósito)        | `registrar_compra`   | **suma stock**, actualiza precio de compra, suma deuda al proveedor. No toca la caja. |
-| Un servicio o insumo que no va al stock (luz, flete, alquiler, limpieza) | `cargar_gasto` | guarda conceptos con su IVA, suma deuda al proveedor y **genera egreso de caja** por el total. |
-| El pago de cualquiera de los dos                   | `registrar_pago`     | baja la deuda del proveedor y sale de caja (o emite/endosa un cheque). |
+| Mercadería para revender (entra al depósito)        | `record_purchase`   | **suma stock**, actualiza precio de compra, suma deuda al proveedor. No toca la caja. |
+| Un servicio o insumo que no va al stock (luz, flete, alquiler, limpieza) | `record_expense` | guarda conceptos con su IVA, suma deuda al proveedor y **genera egreso de caja** por el total. |
+| El pago de cualquiera de los dos                   | `record_vendor_payment`     | baja la deuda del proveedor y sale de caja (o emite/endosa un cheque). |
 
 Si el usuario duda, la pregunta que decide es: **¿esto se revende?** Si sí, es
 compra; si no, es gasto.
@@ -20,14 +20,14 @@ compra; si no, es gasto.
 ## Paso 0 — Identificar al proveedor
 
 ```
-buscar_proveedor(texto="<nombre o CUIT>")
+find_vendor(texto="<nombre o CUIT>")
 ```
 
 Si no existe, deles de alta antes (los dos endpoints exigen un proveedor ya
 cargado):
 
 ```
-alta_proveedor(cuit="30-71234567-1", nombre="Distribuidora ...", telefono="...")
+create_vendor(cuit="30-71234567-1", nombre="Distribuidora ...", telefono="...")
 ```
 
 El CUIT se acepta con o sin guiones, pero ALdia **valida el dígito
@@ -38,7 +38,7 @@ pídale al usuario que relea el CUIT del comprobante, no lo invente ni lo
 ## Paso 1a — Compra de mercadería
 
 ```
-registrar_compra(
+record_purchase(
   proveedor="<CUIT o nombre>",
   numero_factura="A-0001-00000123",
   fecha="YYYY-MM-DD",
@@ -49,11 +49,11 @@ registrar_compra(
 - `precio` es el **costo unitario neto, sin IVA**. Si el usuario dicta el precio
   con IVA incluido, divídalo por la alícuota del artículo (`1 + iva/100`) y
   aclárele que lo hizo.
-- Los artículos deben existir. Si vino algo nuevo, `alta_producto` primero (con
+- Los artículos deben existir. Si vino algo nuevo, `create_product` primero (con
   `cantidad=0`) y después la compra: así el ingreso queda documentado.
 - El IVA lo calcula ALdia con la alícuota de cada artículo, y el total va a la
   deuda del proveedor. **No genera egreso de caja**: el pago se registra aparte.
-- Verifique con `buscar_producto(codigo=...)` que el stock quedó como esperaba y
+- Verifique con `find_product(codigo=...)` que el stock quedó como esperaba y
   muéstreselo al usuario.
 
 Si el precio de compra subió, el sistema actualiza `precio_compra` solo. Avise
@@ -63,7 +63,7 @@ al usuario cuánto subió: es el momento natural para revisar el precio de venta
 ## Paso 1b — Factura de gasto
 
 ```
-cargar_gasto(
+record_expense(
   proveedor="<CUIT o nombre>",
   numero_factura="B-0002-00000045",
   fecha="YYYY-MM-DD",
@@ -81,15 +81,15 @@ cargar_gasto(
   `neto = total / 1.21`. Diga en voz alta el neto y el IVA que va a cargar antes
   de ejecutar, así lo puede corregir.
 - Cargar bien el IVA importa: es lo que después aparece como **crédito fiscal**
-  en `consultar_libro_iva`. Un gasto cargado como un solo renglón "total" con
+  en `get_vat_book`. Un gasto cargado como un solo renglón "total" con
   IVA 0 le hace perder crédito fiscal al negocio.
 - Ojo: el gasto **genera el egreso de caja automáticamente**. Si además lo carga
-  con `registrar_movimiento_caja`, la caja queda descontada dos veces.
+  con `record_cash_movement`, la caja queda descontada dos veces.
 
 ## Paso 2 — Registrar el pago
 
 ```
-registrar_pago(proveedor="<CUIT o nombre>", monto=..., tipo="transferencia",
+record_vendor_payment(proveedor="<CUIT o nombre>", monto=..., tipo="transferencia",
                referencia="TRF-99881", fecha="YYYY-MM-DD")
 ```
 
@@ -97,7 +97,7 @@ registrar_pago(proveedor="<CUIT o nombre>", monto=..., tipo="transferencia",
 - `tipo="cheque"` + `banco` + `vencimiento` → registra un **cheque propio
   emitido**; no sale de caja hasta que se debita.
 - `cheque_id=<id>` → endosa un cheque de tercero que ya está en la chequera
-  (véalos con `ver_chequera(solo_pendientes=true)`); tampoco sale plata de caja
+  (véalos con `list_checks(solo_pendientes=true)`); tampoco sale plata de caja
   y el cheque queda marcado como usado.
 - **Pago parcial**: registre lo que realmente se pagó. La respuesta trae
   `saldo_proveedor_ahora`; informe el resto adeudado.
@@ -109,9 +109,9 @@ de dinero.
 
 Después de cargar una tanda:
 
-- `buscar_proveedor(texto="...")` → cómo quedó el saldo a pagar.
-- `ver_movimientos_del_dia()` → los egresos generados hoy.
-- `consultar_libro_iva(mes="YYYY-MM")` → el crédito fiscal acumulado del mes.
+- `find_vendor(texto="...")` → cómo quedó el saldo a pagar.
+- `get_daily_cash_movements()` → los egresos generados hoy.
+- `get_vat_book(mes="YYYY-MM")` → el crédito fiscal acumulado del mes.
 
 ## Dictado desde una foto o un texto de la factura
 
@@ -133,9 +133,9 @@ la cuenta del proveedor.
 
 ## Corregir un comprobante mal cargado
 
-- `anular_gasto(gasto_id=<id>, confirmar=true)` — borra el gasto, revierte la
+- `void_expense(gasto_id=<id>, confirmar=true)` — borra el gasto, revierte la
   deuda y el egreso de caja.
-- `anular_pago(orden_de_pago=<n>, confirmar=true)` — borra el pago, devuelve la
+- `void_vendor_payment(orden_de_pago=<n>, confirmar=true)` — borra el pago, devuelve la
   deuda y libera el cheque endosado si lo hubo.
 - Las compras **no** tienen anulación propia en la API: para revertir una,
   avísele al usuario que hay que hacerlo desde el módulo Administración con un
