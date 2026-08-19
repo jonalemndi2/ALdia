@@ -156,7 +156,7 @@ castellano —son instrucciones de negocio densas, y traducirlas mal es peor que
 no traducirlas— y la mayoría de los rótulos profundos de la UI. El mecanismo
 está; poblar los diccionarios es trabajo incremental que ya no requiere decisiones.
 
-### 3. El sales tax de esta rebanada NO sirve para cumplir 🟠
+### 3. El sales tax sigue sin servir para cumplir 🟠 (ahora con enchufe)
 
 Está dicho en `backend/paises/estados_unidos.py` y se publica en
 `GET /api/config/pais` — a propósito: un límite conocido que no se declara es
@@ -172,8 +172,19 @@ combinaciones), criterio de origen o destino según el estado, nexus económico,
 categorías exentas (alimentos, ropa, medicamentos) y certificados de exención de
 mayoristas.
 
-Nada de eso se codea adentro de ALdía y se mantiene actualizado. Para eso está
-la interfaz: se enchufa un proveedor especializado sin tocar el núcleo.
+Nada de eso se codea adentro de ALdía y se mantiene actualizado. **La interfaz
+ya está**: `backend/impuestos.py` define `CalculadorExterno` —dos métodos— y se
+enchufa con `registrar_calculador()` sin tocar una línea del núcleo.
+
+Dos reglas que la implementación tiene que respetar, y están probadas:
+
+- **Nunca bloqueante.** Si el proveedor no responde, tarda o falla, se cae a la
+  tasa manual y el comercio factura igual. Hay un cliente esperando el ticket.
+- **Cada cálculo dice de dónde salió** (`fuente`). Un importe de impuesto sin
+  saber quién lo calculó no se puede auditar ni corregir después.
+
+No hay ninguna integración concreta con un proveedor: escribirla sin una cuenta
+real contra la cual probarla sería escribir código que nadie ejecutó nunca.
 
 > **Tensión a decidir antes de enchufarlo.** ALdía es AGPL, corre en la PC del
 > comercio y funciona sin internet — tanto que en este mismo repo se le sacó la
@@ -202,16 +213,16 @@ primero, y lo que determina si el país es viable se prototipa temprano.
 1. ~~**Identidad**: PK subrogada + `tax_id`/`tax_id_type`~~ ✅ **hecho**.
 2. ~~**i18n**: catálogo de mensajes, aprovechando los códigos de error~~ ✅
    **mecanismo hecho**; falta poblar diccionarios y traducir las skills.
-3. **Dirección internacional**: `address_line_1/2`, `city`, `region`,
-   `postal_code`, `country_code`. Barato y no depende de nada.
-4. **Moneda explícita** en los importes que salen de la API. El núcleo de
-   centavos enteros ya sirve tal cual para ARS y USD.
-5. **Medios de pago**: generalizar a `PaymentMethod` y sumar ACH. El módulo de
-   cheques **no se tira** — en EE.UU. los cheques comerciales siguen existiendo;
-   lo que se internacionaliza son campos y estados.
-6. **Sales tax enchufable** con proveedor externo opcional (punto 3).
-7. **Datos de proveedores EE.UU.**: `legal_name`, `DBA`, `TIN`, estado del W-9,
-   elegibilidad 1099. Preparar el modelo; **no** generar 1099 todavía.
+3. ~~**Dirección internacional**~~ ✅ `address_line_1/2`, `city`, `region`,
+   `postal_code`, `country_code`. Las columnas viejas conviven y se sincronizan
+   en `backend/direcciones.py`: el frontend y el MCP siguen andando sin cambios.
+4. ~~**Moneda explícita**~~ ✅ `GET /api/config/pais` la publica. El núcleo de
+   centavos enteros servía tal cual para ARS y USD.
+5. ~~**Medios de pago**~~ ✅ `backend/medios_de_pago.py`, con ACH solo donde
+   tiene sentido. Los cheques **no se tiraron**.
+6. ~~**Sales tax enchufable**~~ ✅ interfaz lista, sin integración concreta.
+7. ~~**Datos de proveedores EE.UU.**~~ ✅ `legal_name`, `DBA`, W-9 y
+   elegibilidad 1099 en el modelo. **No** se genera ningún 1099.
 
 ## Lo que sigue igual, y no hay que romper
 
@@ -226,3 +237,34 @@ primero, y lo que determina si el país es viable se prototipa temprano.
 - **Los límites conocidos se publican.** `GET /api/config/pais` devuelve
   `advertencias`. Un paquete de país que no declara lo que no hace es una
   trampa para quien lo instale.
+
+---
+
+## Estado final
+
+| Paso | Estado |
+|---|---|
+| Núcleo + paquetes de país | ✅ |
+| Identidad subrogada + `tax_id_type` | ✅ |
+| i18n (mecanismo) | ✅ |
+| Dirección internacional | ✅ |
+| Moneda explícita | ✅ |
+| Medios de pago + ACH | ✅ |
+| Sales tax enchufable | ✅ interfaz; sin integración |
+| Datos W-9 / 1099 | ✅ modelo; sin generación |
+
+**Lo que queda, y por qué se dejó afuera a propósito:**
+
+- **Generar los 1099.** Tiene reglas de umbral, de tipo de proveedor y de plazos
+  que cambian todos los años. Emitir una declaración mal es peor que no emitirla.
+- **Integrar un proveedor de sales tax.** La interfaz está; falta una cuenta real
+  contra la cual probarla. Código que nadie ejecutó no se entrega como hecho.
+- **Traducir las 13 skills.** Son instrucciones de negocio densas; traducirlas
+  mal es peor que dejarlas en castellano.
+- **Renombrar la columna `cuit` a `tax_id`.** Mecánico: 14 destinos de FK, 48
+  referencias del MCP y el frontend. La API ya expone los nombres neutros, así
+  que es limpieza sin apuro.
+- **Un libro de banco.** Hoy `caja` es el único libro de dinero, así que una
+  transferencia se asienta ahí aunque el dinero esté en el banco. Está marcado
+  con `en_el_banco` en cada medio de pago: el día que exista el libro, es la
+  única bandera que hay que cambiar.

@@ -340,6 +340,10 @@ backend/            API FastAPI
   idempotencia.py   que un reintento no ejecute la operacion dos veces
   errores.py        codigos de error estables para agentes
   paises/           lo que cambia de un pais a otro (AR / US)
+  idiomas.py        mensajes por codigo de error, no por texto
+  direcciones.py    direccion internacional, compatible con la vieja
+  medios_de_pago.py efectivo, cheque, transferencia, ACH, tarjetas
+  impuestos.py      calculo local + enchufe para un proveedor externo
   respaldo.py       copia de seguridad automatica y verificada
   tiempo.py         el instante actual, en un solo formato
   afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
@@ -363,7 +367,7 @@ certificados/       certificados de AFIP (ignorado por git)
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-**196 pruebas** que cubren la exactitud de los importes, la autenticación y los
+**214 pruebas** que cubren la exactitud de los importes, la autenticación y los
 permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
 circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
 tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).

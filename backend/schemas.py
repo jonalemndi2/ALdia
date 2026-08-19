@@ -163,6 +163,14 @@ class ClienteCreate(BaseModel):
     telefono: str = ""
     mail: str = ""
     condicion_iva: str = "consumidor_final"
+    # Direccion internacional. Opcionales: si no vienen, se completan desde las
+    # columnas de siempre (ver backend/direcciones.py).
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     @field_validator("cuit")
     @classmethod
@@ -207,6 +215,14 @@ class ClienteUpdate(BaseModel):
     telefono: Optional[str] = None
     mail: Optional[str] = None
     condicion_iva: Optional[str] = None
+    # Direccion internacional. Opcionales: si no vienen, se completan desde las
+    # columnas de siempre (ver backend/direcciones.py).
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     @field_validator("condicion_iva")
     @classmethod
@@ -229,6 +245,12 @@ class ClienteResponse(BaseModel):
     mail: str
     saldo: DineroSalida
     condicion_iva: Optional[str] = "consumidor_final"
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     class Config:
         from_attributes = True
@@ -244,6 +266,19 @@ class ProveedorCreate(BaseModel):
     cp: str = ""
     telefono: str = ""
     mail: str = ""
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
+    # Datos que el IRS pide de un proveedor estadounidense. Modelo preparado;
+    # NO se genera ningun 1099 (ver la nota en models.py).
+    legal_name: Optional[str] = ""
+    dba: Optional[str] = ""
+    w9_recibido: Optional[bool] = False
+    w9_fecha: Optional[str] = ""
+    elegible_1099: Optional[bool] = False
 
     @field_validator("cuit")
     @classmethod
@@ -263,6 +298,17 @@ class ProveedorUpdate(BaseModel):
     cp: Optional[str] = None
     telefono: Optional[str] = None
     mail: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    postal_code: Optional[str] = None
+    country_code: Optional[str] = None
+    legal_name: Optional[str] = None
+    dba: Optional[str] = None
+    w9_recibido: Optional[bool] = None
+    w9_fecha: Optional[str] = None
+    elegible_1099: Optional[bool] = None
 
 class ProveedorResponse(BaseModel):
     # Identidad propia, independiente del identificador fiscal: es lo que
@@ -278,6 +324,17 @@ class ProveedorResponse(BaseModel):
     cp: str
     telefono: str
     mail: str
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
+    legal_name: Optional[str] = ""
+    dba: Optional[str] = ""
+    w9_recibido: Optional[bool] = False
+    w9_fecha: Optional[str] = ""
+    elegible_1099: Optional[bool] = False
     saldo: DineroSalida
 
     class Config:

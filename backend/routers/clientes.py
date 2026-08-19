@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from errores import ErrorDeNegocio
+import direcciones
+from paises import pais_configurado
 from database import get_db
 from migraciones import dependientes
 from models import Cliente
@@ -44,6 +46,9 @@ def create_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Ya existe un cliente con ese CUIT")
     
     new_cliente = Cliente(**cliente_data.model_dump())
+    # Las columnas de direccion viejas y las internacionales tienen que decir lo
+    # mismo mientras convivan. Ver backend/direcciones.py.
+    direcciones.sincronizar(new_cliente, pais_configurado().codigo)
     db.add(new_cliente)
     db.commit()
     db.refresh(new_cliente)
@@ -60,7 +65,8 @@ def update_cliente(cuit: str, cliente_data: ClienteUpdate, db: Session = Depends
     update_data = cliente_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(cliente, key, value)
-    
+
+    direcciones.sincronizar(cliente, pais_configurado().codigo)
     db.commit()
     db.refresh(cliente)
     return cliente

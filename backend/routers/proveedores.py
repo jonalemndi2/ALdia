@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+import direcciones
+from paises import pais_configurado
 from database import get_db
 from migraciones import dependientes
 from models import Proveedor
@@ -41,6 +43,9 @@ def create_proveedor(prov_data: ProveedorCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Ya existe un proveedor con ese CUIT")
     
     new_prov = Proveedor(**prov_data.model_dump())
+    # Las columnas de direccion viejas y las internacionales tienen que decir lo
+    # mismo mientras convivan. Ver backend/direcciones.py.
+    direcciones.sincronizar(new_prov, pais_configurado().codigo)
     db.add(new_prov)
     db.commit()
     db.refresh(new_prov)
@@ -56,7 +61,8 @@ def update_proveedor(cuit: str, prov_data: ProveedorUpdate, db: Session = Depend
     update_data = prov_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(proveedor, key, value)
-    
+
+    direcciones.sincronizar(proveedor, pais_configurado().codigo)
     db.commit()
     db.refresh(proveedor)
     return proveedor

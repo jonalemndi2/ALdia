@@ -50,7 +50,36 @@ COLUMNAS_NUEVAS = {
         # recalcular desde los movimientos. Ver backend/saldos.py.
         ("monto", "INTEGER DEFAULT 0"),
     ],
+    "proveedores": [
+        # Direccion internacional. El modelo viejo asume Argentina: "provincia"
+        # no existe en Estados Unidos y "codigo postal" no es un ZIP code. Las
+        # columnas viejas se conservan --las usa el frontend, el MCP y los
+        # comprobantes ya impresos-- y se pueblan las dos en paralelo.
+        ("address_line_1", "VARCHAR(300) DEFAULT ''"),
+        ("address_line_2", "VARCHAR(300) DEFAULT ''"),
+        ("city", "VARCHAR(120) DEFAULT ''"),
+        ("region", "VARCHAR(80) DEFAULT ''"),
+        ("postal_code", "VARCHAR(20) DEFAULT ''"),
+        ("country_code", "VARCHAR(2) DEFAULT ''"),
+        # Datos que el IRS pide de un proveedor estadounidense. El modelo queda
+        # PREPARADO; no se genera ningun 1099 (ver la nota en models.py).
+        ("legal_name", "VARCHAR(200) DEFAULT ''"),
+        ("dba", "VARCHAR(200) DEFAULT ''"),
+        ("w9_recibido", "BOOLEAN DEFAULT 0"),
+        ("w9_fecha", "VARCHAR(10) DEFAULT ''"),
+        ("elegible_1099", "BOOLEAN DEFAULT 0"),
+    ],
     "clientes": [
+        # Direccion internacional. El modelo viejo asume Argentina: "provincia"
+        # no existe en Estados Unidos y "codigo postal" no es un ZIP code. Las
+        # columnas viejas se conservan --las usa el frontend, el MCP y los
+        # comprobantes ya impresos-- y se pueblan las dos en paralelo.
+        ("address_line_1", "VARCHAR(300) DEFAULT ''"),
+        ("address_line_2", "VARCHAR(300) DEFAULT ''"),
+        ("city", "VARCHAR(120) DEFAULT ''"),
+        ("region", "VARCHAR(80) DEFAULT ''"),
+        ("postal_code", "VARCHAR(20) DEFAULT ''"),
+        ("country_code", "VARCHAR(2) DEFAULT ''"),
         # Condicion frente al IVA: define si corresponde factura A, B o C.
         # Las fichas ya cargadas quedan como consumidor final, que es el caso
         # mas comun y el mas seguro (factura B en vez de A).

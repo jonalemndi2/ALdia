@@ -89,6 +89,22 @@ class Cliente(Base):
     cp = Column(String(10), default="")
     telefono = Column(String(30), default="")
     mail = Column(String(100), default="")
+
+    # ── Direccion internacional ──────────────────────────────────────────
+    # El modelo viejo (domicilio / localidad / provincia / cp) asume Argentina:
+    # "provincia" no existe en Estados Unidos, donde la division es el estado, y
+    # "codigo postal" y "ZIP code" no tienen el mismo formato.
+    #
+    # Las columnas viejas NO se borran: las usa el frontend, las usan los
+    # comprobantes ya impresos y las usa el MCP. Se pueblan las dos en paralelo
+    # (ver `sincronizar_direccion`), y el rename es una limpieza posterior.
+    address_line_1 = Column(String(300), default="")
+    address_line_2 = Column(String(300), default="")
+    city = Column(String(120), default="")
+    region = Column(String(80), default="")        # provincia / state
+    postal_code = Column(String(20), default="")
+    country_code = Column(String(2), default="")   # ISO 3166-1 alfa-2
+
     # DATO DERIVADO. Es la suma de facturas menos cobros. Se guarda aparte
     # porque listar deudores recalculando cliente por cliente no escala, pero
     # por eso mismo puede desviarse: NO se escribe a mano desde los routers,
@@ -119,6 +135,22 @@ class Proveedor(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     cuit = Column(String(20), unique=True, nullable=False)
     tax_id_type = Column(String(10), default="CUIT", nullable=False)
+
+    # ── Datos que Estados Unidos necesita de un proveedor ────────────────
+    # El IRS distingue la razon social de la que el proveedor usa comercialmente
+    # (DBA, "doing business as"), y para las declaraciones informativas hay que
+    # tener el nombre legal exacto junto con su numero. Se toman del formulario
+    # W-9, que es lo que se le pide al proveedor cuando corresponde.
+    #
+    # DELIBERADAMENTE NO se genera ningun 1099 todavia: eso tiene reglas de
+    # umbral, de tipo de proveedor y de plazos que cambian todos los anios, y
+    # emitir una declaracion mal es peor que no emitirla. Lo que hay aca es el
+    # MODELO PREPARADO para cuando se decida hacerlo bien.
+    legal_name = Column(String(200), default="")   # razon social exacta
+    dba = Column(String(200), default="")          # nombre de fantasia
+    w9_recibido = Column(Boolean, default=False)
+    w9_fecha = Column(String(10), default="")
+    elegible_1099 = Column(Boolean, default=False)
     nombre = Column(String(200), nullable=False)
     domicilio = Column(String(300), default="")
     localidad = Column(String(100), default="")
@@ -126,6 +158,22 @@ class Proveedor(Base):
     cp = Column(String(10), default="")
     telefono = Column(String(30), default="")
     mail = Column(String(100), default="")
+
+    # ── Direccion internacional ──────────────────────────────────────────
+    # El modelo viejo (domicilio / localidad / provincia / cp) asume Argentina:
+    # "provincia" no existe en Estados Unidos, donde la division es el estado, y
+    # "codigo postal" y "ZIP code" no tienen el mismo formato.
+    #
+    # Las columnas viejas NO se borran: las usa el frontend, las usan los
+    # comprobantes ya impresos y las usa el MCP. Se pueblan las dos en paralelo
+    # (ver `sincronizar_direccion`), y el rename es una limpieza posterior.
+    address_line_1 = Column(String(300), default="")
+    address_line_2 = Column(String(300), default="")
+    city = Column(String(120), default="")
+    region = Column(String(80), default="")        # provincia / state
+    postal_code = Column(String(20), default="")
+    country_code = Column(String(2), default="")   # ISO 3166-1 alfa-2
+
     # DATO DERIVADO, igual que clientes.saldo. Ver backend/saldos.py.
     saldo = Column(Integer, default=0)  # centavos. Positivo = se le DEBE al proveedor
 

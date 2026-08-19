@@ -11,6 +11,7 @@ from typing import List, Dict
 from database import get_db
 from models import Configuracion, Usuario
 from errores import ErrorDeNegocio
+from medios_de_pago import medios_de
 from idiomas import CLAVE_CONFIG_IDIOMA, idioma_configurado, olvidar_idioma
 from paises import (CLAVE_CONFIG_PAIS, PaisNoSoportado, fijar_pais,
                     pais_configurado, reglas)
@@ -42,6 +43,11 @@ CONFIG_DEFAULT = {
     "negocio_iva": "Responsable Inscripto",
     "negocio_punto_venta": "0001",
     "negocio_moneda": "ARS",
+    # Tasa del impuesto sobre la venta cuando el pais no tiene una lista cerrada
+    # de alicuotas (Estados Unidos). Vacio = 0. Ver backend/impuestos.py, que
+    # explica por que esto NO alcanza para cumplir y como se enchufa un
+    # proveedor de calculo fiscal sin tocar el nucleo.
+    "negocio_tasa_impuesto": "",
 }
 
 
@@ -129,6 +135,16 @@ def describir_pais() -> Dict[str, object]:
             "tasas_sugeridas": list(p.impuesto.tasas_sugeridas),
             "lista_cerrada": p.impuesto.es_cerrado,
         },
+        # La moneda va explicita: el resto de la API devuelve importes como
+        # numeros pelados, y "1250.00" no dice si son pesos o dolares. Quien
+        # formatea --el navegador, un agente, un informe-- necesita saberlo.
+        "moneda": p.moneda,
+        "medios_de_pago": [
+            {"clave": m.clave, "nombre": m.nombre, "nombre_en": m.nombre_en,
+             "entra_a_caja": m.entra_a_caja, "es_valor": m.es_valor,
+             "en_el_banco": m.en_el_banco}
+            for m in medios_de(p.codigo)
+        ],
         "requiere_autorizacion_fiscal": p.requiere_autorizacion_fiscal,
         "organismo_fiscal": p.organismo_fiscal,
         "etiquetas": {
