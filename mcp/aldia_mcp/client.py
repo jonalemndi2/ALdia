@@ -43,6 +43,19 @@ class ALdiaConfigError(ALdiaError):
     """Falta configuracion (variables de entorno) para hablar con ALdia."""
 
 
+class ALdiaAmbiguo(ALdiaError):
+    """Varios registros coinciden: hay que preguntarle al usuario cual es.
+
+    Lleva los candidatos para que el asistente pueda ofrecer la eleccion en vez
+    de pedirle al usuario que escriba un CUIT de memoria.
+    """
+
+    def __init__(self, mensaje: str, etiqueta: str = "", candidatos: list | None = None):
+        super().__init__(mensaje)
+        self.etiqueta = etiqueta
+        self.candidatos = candidatos or []
+
+
 def _texto_de_error(respuesta: httpx.Response) -> str:
     """Extrae el mensaje real que devolvio la API.
 
@@ -341,11 +354,31 @@ class ALdiaClient:
             )
         if len(candidatos) > 1:
             lista = ", ".join(f"{c.get('nombre')} ({c.get('cuit')})" for c in candidatos[:10])
-            raise ALdiaError(
+            raise ALdiaAmbiguo(
                 f"'{texto}' coincide con {len(candidatos)} {etiqueta}s: {lista}. "
-                "Indique el CUIT exacto."
+                "Pregunte al usuario cuál es y vuelva a intentar con el CUIT exacto.",
+                etiqueta=etiqueta,
+                candidatos=[
+                    {"cuit": c.get("cuit"), "nombre": c.get("nombre"),
+                     "localidad": c.get("localidad", "")}
+                    for c in candidatos[:10]
+                ],
             )
         return candidatos[0]
+
+    def dejar_pendiente(self, metodo: str, ruta: str, cuerpo: dict, *,
+                        descripcion: str, candidatos: list, campo: str) -> dict:
+        """Guarda una operación que no se puede ejecutar hasta que se aclare algo.
+
+        La guarda EL SERVIDOR, no el agente: así sobrevive a un reinicio del
+        asistente, queda auditada, y confirmarla reejecuta exactamente la misma
+        operación en vez de una que el agente reconstruya de memoria.
+        """
+        return self.post("/api/pendientes/", {
+            "metodo": metodo, "ruta": ruta, "cuerpo": cuerpo,
+            "motivo": "AMBIGUEDAD", "descripcion": descripcion,
+            "candidatos": candidatos, "campo": campo,
+        })
 
     def resolver_cliente(self, texto: str) -> dict[str, Any]:
         return self._resolver_entidad("clientes", "cliente", texto)

@@ -29,9 +29,12 @@ ausencia de SQL arbitrario, concurrencia en SQLite— ya está resuelto.
 | Concurrencia (WAL, `busy_timeout`) | ✅ ya configurado |
 | Confirmación en operaciones destructivas | ✅ `confirmar=true` en 24 herramientas |
 | Errores legibles para el agente | ⚠️ legibles, pero sin código de máquina |
-| **Trazabilidad de la persona detrás del agente** | ❌ **falta** |
-| **Idempotencia (`operation_id`)** | ❌ **falta** |
-| **Estado de confirmación (drafts)** | ❌ **falta** |
+
+> **Los tres huecos que este documento identificaba están cerrados.** Lo que sigue
+> describe cómo quedaron resueltos y qué falta todavía.
+| Trazabilidad de la persona detrás del agente | ✅ resuelto |
+| Idempotencia (`X-Operation-Id`) | ✅ resuelto |
+| Estado de confirmación (operaciones pendientes) | ✅ resuelto |
 
 ---
 

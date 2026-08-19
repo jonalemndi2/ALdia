@@ -2553,6 +2553,61 @@ def ver_configuracion_negocio() -> dict[str, Any]:
     }
 
 
+# ═════════════════════════════════════════════════════════════
+# Operaciones que esperan una aclaracion
+# ═════════════════════════════════════════════════════════════
+
+_D_VER = (
+    "Lista las operaciones que quedaron trabadas esperando que el usuario aclare algo, "
+    "tipicamente cual de varios clientes o proveedores con nombre parecido es el correcto. "
+    "Cada una trae los candidatos entre los que hay que elegir y el campo a corregir. "
+    "Usela si el usuario retoma una conversacion anterior o si no recuerda el "
+    "identificador de una operacion que quedo a medias."
+)
+
+_D_CONFIRMAR = (
+    "Ejecuta una operacion que habia quedado esperando una aclaracion, aplicando el dato "
+    "que el usuario eligio. "
+    "IMPORTANTE: enviar SOLO el campo que se aclara, no la operacion entera. El servidor "
+    "guardo el resto y lo reejecuta tal cual, asi no hay riesgo de que algo cambie al "
+    "reconstruirla. "
+    "Ejemplo: si quedo pendiente por dos clientes llamados Jose Perez y el usuario eligio "
+    "el de JP Seguridad, enviar correcciones={'cliente': '30712345671'}. "
+    "Antes de confirmar, el usuario tiene que haber elegido de verdad: si no esta claro, "
+    "vuelva a preguntar en vez de adivinar."
+)
+
+_D_CANCELAR = (
+    "Descarta una operacion que habia quedado esperando una aclaracion, sin ejecutarla. "
+    "Usela cuando el usuario se arrepiente o dice que ya no hace falta."
+)
+
+
+@servidor.tool(title="Ver operaciones pendientes de aclaracion",
+               annotations=SOLO_LECTURA, description=_D_VER)
+def ver_operaciones_pendientes() -> dict[str, Any]:
+    return api().get("/api/pendientes/")
+
+
+@servidor.tool(title="Confirmar una operacion pendiente",
+               annotations=ESCRITURA, description=_D_CONFIRMAR)
+def confirmar_operacion_pendiente(
+    operacion_id: str,
+    correcciones: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """operacion_id: el que devolvio la operacion trabada.
+    correcciones: solo los campos que se aclaran, p. ej. {"cliente": "30712345671"}.
+    """
+    return api().post(f"/api/pendientes/{operacion_id}/confirmar",
+                      {"correcciones": correcciones or {}})
+
+
+@servidor.tool(title="Descartar una operacion pendiente",
+               annotations=ESCRITURA, description=_D_CANCELAR)
+def cancelar_operacion_pendiente(operacion_id: str) -> dict[str, Any]:
+    return api().post(f"/api/pendientes/{operacion_id}/cancelar", {})
+
+
 def main() -> None:
     """Punto de entrada: arranca el servidor MCP sobre stdio."""
     servidor.run()

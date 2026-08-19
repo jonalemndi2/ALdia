@@ -15,7 +15,8 @@ from database import engine, Base, SessionLocal, transaccion_de_escritura
 from migraciones import aplicar_migraciones, aplicar_claves_foraneas
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
-    cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip
+    cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip,
+    pendientes,
 )
 from routers.auth import current_user_dep
 from security import require_modulo
@@ -207,6 +208,12 @@ app.include_router(
 # declarado individualmente en routers/admin.py.
 app.include_router(
     admin.router, prefix="/api/admin", tags=["Administración"],
+    dependencies=[Depends(current_user_dep)],
+)
+# Operaciones que esperan una aclaracion. Solo exige estar autenticado: lo que
+# se puede o no ejecutar lo decide la ruta original al reejecutarse.
+app.include_router(
+    pendientes.router, prefix="/api/pendientes", tags=["Pendientes"],
     dependencies=[Depends(current_user_dep)],
 )
 app.include_router(modulos.router, prefix="/api/modulos", tags=["Módulos"])
