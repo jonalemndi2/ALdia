@@ -363,7 +363,7 @@ certificados/       certificados de AFIP (ignorado por git)
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-**169 pruebas** que cubren la exactitud de los importes, la autenticación y los
+**183 pruebas** que cubren la exactitud de los importes, la autenticación y los
 permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
 circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
 tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).

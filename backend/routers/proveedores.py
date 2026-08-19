@@ -8,7 +8,9 @@ from typing import List
 from database import get_db
 from migraciones import dependientes
 from models import Proveedor
-from schemas import ProveedorCreate, ProveedorUpdate, ProveedorResponse
+from errores import ErrorDeNegocio
+from schemas import (ProveedorCreate, ProveedorUpdate, ProveedorResponse,
+                     CorreccionIdentificador)
 
 router = APIRouter()
 
@@ -86,3 +88,55 @@ def delete_proveedor(cuit: str, db: Session = Depends(get_db)):
     db.delete(proveedor)
     db.commit()
     return {"message": "Proveedor eliminado correctamente"}
+
+
+@router.post("/{cuit}/identificacion", response_model=ProveedorResponse)
+def corregir_identificador(
+    cuit: str,
+    datos: CorreccionIdentificador,
+    db: Session = Depends(get_db),
+):
+    """Corregir el identificador fiscal de un proveedor que YA tiene movimientos.
+
+    Mismo problema y misma solucion que en clientes: hasta que la ficha tuvo
+    identidad propia, un proveedor cargado con el numero mal quedaba asi para
+    siempre --no se podia editar porque era la clave primaria, ni borrar porque
+    tenia compras asociadas. El cambio se propaga a compras, pagos y notas de
+    credito por ON UPDATE CASCADE.
+    """
+    proveedor = db.query(Proveedor).filter(Proveedor.cuit == cuit).first()
+    if not proveedor:
+        raise ErrorDeNegocio("PROVEEDOR_NO_EXISTE", f"No existe el proveedor {cuit}")
+
+    nuevo = datos.tax_id
+    if nuevo == proveedor.cuit:
+        raise ErrorDeNegocio(
+            "DATOS_INVALIDOS",
+            "El identificador nuevo es igual al actual: no hay nada que corregir.",
+        )
+
+    if db.query(Proveedor).filter(Proveedor.cuit == nuevo).first():
+        raise ErrorDeNegocio(
+            "YA_EXISTE", f"Ya hay otro proveedor con el identificador {nuevo}."
+        )
+
+    if datos.confirmar.strip() != nuevo:
+        arrastre = dependientes(db, "proveedores", proveedor.cuit)
+        detalle = ", ".join(f"{u['cantidad']} en {u['tabla']}" for u in arrastre)
+        raise ErrorDeNegocio(
+            "CONFIRMACION_REQUERIDA",
+            f"Esto cambia el identificador fiscal de '{proveedor.nombre}' "
+            f"({proveedor.cuit} -> {nuevo}) en comprobantes YA registrados"
+            + (f": {detalle}. " if detalle else ". ")
+            + f"Para confirmar, repita el valor nuevo en 'confirmar' "
+            f"exactamente como {nuevo}.",
+        )
+
+    arrastrados = dependientes(db, "proveedores", proveedor.cuit)
+    proveedor.cuit = nuevo
+    db.commit()
+    db.refresh(proveedor)
+
+    print(f"[proveedores] identificador corregido: {cuit} -> {nuevo} "
+          f"({proveedor.nombre}); arrastro {arrastrados}; motivo: {datos.motivo or 's/d'}")
+    return proveedor

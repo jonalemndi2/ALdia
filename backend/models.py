@@ -63,7 +63,25 @@ from database import Base
 class Cliente(Base):
     __tablename__ = "clientes"
 
-    cuit = Column(String(20), primary_key=True)
+    # IDENTIDAD SUBROGADA. Antes la clave primaria era el CUIT, y eso tenia una
+    # consecuencia que se comia el comercio: un cliente cargado con el numero
+    # mal tipeado que YA tenia facturas quedaba con ese numero para siempre. No
+    # se podia editar (la identidad no se edita) ni borrar (tiene movimientos).
+    #
+    # Con un id propio, el identificador fiscal pasa a ser un ATRIBUTO --unico,
+    # obligatorio y corregible-- en vez de ser quien es el cliente.
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Sigue llamandose `cuit` porque es el nombre que usan la API, el frontend y
+    # las 44 herramientas del MCP; renombrar la columna es mecanico y se hara
+    # aparte. Conceptualmente ya NO es "el CUIT": es el identificador fiscal que
+    # corresponda al pais de la instalacion (CUIT en Argentina, EIN en Estados
+    # Unidos). Ver backend/paises/ y `tax_id_type`.
+    cuit = Column(String(20), unique=True, nullable=False)
+
+    # De que tipo es el numero de arriba. Sin esto, una base no sabe decir si
+    # "123456789" es un EIN o un CUIT a medio cargar.
+    tax_id_type = Column(String(10), default="CUIT", nullable=False)
     nombre = Column(String(200), nullable=False)
     domicilio = Column(String(300), default="")
     localidad = Column(String(100), default="")
@@ -83,11 +101,24 @@ class Cliente(Base):
     # Valores validos en schemas.CONDICIONES_IVA.
     condicion_iva = Column(String(30), default="consumidor_final")
 
+    @property
+    def tax_id(self) -> str:
+        """El identificador fiscal, con un nombre que sirve en cualquier pais.
+
+        La columna se sigue llamando `cuit` por compatibilidad con el frontend y
+        las herramientas del MCP. Hacia afuera la API expone las dos: `cuit`
+        para lo que ya existe y `tax_id` para lo que se escriba de ahora en mas.
+        """
+        return self.cuit
+
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
 
-    cuit = Column(String(20), primary_key=True)
+    # Ver la nota de identidad subrogada en Cliente: vale igual aca.
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cuit = Column(String(20), unique=True, nullable=False)
+    tax_id_type = Column(String(10), default="CUIT", nullable=False)
     nombre = Column(String(200), nullable=False)
     domicilio = Column(String(300), default="")
     localidad = Column(String(100), default="")
@@ -98,6 +129,10 @@ class Proveedor(Base):
     # DATO DERIVADO, igual que clientes.saldo. Ver backend/saldos.py.
     saldo = Column(Integer, default=0)  # centavos. Positivo = se le DEBE al proveedor
 
+    @property
+    def tax_id(self) -> str:
+        """Ver Cliente.tax_id."""
+        return self.cuit
 
 class StockMercaderia(Base):
     __tablename__ = "stockmercaderia"
@@ -183,7 +218,7 @@ class Remito(Base):
 
     id = Column(Integer, primary_key=True)
     # RESTRICT: un cliente con remitos no se borra.
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     total = Column(Integer, default=0)  # centavos
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA liquidado, no la alicuota
@@ -203,7 +238,7 @@ class Venta(Base):
     nmov = Column(Integer)
     # SIN FK a proposito: 0 = "todavia no facturado". Ver encabezado del archivo.
     idfactura = Column(Integer, default=0)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
 
 
@@ -233,7 +268,7 @@ class Factura(Base):
     facturanumero = Column(Integer, primary_key=True)
     # RESTRICT: este es el caso del enunciado -- un cliente con facturas NO se
     # puede borrar. Su historico es la cuenta corriente y el libro de IVA.
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos. Neto gravado
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA, no la alicuota
@@ -256,7 +291,7 @@ class FacturaProveedor(Base):
     __tablename__ = "factprov"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA
@@ -280,7 +315,7 @@ class GastoFactura(Base):
     __tablename__ = "gastosfacturas"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     numfactura = Column(String(50), default="")
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos
@@ -324,7 +359,7 @@ class NNCV(Base):
     __tablename__ = "nncv"
 
     id = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     descripcion = Column(String(500))
     fecha = Column(String(10))
 
@@ -333,7 +368,7 @@ class NNDV(Base):
     __tablename__ = "nndv"
 
     id = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     descripcion = Column(String(500))
     fecha = Column(String(10))
 
@@ -342,7 +377,7 @@ class NFAN(Base):
     __tablename__ = "nfan"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer, default=0)  # centavos
     fecha = Column(String(10))
     referencia = Column(String(100), default="")
@@ -353,7 +388,7 @@ class NDProv(Base):
     __tablename__ = "ndprov"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer, default=0)  # centavos
     fecha = Column(String(10))
     referencia = Column(String(100), default="")
@@ -365,7 +400,7 @@ class NCP(Base):
     __tablename__ = "ncp"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     descripcion = Column(String(500), default="")
     # Columna NUEVA. Antes una devolucion RESTABA del saldo del proveedor pero
@@ -380,7 +415,7 @@ class Cobro(Base):
     __tablename__ = "cobros"
 
     ordcobro = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer)  # centavos
     fecha = Column(String(10))
     tipo = Column(String(50))
@@ -391,7 +426,7 @@ class Pago(Base):
     __tablename__ = "pagos"
 
     ordpago = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer)  # centavos
     fecha = Column(String(10))
     tipo = Column(String(50))
@@ -433,7 +468,7 @@ class FacNoRem(Base):
     codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"))
     producto = Column(String(200))
     cantnoretirada = Column(Float, default=0.0)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     nmov = Column(Integer)  # SIN FK: centinela 0. Ver encabezado del archivo.
 
@@ -445,7 +480,7 @@ class RemNoFac(Base):
     codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"))
     producto = Column(String(200))
     cantidad = Column(Float)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     idfactura = Column(Integer, default=0)  # SIN FK: centinela 0.
     nmov = Column(Integer)                  # SIN FK: centinela 0.

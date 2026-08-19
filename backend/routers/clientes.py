@@ -9,7 +9,8 @@ from errores import ErrorDeNegocio
 from database import get_db
 from migraciones import dependientes
 from models import Cliente
-from schemas import ClienteCreate, ClienteUpdate, ClienteResponse
+from schemas import (ClienteCreate, ClienteUpdate, ClienteResponse,
+                     CorreccionIdentificador)
 
 router = APIRouter()
 
@@ -90,3 +91,70 @@ def delete_cliente(cuit: str, db: Session = Depends(get_db)):
     db.delete(cliente)
     db.commit()
     return {"message": "Cliente eliminado correctamente"}
+
+
+@router.post("/{cuit}/identificacion", response_model=ClienteResponse)
+def corregir_identificador(
+    cuit: str,
+    datos: CorreccionIdentificador,
+    db: Session = Depends(get_db),
+):
+    """Corregir el identificador fiscal de un cliente que YA tiene movimientos.
+
+    POR QUE ESTO EXISTE COMO ENDPOINT APARTE
+    ----------------------------------------
+    Antes era IMPOSIBLE. El CUIT era la clave primaria, asi que no se podia
+    editar --el endpoint de actualizacion ni siquiera acepta el campo-- y borrar
+    la ficha para volver a cargarla lo impide la integridad referencial en
+    cuanto hay un comprobante emitido, con razon: una factura no puede quedar
+    sin titular. Un cliente cargado con un digito de mas quedaba mal para
+    siempre, y el unico arreglo era editar el archivo .db a mano.
+
+    Ahora la ficha tiene identidad propia (`id`) y el identificador es un
+    atributo. El cambio se propaga a facturas, remitos, cobros y pagos por
+    ON UPDATE CASCADE, dentro de la misma transaccion.
+
+    Se exige confirmacion textual a proposito: cambia un dato fiscal que ya
+    figura en comprobantes emitidos. Para un agente eso tiene que ser una
+    decision del usuario y no algo que deduzca solo (ver el codigo de error
+    CONFIRMACION_REQUERIDA, cuya accion es "preguntar").
+    """
+    cliente = db.query(Cliente).filter(Cliente.cuit == cuit).first()
+    if not cliente:
+        raise ErrorDeNegocio("CLIENTE_NO_EXISTE", f"No existe el cliente {cuit}")
+
+    nuevo = datos.tax_id
+    if nuevo == cliente.cuit:
+        raise ErrorDeNegocio(
+            "DATOS_INVALIDOS",
+            "El identificador nuevo es igual al actual: no hay nada que corregir.",
+        )
+
+    if db.query(Cliente).filter(Cliente.cuit == nuevo).first():
+        raise ErrorDeNegocio(
+            "YA_EXISTE", f"Ya hay otro cliente con el identificador {nuevo}."
+        )
+
+    if datos.confirmar.strip() != nuevo:
+        arrastre = dependientes(db, "clientes", cliente.cuit)
+        detalle = ", ".join(f"{u['cantidad']} en {u['tabla']}" for u in arrastre)
+        raise ErrorDeNegocio(
+            "CONFIRMACION_REQUERIDA",
+            f"Esto cambia el identificador fiscal de '{cliente.nombre}' "
+            f"({cliente.cuit} -> {nuevo}) en comprobantes YA emitidos"
+            + (f": {detalle}. " if detalle else ". ")
+            + f"Para confirmar, repita el valor nuevo en 'confirmar' "
+            f"exactamente como {nuevo}.",
+        )
+
+    # Se mide ANTES: despues del cambio la consulta ya no encuentra nada con el
+    # identificador viejo, justamente porque el cascade hizo su trabajo.
+    arrastrados = dependientes(db, "clientes", cliente.cuit)
+
+    cliente.cuit = nuevo
+    db.commit()
+    db.refresh(cliente)
+
+    print(f"[clientes] identificador corregido: {cuit} -> {nuevo} "
+          f"({cliente.nombre}); arrastro {arrastrados}; motivo: {datos.motivo or 's/d'}")
+    return cliente

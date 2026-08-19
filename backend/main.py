@@ -15,7 +15,8 @@ import uvicorn
 from database import engine, Base, SessionLocal, transaccion_de_escritura, DB_PATH
 from errores import instalar_errores
 from respaldo import respaldar_al_arrancar
-from migraciones import aplicar_migraciones, aplicar_claves_foraneas
+from migraciones import (aplicar_migraciones, aplicar_claves_foraneas,
+                         aplicar_identidad_subrogada)
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
     cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip,
@@ -45,6 +46,13 @@ aplicar_migraciones(engine)
 # si una tabla tiene datos que violarian las reglas nuevas, la deja como estaba y
 # lo informa por consola y en /api/admin/verificar-integridad.
 aplicar_claves_foraneas(engine)
+
+# Clave primaria propia para clientes y proveedores, en vez del identificador
+# fiscal. Es lo que permite CORREGIR un CUIT o un EIN mal cargado: hasta ahora
+# un cliente ya facturado quedaba con el numero equivocado para siempre.
+# Va despues de las claves foraneas porque necesita que esten declaradas para
+# recrearlas con ON UPDATE CASCADE. Tampoco aborta el arranque.
+aplicar_identidad_subrogada(engine)
 
 
 def inicializar_datos():

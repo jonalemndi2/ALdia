@@ -179,6 +179,25 @@ class ClienteCreate(BaseModel):
     def _cond(cls, v):
         return validar_condicion_iva(v)
 
+class CorreccionIdentificador(BaseModel):
+    """Corregir el identificador fiscal de una ficha que ya tiene movimientos.
+
+    Va en su propio schema y en su propio endpoint, separado de la edicion
+    comun, porque NO es lo mismo que corregir un telefono: cambia un dato fiscal
+    que ya figura en comprobantes emitidos. Por eso exige repetir el valor nuevo
+    y deja asentado el motivo.
+    """
+
+    tax_id: str
+    confirmar: str = ""
+    motivo: str = ""
+
+    @field_validator("tax_id")
+    @classmethod
+    def _id(cls, v):
+        return validar_cuit(v)
+
+
 class ClienteUpdate(BaseModel):
     nombre: Optional[str] = None
     domicilio: Optional[str] = None
@@ -195,7 +214,12 @@ class ClienteUpdate(BaseModel):
         return v if v is None else validar_condicion_iva(v)
 
 class ClienteResponse(BaseModel):
-    cuit: str
+    # Identidad propia, independiente del identificador fiscal: es lo que
+    # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
+    id: Optional[int] = None
+    cuit: str                       # compatibilidad: el nombre de siempre
+    tax_id: Optional[str] = None    # el mismo valor, con nombre neutro
+    tax_id_type: Optional[str] = None   # CUIT / EIN
     nombre: str
     domicilio: str
     localidad: str
@@ -241,7 +265,12 @@ class ProveedorUpdate(BaseModel):
     mail: Optional[str] = None
 
 class ProveedorResponse(BaseModel):
-    cuit: str
+    # Identidad propia, independiente del identificador fiscal: es lo que
+    # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
+    id: Optional[int] = None
+    cuit: str                       # compatibilidad: el nombre de siempre
+    tax_id: Optional[str] = None    # el mismo valor, con nombre neutro
+    tax_id_type: Optional[str] = None   # CUIT / EIN
     nombre: str
     domicilio: str
     localidad: str

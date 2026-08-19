@@ -65,7 +65,7 @@ país y no un fork.
 
 ## Lo que la rebanada destapó, y hay que resolver antes de seguir
 
-### 1. El identificador fiscal es la PRIMARY KEY 🔴
+### 1. El identificador fiscal era la PRIMARY KEY ✅ resuelto
 
 ```
 clientes.cuit      → PRIMARY KEY
@@ -75,21 +75,42 @@ proveedores.cuit   → PRIMARY KEY
 y **8 tablas** apuntan con `ForeignKey("clientes.cuit", ondelete="RESTRICT")`.
 Además es la identidad en la URL (`/api/clientes/{cuit}`) y en las tools del MCP.
 
-Hoy la rebanada **funciona igual**: un EIN entra y se guarda. Pero se guarda en
-una columna llamada `cuit`, y la API pide un campo llamado `cuit` para dar de
-alta a *Acme Plumbing LLC*. Anda, y es insostenible.
+Y no era una molestia estética: **un cliente cargado con el identificador mal
+tipeado que ya tenía facturas quedaba con ese número para siempre.** No se podía
+editar —la identidad de una fila no se edita, y `ClienteUpdate` ni siquiera
+aceptaba el campo— ni borrar y volver a cargar, porque la integridad referencial
+lo impide en cuanto hay un comprobante emitido. Con razón: una factura no puede
+quedar sin titular. El único arreglo era abrir el `.db` a mano.
 
-Generalizar esto no es agregar `tax_id_type`: es migrar una PK con 8 relaciones
-colgando, más el esquema de URLs, más el frontend, más el MCP. En SQLite no se
-puede `ALTER` una PK — hay que reconstruir la tabla.
+**Cómo quedó resuelto.** `clientes` y `proveedores` tienen ahora `id` entero
+propio como clave primaria; el identificador fiscal pasó a ser un atributo
+`UNIQUE NOT NULL`, y se sumó `tax_id_type` (CUIT / EIN), sembrado según el país.
+Las 14 claves foráneas se recrearon con `ON UPDATE CASCADE`, así que corregir un
+identificador arrastra facturas, remitos, cobros y pagos en una sola transacción.
 
-**La buena noticia:** `backend/migraciones.py` ya hace exactamente ese
-procedimiento para agregar claves foráneas reales, con verificación previa de
-huérfanos y sin abortar el arranque si algo no cierra. Hay patrón probado.
+`POST /api/clientes/{id}/identificacion` (y su par en proveedores) hace la
+corrección. Exige repetir el valor nuevo: cambia un dato fiscal que ya figura en
+comprobantes emitidos, y para un agente eso tiene que ser una decisión del
+usuario — el error es `CONFIRMACION_REQUERIDA`, cuya acción es `preguntar`.
 
-**Forma propuesta:** `id` entero subrogado como PK; `tax_id` + `tax_id_type`
-como atributo indexado. Es el paso de mayor radio de explosión y **debería ir
-primero**, no tercero: todo lo demás se vuelve fácil después.
+La migración (`aplicar_identidad_subrogada`) reconstruye las 16 tablas con los
+mismos candados que ya usaba el proyecto: recuento de filas, `foreign_key_check`
+y *rollback* total. Si hay identificadores repetidos o vacíos —lo típico de una
+base importada del sistema anterior— **no migra**, lo informa y deja la base como
+estaba, en vez de romperle el arranque al comercio.
+
+> **Lo que esto destapó.** La primera versión declaraba la columna con
+> `unique=True, index=True`. Con las dos cosas, SQLAlchemy emite la unicidad
+> como un `CREATE UNIQUE INDEX` **aparte**, que la reconstrucción de tablas no
+> ejecuta: `clientes` quedaba sin índice único y SQLite invalidaba todas las
+> claves foráneas que la referencian (`foreign key mismatch`). Lo atajó el
+> candado de la migración sobre una base real, no la suite — el test sintético
+> no tenía tablas hijas y por eso no lo veía. Ahora sí las tiene.
+
+**Lo que queda,** y es mecánico: la columna todavía se llama `cuit` en la base,
+por los 14 destinos de FK, las 48 referencias del MCP y el frontend. La API ya
+expone `tax_id` y `tax_id_type` al lado de `cuit`, así que lo nuevo se puede
+escribir con nombres neutros y el rename es una limpieza posterior sin apuro.
 
 ### 2. Todo el producto está en castellano y no hay i18n 🔴
 
@@ -150,7 +171,7 @@ buena parte del atractivo del proyecto.
 Difiere del orden intuitivo, y por dos motivos concretos: lo de mayor radio va
 primero, y lo que determina si el país es viable se prototipa temprano.
 
-1. **Identidad**: PK subrogada + `tax_id`/`tax_id_type` (punto 1). Bloqueante.
+1. ~~**Identidad**: PK subrogada + `tax_id`/`tax_id_type`~~ ✅ **hecho**.
 2. **i18n**: catálogo de mensajes, aprovechando los códigos de error (punto 2).
 3. **Dirección internacional**: `address_line_1/2`, `city`, `region`,
    `postal_code`, `country_code`. Barato y no depende de nada.

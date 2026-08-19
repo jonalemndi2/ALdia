@@ -533,3 +533,184 @@ def estado_claves_foraneas(engine, metadata=None) -> dict:
         "tablas_sin_fk": sin_fk,
         "claves_declaradas": sum(len(v) for v in plan.values()),
     }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Identidad subrogada de clientes y proveedores
+#
+# EL PROBLEMA QUE RESUELVE
+# ------------------------
+# Hasta esta migracion la clave primaria de `clientes` y `proveedores` era el
+# CUIT. Suena razonable --es unico por definicion-- y tiene una consecuencia que
+# el comercio se come de verdad: un cliente cargado con el numero MAL TIPEADO
+# que ya tiene facturas emitidas queda con ese numero para siempre. No se puede
+# editar, porque la identidad de una fila no se edita y el endpoint de
+# actualizacion ni siquiera acepta el campo. Y no se puede borrar y volver a
+# cargar, porque tiene movimientos y la integridad referencial lo impide --con
+# razon: los comprobantes emitidos no pueden quedar sin titular.
+#
+# El unico arreglo era editar el archivo .db a mano.
+#
+# QUE HACE
+# --------
+#   1. Le da a las dos tablas un `id` entero propio como clave primaria.
+#   2. El identificador fiscal pasa a ser un atributo UNIQUE y obligatorio.
+#   3. Agrega `tax_id_type` (CUIT / EIN), sembrado segun el pais configurado:
+#      sin eso, una base no puede decir si "123456789" es un EIN o un CUIT a
+#      medio cargar.
+#   4. Recrea las 14 tablas hijas con ON UPDATE CASCADE, para que corregir un
+#      identificador se propague a facturas, remitos, cobros y pagos en vez de
+#      dejar filas huerfanas.
+#
+# POR QUE ESTA APARTE DE aplicar_claves_foraneas
+# ----------------------------------------------
+# Aquella decide que recrear contando cuantas FK declara la tabla real. Aca las
+# FK ya estan declaradas: lo que cambia es su clausula ON UPDATE, que ese conteo
+# no ve. Comparte los candados --recuento de filas, foreign_key_check y rollback
+# total-- pero el disparador es otro.
+# ═════════════════════════════════════════════════════════════════════════════
+
+MARCA_IDENTIDAD = "identidad_subrogada_v1"
+
+# Las dos tablas que cambian de clave primaria, y las hijas que las referencian.
+_TABLAS_DE_IDENTIDAD = ("clientes", "proveedores")
+
+
+def _hijas_de(metadata, padres: tuple) -> list:
+    """Tablas con una FK hacia alguno de los padres, en orden de creacion."""
+    salida = []
+    for tabla in metadata.sorted_tables:
+        for fk in tabla.foreign_keys:
+            if fk.column.table.name in padres:
+                salida.append(tabla.name)
+                break
+    return salida
+
+
+def aplicar_identidad_subrogada(engine, metadata=None) -> dict:
+    """Migra clientes/proveedores a clave primaria propia. Nunca aborta el arranque."""
+    if metadata is None:
+        from database import Base
+        metadata = Base.metadata
+
+    resumen = {"aplicada": False, "recreadas": [], "motivo": ""}
+
+    inspector = inspect(engine)
+    tablas_reales = set(inspector.get_table_names())
+    if not set(_TABLAS_DE_IDENTIDAD) <= tablas_reales:
+        resumen["motivo"] = "base nueva: las tablas se crean ya con el esquema actual"
+        return resumen
+
+    # Ya migrada: `clientes` tiene la columna id.
+    columnas_clientes = {c["name"] for c in inspector.get_columns("clientes")}
+    if "id" in columnas_clientes:
+        resumen["motivo"] = "ya estaba"
+        return resumen
+
+    # Candado: un identificador duplicado o vacio impide poner el UNIQUE NOT
+    # NULL. Se avisa y se deja la base como estaba, en vez de romper el arranque
+    # del comercio a la manana.
+    with engine.connect() as conexion:
+        for tabla in _TABLAS_DE_IDENTIDAD:
+            malos = conexion.execute(text(
+                f'SELECT COUNT(*) FROM "{tabla}" WHERE cuit IS NULL OR TRIM(cuit) = ""'
+            )).scalar()
+            repetidos = conexion.execute(text(
+                f'SELECT COUNT(*) FROM (SELECT cuit FROM "{tabla}" '
+                f'GROUP BY cuit HAVING COUNT(*) > 1)'
+            )).scalar()
+            if malos or repetidos:
+                resumen["motivo"] = (
+                    f"{tabla}: {malos} fila(s) sin identificador y {repetidos} "
+                    f"identificador(es) repetido(s). Corrijalos y reinicie."
+                )
+                print(f"[migraciones] identidad subrogada NO aplicada — {resumen['motivo']}")
+                return resumen
+
+    # El tipo de identificador que corresponde a esta instalacion.
+    try:
+        from paises import pais_configurado
+        tipo = pais_configurado().identificador.nombre
+    except Exception:
+        tipo = "CUIT"
+
+    candidatas = list(_TABLAS_DE_IDENTIDAD) + [
+        t for t in _hijas_de(metadata, _TABLAS_DE_IDENTIDAD)
+        if t in tablas_reales and t not in _TABLAS_DE_IDENTIDAD
+    ]
+
+    bruta = engine.raw_connection()
+    try:
+        cursor = bruta.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.execute("BEGIN")
+        try:
+            for nombre in candidatas:
+                tabla = metadata.tables[nombre]
+                temporal = f"{nombre}{SUFIJO_TEMPORAL}"
+                columnas_modelo = [c.name for c in tabla.columns]
+                columnas_reales = {c["name"] for c in inspector.get_columns(nombre)}
+                comunes = [c for c in columnas_modelo if c in columnas_reales]
+                origen = [f'"{c}"' for c in comunes]
+                destino = list(origen)
+
+                # `tax_id_type` es NOT NULL y NO existe en la tabla vieja, asi que
+                # no entra en las columnas comunes. Hay que darle valor en el
+                # mismo INSERT: sembrarlo despues con un UPDATE no sirve, porque
+                # la restriccion se evalua al insertar. Este fue el primer
+                # intento y fallaba con "NOT NULL constraint failed".
+                parametros = ()
+                if nombre in _TABLAS_DE_IDENTIDAD and "tax_id_type" not in columnas_reales:
+                    destino.append('"tax_id_type"')
+                    origen.append("?")
+                    parametros = (tipo,)
+
+                antes = cursor.execute(f'SELECT COUNT(*) FROM "{nombre}"').fetchone()[0]
+
+                cursor.execute(f'DROP TABLE IF EXISTS "{temporal}"')
+                cursor.execute(_ddl_con_otro_nombre(tabla, engine.dialect, temporal))
+                cursor.execute(
+                    f'INSERT INTO "{temporal}" ({", ".join(destino)}) '
+                    f'SELECT {", ".join(origen)} FROM "{nombre}"',
+                    parametros,
+                )
+
+                despues = cursor.execute(f'SELECT COUNT(*) FROM "{temporal}"').fetchone()[0]
+                if antes != despues:
+                    raise RuntimeError(
+                        f"Copiando {nombre}: habia {antes} filas y se copiaron {despues}"
+                    )
+
+                cursor.execute(f'DROP TABLE "{nombre}"')
+                cursor.execute(f'ALTER TABLE "{temporal}" RENAME TO "{nombre}"')
+                resumen["recreadas"].append(nombre)
+
+            violaciones = cursor.execute("PRAGMA foreign_key_check").fetchall()
+            if violaciones:
+                raise RuntimeError(
+                    f"El esquema nuevo dejaria {len(violaciones)} violacion(es) de "
+                    f"integridad; se deshace la migracion. Ejemplos: {violaciones[:5]}"
+                )
+
+            cursor.execute("COMMIT")
+            resumen["aplicada"] = True
+        except Exception as exc:
+            cursor.execute("ROLLBACK")
+            resumen["recreadas"] = []
+            resumen["motivo"] = str(exc)
+            print(
+                "[migraciones] NO se pudo aplicar la identidad subrogada; la base "
+                f"quedo intacta. Motivo: {exc}"
+            )
+        finally:
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+    finally:
+        bruta.close()
+
+    if resumen["aplicada"]:
+        print(
+            f"[migraciones] Identidad subrogada aplicada ({tipo}) en "
+            f"{len(resumen['recreadas'])} tabla(s)."
+        )
+    return resumen
