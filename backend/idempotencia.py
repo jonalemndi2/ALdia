@@ -225,6 +225,37 @@ def reservar(
     operacion_id = operacion_id[:120]
     sesion = SessionLocal()
     try:
+        # ── Camino rapido: solo LEER, sin pedir el lock de escritura ────────
+        #
+        # No reabre la carrera, y conviene tener claro por que: este SELECT
+        # solo corta cuando ENCUENTRA una fila. Si la encuentra, alguien ya es
+        # duenio de la operacion y no hay nada que arbitrar. Si no encuentra
+        # nada, se sigue de largo al INSERT, que sigue siendo el arbitro.
+        #
+        # Existe porque sin el, todo reintento que llega MIENTRAS la primera
+        # peticion ejecuta tiene que pedir el mismo lock de escritura que esa
+        # peticion esta reteniendo, y se queda esperando hasta agotar el
+        # busy_timeout. O sea que la respuesta "ya se esta ejecutando", que
+        # deberia ser instantanea, era la mas lenta de todas. En una maquina
+        # rapida no se nota; con varias terminales y un disco lento, el
+        # reintento termina en "database is locked" en vez de en un 409.
+        #
+        # En WAL los lectores no esperan al escritor (ver database.py), asi que
+        # este camino no toma ningun lock.
+        previa = sesion.get(OperacionProcesada, operacion_id)
+        if previa is not None:
+            _verificar_huella(previa, operacion_id, huella)
+            if previa.estado != EN_CURSO:
+                sesion.expunge(previa)
+                return RESERVA_COMPLETADA, previa
+            corte = ahora_utc() - UMBRAL_ABANDONO
+            if previa.creada is not None and previa.creada >= corte:
+                return RESERVA_EN_CURSO, None
+            # Reserva vencida: cae al camino de abajo, que la retoma con el
+            # UPDATE condicional. Ese si necesita escribir, y esta bien: es un
+            # caso raro y hay que arbitrar de nuevo.
+            sesion.expunge(previa)
+
         # Dos vueltas: entre el INSERT que choca y la lectura de la fila, la
         # otra peticion puede haber fallado y LIBERADO la reserva. Ahi el
         # identificador vuelve a estar libre y nos toca tomarlo a nosotros.

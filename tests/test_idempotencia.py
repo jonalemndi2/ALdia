@@ -376,3 +376,50 @@ class TestCierreDeLaReserva:
         assert fila.estado == idempotencia.COMPLETADA
         assert fila.estado_http == 200
         assert fila.respuesta == r.text
+
+class TestElReintentoNoPeleaPorElLock:
+    """Un reintento que llega mientras la primera petición ejecuta.
+
+    Esto viene de un CI en rojo, intermitente y solo en el runner: la reserva
+    moría con `database is locked` y algún hilo quedaba colgado. La causa no era
+    el test sino el diseño: para contestar "ya se está ejecutando" había que
+    pedir el mismo lock de escritura que la petición en curso estaba reteniendo,
+    así que la respuesta que debería ser instantánea era la más lenta de todas.
+
+    En una máquina rápida no se nota nunca. Con varias terminales y un disco
+    lento, el reintento termina en un error en vez de en un 409.
+    """
+
+    def test_contesta_en_curso_con_el_lock_de_escritura_tomado(self, admin):
+        import sqlite3
+        import idempotencia
+        from database import DB_PATH, SessionLocal
+        from idempotencia import EN_CURSO, OperacionProcesada, reservar
+        from tiempo import ahora_utc
+
+        op = _op_id("bajo_lock")
+        sesion = SessionLocal()
+        sesion.add(OperacionProcesada(
+            operacion_id=op, metodo="POST", ruta="/api/cobros/", huella="h",
+            estado=EN_CURSO, estado_http=0, respuesta="", usuario="x",
+            creada=ahora_utc()))
+        sesion.commit()
+        sesion.close()
+
+        # Otra conexión retiene el lock, como haría la petición que está
+        # ejecutando la operación original.
+        bloqueante = sqlite3.connect(DB_PATH, timeout=30)
+        bloqueante.execute("PRAGMA journal_mode=WAL")
+        bloqueante.execute("BEGIN IMMEDIATE")
+        bloqueante.execute(
+            "INSERT INTO operaciones_procesadas (operacion_id, estado) "
+            "VALUES ('otra-cualquiera', 'en_curso')")
+        try:
+            veredicto, _ = reservar(op, "POST", "/api/cobros/", "h", "x")
+        finally:
+            bloqueante.rollback()
+            bloqueante.close()
+
+        # Sin el camino de solo lectura, esto levanta OperationalError
+        # ("database is locked") al agotar el busy_timeout.
+        assert veredicto == idempotencia.RESERVA_EN_CURSO
