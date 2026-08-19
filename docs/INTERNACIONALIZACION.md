@@ -265,8 +265,12 @@ primero, y lo que determina si el país es viable se prototipa temprano.
   es peor que no presentarla.
 - **Integrar un proveedor de sales tax.** La interfaz está; falta una cuenta real
   contra la cual probarla. Código que nadie ejecutó no se entrega como hecho.
-- **Traducir las 13 skills.** Son instrucciones de negocio densas; traducirlas
-  mal es peor que dejarlas en castellano.
+- ~~**Traducir las 13 skills.**~~ Resuelto de otra forma: no se tradujeron, se
+  **escribieron tres nuevas** (`us-setup`, `us-customers-and-vendors`,
+  `us-sales-tax-and-1099`). Traducir `libro-iva-y-contador` no tenía sentido
+  porque el libro IVA no existe allá; lo que hay que documentar es sales tax y
+  1099. Las de stock, cobranzas, caja y control interno sirven en los dos países
+  sin cambios: no tienen nada fiscal adentro.
 - **Renombrar la columna `cuit` a `tax_id`.** Mecánico: 14 destinos de FK, 48
   referencias del MCP y el frontend. La API ya expone los nombres neutros, así
   que es limpieza sin apuro.
@@ -299,3 +303,34 @@ Tres decisiones detrás de esto:
   el comercio ya dio por buenos.
 - **Un medio desconocido se asume efectivo.** Es la suposición conservadora: si
   alguien contó mal la caja, se nota al cerrarla.
+
+---
+
+## El MCP tenía reglas fiscales propias
+
+Al revisarlo apareció lo que `docs/AGENTES.md` prohíbe explícitamente. Las seis
+alícuotas de IVA argentinas estaban **escritas a mano en `server.py`** y se
+validaba contra esa lista *antes* de llamar a la API, en cinco lugares:
+
+```python
+ALICUOTAS_IVA = (0.0, 2.5, 5.0, 10.5, 21.0, 27.0)
+```
+
+En una instalación argentina daba el mismo resultado que el servidor, así que no
+se notaba. En una estadounidense, el 7 % de Florida —que el servidor acepta— era
+rechazado por el MCP antes de que la petición saliera.
+
+Ahora las reglas se le preguntan al servidor (`ver_reglas_del_pais()`, cacheado
+por sesión) y **si no se pueden averiguar, no se valida**: es preferible un viaje
+de ida y vuelta a rechazar acá una tasa perfectamente legítima del otro lado del
+mundo. Hay una prueba que lee el código fuente y falla si `_validar_iva` vuelve a
+mirar la lista argentina.
+
+Verificar el MCP contra un servidor real configurado como EE.UU. destapó otros
+dos, que las pruebas unitarias no veían:
+
+- Un cliente creado allá quedaba con `tax_id_type: "CUIT"` — el default de la
+  columna. La ficha decía que su EIN era un CUIT, que es exactamente el dato que
+  esa columna existe para responder.
+- El alta devolvía `comprobante_que_le_corresponde: "Factura B"`: una respuesta
+  argentina a una pregunta que en Estados Unidos no se hace.

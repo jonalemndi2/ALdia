@@ -76,6 +76,11 @@ class TestEstadosUnidos:
         assert r.status_code in (200, 201), r.text
         # Se normaliza a los 9 dígitos, igual que el CUIT a 11.
         assert r.json()["cuit"] == "123456789"
+        # Y queda registrado QUE tipo de número es. El default de la columna es
+        # "CUIT": si nadie lo setea desde el país, una ficha estadounidense dice
+        # que su EIN es un CUIT, que es justo lo que la columna existe para
+        # responder.
+        assert r.json()["tax_id_type"] == "EIN"
 
     def test_un_EIN_con_prefijo_inexistente_se_rechaza(self, admin, como_eeuu):
         r = admin.post("/api/clientes/", json={"cuit": "07-1234567", "nombre": "X"})

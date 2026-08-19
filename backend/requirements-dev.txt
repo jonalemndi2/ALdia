@@ -16,3 +16,12 @@ pytest>=8.0
 # en memoria, sin levantar el servidor. No es una dependencia del sistema:
 # solo aparece acá y en el servidor MCP.
 httpx>=0.27
+
+# mcp: el SDK del servidor MCP. Hace falta para poder PROBAR mcp/aldia_mcp/,
+# que hasta ahora no tenia ninguna prueba pese a ser la puerta por la que entran
+# las operaciones de un agente. No es una dependencia del backend.
+#
+# Ojo con una trampa: el repositorio tiene una carpeta llamada `mcp/`, que sin
+# el SDK instalado Python toma como paquete de espacio de nombres y tapa al
+# verdadero. Un paquete real tiene precedencia, asi que instalarlo lo resuelve.
+mcp>=1.2.0

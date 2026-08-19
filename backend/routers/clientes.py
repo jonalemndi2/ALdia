@@ -48,6 +48,11 @@ def create_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db)):
     new_cliente = Cliente(**cliente_data.model_dump())
     # Las columnas de direccion viejas y las internacionales tienen que decir lo
     # mismo mientras convivan. Ver backend/direcciones.py.
+    # El tipo de identificador lo decide el pais de la instalacion. Sin esto
+    # queda el default de la columna ("CUIT") y una ficha estadounidense dice
+    # que su EIN es un CUIT -- que es justo el dato que la columna existe para
+    # responder.
+    new_cliente.tax_id_type = pais_configurado().identificador.nombre
     direcciones.sincronizar(new_cliente, pais_configurado().codigo)
     db.add(new_cliente)
     db.commit()
