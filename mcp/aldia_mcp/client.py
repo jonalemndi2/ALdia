@@ -96,9 +96,37 @@ class ALdiaClient:
             except ValueError:
                 timeout = 30.0
 
+        # Origen de las operaciones, para que la auditoria de ALdia no registre
+        # todo como "la cuenta del agente". `ALDIA_CANAL` identifica la puerta
+        # de entrada (openclaw, whatsapp, telegram) y `ALDIA_AGENTE` al agente.
+        self._canal = (os.getenv("ALDIA_CANAL") or "openclaw").strip()[:30]
+        self._agente = (os.getenv("ALDIA_AGENTE") or "aldia-mcp").strip()[:60]
+        # Quien pidio la operacion, cuando el canal lo puede verificar (el numero
+        # de WhatsApp, el user_id de Telegram). Se fija por llamada con
+        # `fijar_solicitante()`: NUNCA lo deduce el modelo de la conversacion.
+        self._solicitante: str = ""
+
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout, follow_redirects=True)
         self._token: str | None = None
         self._token_vence: datetime | None = None
+
+    def fijar_solicitante(self, identificador: str) -> None:
+        """Declara quien pidio las operaciones siguientes.
+
+        El identificador debe venir del canal, que es lo unico verificable: el
+        numero de telefono que informa WhatsApp, el user_id que informa
+        Telegram. No debe salir de lo que el usuario escriba en el mensaje.
+
+        Sirve para ATRIBUIR, no para autorizar: los permisos los sigue
+        resolviendo ALdia contra la cuenta con la que este cliente se autentica.
+        """
+        self._solicitante = (identificador or "").strip()[:80]
+
+    def _cabeceras_de_origen(self) -> dict[str, str]:
+        cabeceras = {"X-ALdia-Canal": self._canal, "X-ALdia-Agente": self._agente}
+        if self._solicitante:
+            cabeceras["X-ALdia-Solicitante"] = self._solicitante
+        return cabeceras
         self._usuario_info: dict[str, Any] | None = None
         self._lock = threading.Lock()
 
@@ -180,7 +208,7 @@ class ALdiaClient:
                     ruta,
                     params=limpios or None,
                     json=json,
-                    headers={"Authorization": f"Bearer {tok}"},
+                    headers={"Authorization": f"Bearer {tok}", **self._cabeceras_de_origen()},
                 )
             except httpx.RequestError as exc:
                 raise ALdiaError(

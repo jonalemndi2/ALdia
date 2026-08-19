@@ -60,6 +60,8 @@ def _filtrar(
     accion: str | None,
     resultado: str | None,
     texto: str | None,
+    canal: str | None = None,
+    solicitante: str | None = None,
 ):
     q = db.query(RegistroAuditoria)
     # fecha_hora es 'YYYY-MM-DD HH:MM:SS': comparar contra 'YYYY-MM-DD' funciona
@@ -74,6 +76,12 @@ def _filtrar(
         q = q.filter(RegistroAuditoria.modulo == modulo)
     if accion:
         q = q.filter(RegistroAuditoria.accion == accion)
+    # Por donde entro la operacion (web, openclaw, whatsapp, telegram) y quien
+    # la pidio del otro lado del canal.
+    if canal:
+        q = q.filter(RegistroAuditoria.canal == canal)
+    if solicitante:
+        q = q.filter(RegistroAuditoria.solicitante == solicitante)
     if resultado:
         q = q.filter(RegistroAuditoria.resultado == resultado)
     if texto:
@@ -105,6 +113,12 @@ def _fila(r: RegistroAuditoria) -> dict:
         "ip": r.ip,
         "resultado": r.resultado,
         "codigo_http": r.codigo_http,
+        # Origen: `usuario` es la cuenta autenticada; si esa cuenta la usa un
+        # agente, `solicitante` dice qué persona del otro lado pidió la operación.
+        "actor_tipo": getattr(r, "actor_tipo", "persona") or "persona",
+        "canal": getattr(r, "canal", "web") or "web",
+        "agente": getattr(r, "agente", "") or "",
+        "solicitante": getattr(r, "solicitante", "") or "",
     }
 
 
@@ -117,6 +131,8 @@ def consultar_auditoria(
     accion: str = Query(None),
     resultado: str = Query(None, description="exito | rechazado"),
     texto: str = Query(None, description="Busqueda libre en descripcion/numero/ruta"),
+    canal: str = Query(None, description="web | openclaw | whatsapp | telegram"),
+    solicitante: str = Query(None, description="Quien pidio la operacion (numero, user_id)"),
     pagina: int = Query(1, ge=1),
     por_pagina: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -127,7 +143,8 @@ def consultar_auditoria(
     El registro crece indefinidamente (una fila por escritura), por eso la
     consulta es siempre paginada: nunca devuelve la tabla entera.
     """
-    q = _filtrar(db, desde, hasta, usuario, modulo, accion, resultado, texto)
+    q = _filtrar(db, desde, hasta, usuario, modulo, accion, resultado, texto,
+                 canal, solicitante)
     total = q.count()
     filas = (
         q.order_by(RegistroAuditoria.fecha_hora.desc(), RegistroAuditoria.id.desc())

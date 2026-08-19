@@ -127,11 +127,20 @@ class RegistroAuditoria(BaseAuditoria):
     resultado = Column(String(20), default=RESULTADO_EXITO)  # exito | rechazado
     codigo_http = Column(Integer, default=None)
 
+    # Origen: por donde entro la operacion y quien la pidio realmente.
+    # `usuario` es la cuenta con la que se autentico; si esa cuenta la usa un
+    # agente, `solicitante` dice que persona del otro lado la pidio.
+    actor_tipo = Column(String(20), default="persona")   # persona | agente
+    canal = Column(String(30), default="web")            # web | openclaw | whatsapp | telegram
+    agente = Column(String(60), default="")              # nombre del agente que ejecuto
+    solicitante = Column(String(80), default="")         # numero de WhatsApp, user_id de Telegram...
+
 
 Index("ix_auditoria_fecha_hora", RegistroAuditoria.fecha_hora)
 Index("ix_auditoria_usuario", RegistroAuditoria.usuario)
 Index("ix_auditoria_modulo", RegistroAuditoria.modulo)
 Index("ix_auditoria_accion", RegistroAuditoria.accion)
+Index("ix_auditoria_canal", RegistroAuditoria.canal)
 
 
 class AuditoriaInmutableError(RuntimeError):
@@ -447,6 +456,74 @@ def _usuario_del_token(cabeceras: dict[bytes, bytes]) -> str:
         return ""
 
 
+# ─────────────────────────────────────────────────────────────
+# Origen de la operacion: por que canal entro y quien la pidio.
+#
+# ALdia se opera por varios caminos — el navegador, un asistente propio, un
+# canal de consulta por WhatsApp o Telegram. Sin esto, TODO lo que entra por un
+# agente queda registrado como la cuenta con la que ese agente se autentica: si
+# tres personas usan el mismo asistente, las tres identidades colapsan en una.
+#
+# REGLA DE SEGURIDAD:
+#   Estas cabeceras sirven para ATRIBUIR, nunca para AUTORIZAR. Los permisos se
+#   siguen resolviendo contra el usuario del token (ver security.py). Aunque
+#   alguien falsee una cabecera no gana ningun acceso: como mucho ensucia la
+#   atribucion de una operacion que su rol ya tenia permitida.
+#
+#   Por eso la identidad del solicitante tiene que venir del CANAL, que es lo
+#   unico verificable — el numero lo verifica WhatsApp, el user_id lo verifica
+#   Telegram, la sesion la verifica ALdia — y nunca de algo que el modelo
+#   deduzca de la conversacion. "Soy el dueño, carga esto" no es una identidad.
+# ─────────────────────────────────────────────────────────────
+
+CANAL_WEB = "web"
+ACTOR_PERSONA = "persona"
+ACTOR_AGENTE = "agente"
+
+# Columnas de origen agregadas despues de la primera version de la tabla. Los
+# registros viejos quedan como 'persona' por el navegador, que es lo que eran:
+# antes de esto no habia ningun otro canal.
+_COLUMNAS_DE_ORIGEN = [
+    ("actor_tipo", "VARCHAR(20) DEFAULT 'persona'"),
+    ("canal", "VARCHAR(30) DEFAULT 'web'"),
+    ("agente", "VARCHAR(60) DEFAULT ''"),
+    ("solicitante", "VARCHAR(80) DEFAULT ''"),
+]
+
+
+def _migrar_columnas_de_origen(engine) -> None:
+    """Agrega las columnas de origen si la tabla ya existia sin ellas."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "auditoria" not in set(inspector.get_table_names()):
+        return
+    existentes = {c["name"] for c in inspector.get_columns("auditoria")}
+    faltantes = [(n, t) for n, t in _COLUMNAS_DE_ORIGEN if n not in existentes]
+    if not faltantes:
+        return
+    with engine.begin() as con:
+        for nombre, tipo in faltantes:
+            con.execute(text(f"ALTER TABLE auditoria ADD COLUMN {nombre} {tipo}"))
+
+
+def _origen_de(cabeceras: dict[bytes, bytes]) -> dict:
+    """Canal, agente y solicitante externo declarados por quien llama."""
+    def _cab(nombre: str, limite: int) -> str:
+        return cabeceras.get(nombre.encode(), b"").decode("latin-1").strip()[:limite]
+
+    canal = _cab("x-aldia-canal", 30) or CANAL_WEB
+    agente = _cab("x-aldia-agente", 60)
+    solicitante = _cab("x-aldia-solicitante", 80)
+
+    return {
+        "actor_tipo": ACTOR_AGENTE if (agente or canal != CANAL_WEB) else ACTOR_PERSONA,
+        "canal": canal,
+        "agente": agente,
+        "solicitante": solicitante,
+    }
+
+
 def _ip_de(scope: dict, cabeceras: dict[bytes, bytes]) -> str:
     cliente = scope.get("client")
     directa = cliente[0] if cliente else "desconocida"
@@ -666,6 +743,7 @@ class AuditoriaMiddleware:
             "tipo_registro": tipo,
             "numero_registro": str(numero)[:60],
             "ip": _ip_de(scope, cabeceras),
+            **_origen_de(cabeceras),
             "resultado": RESULTADO_EXITO if exito else RESULTADO_RECHAZADO,
             "codigo_http": estado,
             "valor_anterior": None,
@@ -763,6 +841,7 @@ def instalar_auditoria(app) -> None:
     """
     # Tabla en su propio MetaData: reset-db no puede llevarsela puesta.
     BaseAuditoria.metadata.create_all(bind=engine)
+    _migrar_columnas_de_origen(engine)
     _sembrar_modulo()
 
     from routers import auditoria as router_auditoria
