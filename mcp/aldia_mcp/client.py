@@ -105,10 +105,15 @@ class ALdiaClient:
         # de WhatsApp, el user_id de Telegram). Se fija por llamada con
         # `fijar_solicitante()`: NUNCA lo deduce el modelo de la conversacion.
         self._solicitante: str = ""
+        # Usuario de ALdia por el que actua el agente (ver fijar_actor).
+        self._actor: str = ""
+        self._operacion_id: str = ""
 
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout, follow_redirects=True)
         self._token: str | None = None
         self._token_vence: datetime | None = None
+        self._usuario_info: dict[str, Any] | None = None
+        self._lock = threading.Lock()
 
     def fijar_solicitante(self, identificador: str) -> None:
         """Declara quien pidio las operaciones siguientes.
@@ -122,13 +127,24 @@ class ALdiaClient:
         """
         self._solicitante = (identificador or "").strip()[:80]
 
+    def fijar_actor(self, usuario: str) -> None:
+        """Declara por que USUARIO DE ALdia actua el agente.
+
+        Los permisos efectivos pasan a ser la interseccion de los de esta cuenta
+        y los de ese usuario: el agente nunca puede hacer mas de lo que su propia
+        credencial permite, ni mas de lo que permite la persona por la que actua.
+        """
+        self._actor = (usuario or "").strip()[:80]
+
     def _cabeceras_de_origen(self) -> dict[str, str]:
         cabeceras = {"X-ALdia-Canal": self._canal, "X-ALdia-Agente": self._agente}
         if self._solicitante:
             cabeceras["X-ALdia-Solicitante"] = self._solicitante
+        if getattr(self, "_actor", ""):
+            cabeceras["X-Actor-User-ID"] = self._actor
+        if getattr(self, "_operacion_id", ""):
+            cabeceras["X-Operation-Id"] = self._operacion_id
         return cabeceras
-        self._usuario_info: dict[str, Any] | None = None
-        self._lock = threading.Lock()
 
     # ─────────────────────────────────────────────────────────────
     # Autenticacion
@@ -265,7 +281,15 @@ class ALdiaClient:
         return self.request("GET", ruta, params=params)
 
     def post(self, ruta: str, cuerpo: Any = None, **params: Any) -> Any:
-        return self.request("POST", ruta, params=params, json=cuerpo)
+        # Toda escritura lleva un identificador de operacion: si la respuesta se
+        # pierde y esto se reintenta, ALdia devuelve el resultado original en vez
+        # de ejecutar otra vez. Es lo que evita un cobro o una factura duplicada.
+        import uuid
+        self._operacion_id = f"mcp_{uuid.uuid4().hex}"
+        try:
+            return self.request("POST", ruta, params=params, json=cuerpo)
+        finally:
+            self._operacion_id = ""
 
     def put(self, ruta: str, cuerpo: Any = None) -> Any:
         return self.request("PUT", ruta, json=cuerpo)

@@ -118,24 +118,83 @@ def require_modulo(clave: str):
         user: Usuario = Depends(current_user_dep),
         db: Session = Depends(get_db),
     ) -> Usuario:
-        rol = (user.rol or "").lower()
-        if rol == "administrador":
-            return user
-
-        if request.method in METODOS_DE_ESCRITURA and rol == ROL_SOLO_LECTURA:
-            raise HTTPException(
-                status_code=403,
-                detail="El rol auditor es de solo consulta: no puede modificar datos",
-            )
-
-        if rol not in _roles_del_modulo(db, clave):
-            raise HTTPException(
-                status_code=403,
-                detail=f"Su rol ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",
-            )
+        # Un agente puede declarar por que persona actua. Se verifica que ambos
+        # tengan permiso: ver resolver_actor().
+        actor = resolver_actor(request, db, user)
+        for quien in _sujetos_a_verificar(user, actor):
+            _verificar_acceso(quien, clave, request.method, db)
         return user
 
     return _dep
+
+
+def _sujetos_a_verificar(credencial: Usuario, actor: Usuario | None) -> list[Usuario]:
+    """Los permisos efectivos son la INTERSECCION de la credencial y el actor.
+
+    Si un agente se autentica con su cuenta de servicio y declara actuar por
+    Juan, la operacion debe estar permitida para LOS DOS. Nunca alcanza con uno.
+
+    Por que no basta con mirar solo al actor, que es lo que parece mas natural:
+    si los permisos salieran unicamente de una cabecera, la credencial del
+    agente se convertiria en una llave de suplantacion universal — cualquiera
+    que la tuviera declararia ser el administrador y operaria como tal. La
+    interseccion da permisos reales por persona SIN abrir esa puerta: el agente
+    nunca puede hacer mas de lo que su propia cuenta permite.
+    """
+    if actor is None or actor.id == credencial.id:
+        return [credencial]
+    return [credencial, actor]
+
+
+def _verificar_acceso(user: Usuario, clave: str, metodo: str, db: Session) -> None:
+    rol = (user.rol or "").lower()
+    if rol == "administrador":
+        return
+
+    if metodo in METODOS_DE_ESCRITURA and rol == ROL_SOLO_LECTURA:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{user.username} tiene rol auditor, de solo consulta: no puede modificar datos",
+        )
+
+    if rol not in _roles_del_modulo(db, clave):
+        raise HTTPException(
+            status_code=403,
+            detail=f"{user.username} ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",
+        )
+
+
+# Cabecera con la que un agente declara por que PERSONA esta actuando.
+CABECERA_ACTOR = "x-actor-user-id"
+
+
+def resolver_actor(request: Request, db: Session, credencial: Usuario) -> Usuario | None:
+    """La persona por la que actua un agente, si la declaro.
+
+    Acepta el id numerico o el nombre de usuario. Se valida que exista de
+    verdad: si la cabecera nombra a alguien inexistente, se rechaza en vez de
+    seguir silenciosamente como la cuenta del agente, porque entonces la
+    operacion quedaria atribuida a quien no fue.
+    """
+    declarado = (request.headers.get(CABECERA_ACTOR) or "").strip()
+    if not declarado:
+        return None
+
+    consulta = db.query(Usuario)
+    actor = (
+        consulta.filter(Usuario.id == int(declarado)).first()
+        if declarado.isdigit()
+        else consulta.filter(Usuario.username == declarado).first()
+    )
+    if actor is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El usuario declarado en {CABECERA_ACTOR} no existe ({declarado}). "
+                "La operacion no se ejecuta para no quedar atribuida a nadie."
+            ),
+        )
+    return actor
 
 
 # ─────────────────────────────────────────────────────────────

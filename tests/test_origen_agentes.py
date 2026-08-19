@@ -110,6 +110,23 @@ class TestLasCabecerasNoAutorizan:
             "salir del token, no de lo que declare quien llama."
         )
 
+    def test_declarar_al_admin_no_convierte_en_admin(self, app_cliente, token_consulta):
+        """La prueba central de todo el diseño.
+
+        `X-Actor-User-ID` es la cabecera con la que un agente declara por quién
+        actúa. Si de ella salieran los permisos, la credencial del agente sería
+        una llave de suplantación universal: bastaría declarar ser el
+        administrador. Los permisos son la INTERSECCIÓN, así que el bot de
+        consulta sigue sin poder escribir aunque diga ser el dueño.
+        """
+        r = app_cliente.post("/api/caja/", json={"fecha": "2026-08-18", "debe": 100},
+                             headers={"Authorization": f"Bearer {token_consulta}",
+                                      "X-Actor-User-ID": "admin"})
+        assert r.status_code == 403, (
+            "La credencial del agente se convirtió en una llave de suplantación: "
+            "declarar ser el admin le dio permisos de admin"
+        )
+
     def test_el_intento_rechazado_tambien_queda_registrado(self, app_cliente, token_consulta, admin):
         app_cliente.post("/api/caja/", json={"fecha": "2026-08-18", "debe": 600},
                          headers={"Authorization": f"Bearer {token_consulta}",
@@ -120,3 +137,55 @@ class TestLasCabecerasNoAutorizan:
         filas = r.json()["filas"]
         assert filas, "No quedó registrado el intento rechazado del canal de consulta"
         assert filas[0]["solicitante"] == "+5490000000"
+
+
+class TestActorYPermisos:
+    """La persona por la que actúa un agente, y qué puede hacer.
+
+    Un agente puede declarar `X-Actor-User-ID`. Los permisos efectivos son la
+    INTERSECCIÓN de los de su credencial y los de esa persona.
+    """
+
+    @pytest.fixture(scope="class")
+    def deposito(self, admin, app_cliente):
+        """Un empleado de depósito: solo stock, nada de caja."""
+        prov, defi = "clave-provisoria-dep", "clave-definitiva-dep"
+        admin.post("/api/auth/register",
+                   json={"username": "deposito1", "password": prov,
+                         "rol": "encargado_deposito"})
+        r = app_cliente.post("/api/auth/login",
+                             json={"username": "deposito1", "password": prov},
+                             headers={"Authorization": ""})
+        tok = r.json()["access_token"]
+        app_cliente.post("/api/auth/cambiar-password",
+                         json={"password_actual": prov, "password_nueva": defi},
+                         headers={"Authorization": f"Bearer {tok}"})
+        return "deposito1"
+
+    def test_el_admin_actuando_por_deposito_no_puede_tocar_caja(self, admin, deposito):
+        """Aunque la credencial sea de administrador, el actor no llega a caja."""
+        r = admin.post("/api/caja/", json={"fecha": "2026-08-18", "debe": 100},
+                       headers={"X-Actor-User-ID": deposito})
+        assert r.status_code == 403, (
+            "Un agente con credencial de admin ejecutó en caja una operación "
+            "para alguien que no tiene ese permiso"
+        )
+
+    def test_declarar_un_usuario_inexistente_se_rechaza(self, admin):
+        """Si no se sabe a quién atribuirla, no se ejecuta."""
+        r = admin.post("/api/caja/", json={"fecha": "2026-08-18", "debe": 100},
+                       headers={"X-Actor-User-ID": "no_existe_nadie_asi"})
+        assert r.status_code == 400
+
+    def test_el_actor_queda_en_la_auditoria(self, admin, deposito):
+        admin.post("/api/stock/",
+                   json={"codigo": 770001, "producto": "Alta por el agente"},
+                   headers={"X-Actor-User-ID": deposito,
+                            "X-ALdia-Canal": "openclaw",
+                            "X-ALdia-Agente": "asistente"})
+        fila = _ultima_fila(admin)
+        assert fila["solicitante"] == deposito
+        assert fila["actor_tipo"] == "agente"
+
+    # La prueba de que un canal de consulta no escala declarando ser el admin
+    # vive en TestLasCabecerasNoAutorizan, donde está la credencial de ese canal.

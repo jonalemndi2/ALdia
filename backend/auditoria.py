@@ -514,10 +514,14 @@ def _origen_de(cabeceras: dict[bytes, bytes]) -> dict:
 
     canal = _cab("x-aldia-canal", 30) or CANAL_WEB
     agente = _cab("x-aldia-agente", 60)
-    solicitante = _cab("x-aldia-solicitante", 80)
+    # Quien pidio la operacion. Dos formas, segun lo que el canal pueda
+    # verificar: un usuario de ALdia (empleado que habla con el asistente) o un
+    # identificador externo (numero de WhatsApp, user_id de Telegram).
+    actor = _cab("x-actor-user-id", 80)
+    solicitante = _cab("x-aldia-solicitante", 80) or actor
 
     return {
-        "actor_tipo": ACTOR_AGENTE if (agente or canal != CANAL_WEB) else ACTOR_PERSONA,
+        "actor_tipo": ACTOR_AGENTE if (agente or actor or canal != CANAL_WEB) else ACTOR_PERSONA,
         "canal": canal,
         "agente": agente,
         "solicitante": solicitante,
@@ -641,11 +645,52 @@ class AuditoriaMiddleware:
     internos de Starlette.
     """
 
-    LIMITE_CUERPO = 64 * 1024      # no guardamos cargas gigantes
-    LIMITE_RESPUESTA = 8 * 1024    # solo para leer el motivo de un rechazo
+    LIMITE_CUERPO = 64 * 1024        # no guardamos cargas gigantes
+    LIMITE_RESPUESTA = 8 * 1024      # solo para leer el motivo de un rechazo
+    LIMITE_IDEMPOTENCIA = 20 * 1024  # respuesta que se repite ante un reintento
 
     def __init__(self, app):
         self.app = app
+
+    async def _resolver_idempotencia(self, cabeceras, metodo, ruta, cuerpo, send):
+        """Devuelve (operacion_id, ya_contestado).
+
+        Si la operacion ya se ejecuto, contesta con la respuesta original y
+        devuelve ya_contestado=True para que no se ejecute de nuevo.
+        """
+        import idempotencia
+
+        operacion_id = cabeceras.get(
+            idempotencia.CABECERA_OPERACION.encode(), b""
+        ).decode("latin-1").strip()[:120]
+        if not operacion_id:
+            return "", False
+
+        huella = idempotencia.huella_de(metodo, ruta, cuerpo)
+        try:
+            previa = idempotencia.buscar(operacion_id, huella)
+        except idempotencia.OperacionConflictiva as exc:
+            await self._contestar(send, 409, idempotencia.cuerpo_de_conflicto(exc),
+                                  repetida=False)
+            return operacion_id, True
+
+        if previa is not None:
+            await self._contestar(send, previa.estado_http,
+                                  (previa.respuesta or "").encode(), repetida=True)
+            return operacion_id, True
+
+        return operacion_id, False
+
+    @staticmethod
+    async def _contestar(send, estado: int, cuerpo: bytes, repetida: bool):
+        cabeceras = [
+            (b"content-type", b"application/json"),
+            # Le dice a quien llama que esto es la respuesta guardada de un
+            # pedido anterior, no una ejecucion nueva.
+            (b"x-operacion-repetida", b"1" if repetida else b"0"),
+        ]
+        await send({"type": "http.response.start", "status": estado, "headers": cabeceras})
+        await send({"type": "http.response.body", "body": cuerpo})
 
     async def __call__(self, scope, receive, send):
         if scope.get("type") != "http":
@@ -680,17 +725,32 @@ class AuditoriaMiddleware:
             entregado = True
             return {"type": "http.request", "body": cuerpo, "more_body": False}
 
-        # ── Respuesta: solo nos interesa el estado y, si falla, el motivo ──
+        # ── Idempotencia ──────────────────────────────────────────
+        # Si quien llama declaro un identificador de operacion y esa operacion
+        # ya se ejecuto, se devuelve la MISMA respuesta sin volver a ejecutar.
+        # Va aca, en el mismo punto por el que ya pasa toda escritura, para que
+        # ninguna ruta pueda quedar afuera por olvido.
+        operacion_id, respuesta_previa = await self._resolver_idempotencia(
+            cabeceras, metodo, ruta, cuerpo, send
+        )
+        if respuesta_previa is True:
+            return  # ya se contesto (repeticion o conflicto)
+
+        # ── Respuesta: estado, motivo del fallo y cuerpo si hay que repetirlo ──
         estado = 500
         cuerpo_respuesta = b""
+        cuerpo_completo = b""
 
         async def send_espia(mensaje):
-            nonlocal estado, cuerpo_respuesta
+            nonlocal estado, cuerpo_respuesta, cuerpo_completo
             if mensaje.get("type") == "http.response.start":
                 estado = mensaje.get("status", 500)
-            elif mensaje.get("type") == "http.response.body" and estado >= 400:
-                if len(cuerpo_respuesta) < self.LIMITE_RESPUESTA:
-                    cuerpo_respuesta += mensaje.get("body", b"") or b""
+            elif mensaje.get("type") == "http.response.body":
+                trozo = mensaje.get("body", b"") or b""
+                if estado >= 400 and len(cuerpo_respuesta) < self.LIMITE_RESPUESTA:
+                    cuerpo_respuesta += trozo
+                if operacion_id and len(cuerpo_completo) < self.LIMITE_IDEMPOTENCIA:
+                    cuerpo_completo += trozo
             await send(mensaje)
 
         # Cuerpo enviado, ya enmascarado. NUNCA se guarda tal cual.
@@ -716,6 +776,22 @@ class AuditoriaMiddleware:
                              ctx["cambios"], estado, cuerpo_respuesta)
             except Exception as exc:  # pragma: no cover - defensivo
                 print(f"[auditoria] fallo al anotar {metodo} {ruta}: {exc}", file=sys.stderr)
+
+            # Recordar la respuesta para que un reintento no vuelva a ejecutar.
+            # Solo si salio bien: un error puede ser transitorio y quien llama
+            # tiene derecho a reintentarlo de verdad.
+            if operacion_id and estado < 400:
+                try:
+                    import idempotencia
+                    idempotencia.registrar(
+                        operacion_id, metodo, ruta,
+                        idempotencia.huella_de(metodo, ruta, cuerpo),
+                        estado, cuerpo_completo,
+                        identidad.get("usuario", ""),
+                    )
+                except Exception as exc:  # pragma: no cover - defensivo
+                    print(f"[idempotencia] no se pudo registrar {operacion_id}: {exc}",
+                          file=sys.stderr)
 
     def _payload(self, cuerpo: bytes):
         if not cuerpo or len(cuerpo) > self.LIMITE_CUERPO:
@@ -840,6 +916,9 @@ def instalar_auditoria(app) -> None:
     archivo y en routers/auditoria.py.
     """
     # Tabla en su propio MetaData: reset-db no puede llevarsela puesta.
+    # Se importa idempotencia ANTES de create_all para que su tabla, que vive en
+    # el mismo MetaData y por el mismo motivo, se cree junto con esta.
+    import idempotencia  # noqa: F401
     BaseAuditoria.metadata.create_all(bind=engine)
     _migrar_columnas_de_origen(engine)
     _sembrar_modulo()
