@@ -116,6 +116,7 @@ jobs:
             '.aldia_secret' 'backend/.aldia_secret' \
             'backend/.afip_ta*' '*.ta.xml' \
             'backend/aldia.db' '*.sqlite' '*.sqlite3' '*.db' \
+            'backend/copias/*' 'copias/*' \
             '*.pem' '*.key' '*.p12' '*.pfx' '*.crt' '*.csr' \
             '.env')
           if [ -n "$encontrados" ]; then
@@ -137,6 +138,7 @@ jobs:
           for ruta in \
             backend/.aldia_secret \
             backend/aldia.db \
+            backend/copias/aldia-2026-01-01.db \
             backend/aldia.db-wal \
             backend/.afip_ta_wsfe.json \
             certificados/comercio.pem \

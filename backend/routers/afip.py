@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 import afip as ws
+from errores import ErrorDeNegocio
 from database import get_db
 from dinero import a_pesos, aplicar_alicuota, multiplicar, porcentaje_desde_importes
 from models import Factura, StockMercaderia, Venta
@@ -418,13 +419,11 @@ def solicitar_cae(
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
     if factura.cae:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"La factura {factura_num} ya tiene CAE {factura.cae} "
-                f"(vence {factura.cae_vencimiento or 's/d'}). Pedir otro CAE para el mismo "
-                "comprobante duplicaría la declaración ante AFIP."
-            ),
+        raise ErrorDeNegocio(
+            "CAE_YA_EMITIDO",
+            f"La factura {factura_num} ya tiene CAE {factura.cae} "
+            f"(vence {factura.cae_vencimiento or 's/d'}). Pedir otro CAE para el mismo "
+            "comprobante duplicaría la declaración ante AFIP.",
         )
 
     # Tipo de comprobante: se deriva de las condiciones frente al IVA del emisor

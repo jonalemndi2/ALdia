@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+from errores import ErrorDeNegocio
 from database import get_db
 from migraciones import dependientes
 from models import Cliente
@@ -79,13 +80,11 @@ def delete_cliente(cuit: str, db: Session = Depends(get_db)):
     usos = dependientes(db, "clientes", cuit)
     if usos:
         detalle = ", ".join(f"{u['cantidad']} en {u['tabla']}" for u in usos)
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "No se puede eliminar el cliente porque tiene movimientos "
-                f"registrados ({detalle}). Los comprobantes ya emitidos no se "
-                "pueden dejar sin titular."
-            ),
+        raise ErrorDeNegocio(
+            "TIENE_MOVIMIENTOS",
+            "No se puede eliminar el cliente porque tiene movimientos "
+            f"registrados ({detalle}). Los comprobantes ya emitidos no se "
+            "pueden dejar sin titular.",
         )
 
     db.delete(cliente)

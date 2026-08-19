@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 
+from errores import ErrorDeNegocio
 from database import get_db, Base
 from tiempo import ahora_utc
 from models import Usuario
@@ -150,13 +151,13 @@ def get_current_user(token: str, db: Session) -> Usuario:
         )
         username: str = payload.get("sub")
         if username is None:
-            raise HTTPException(status_code=401, detail="Token inválido")
+            raise ErrorDeNegocio("SESION_VENCIDA", "Token inválido")
     except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+        raise ErrorDeNegocio("SESION_VENCIDA", "Token inválido o expirado")
 
     user = db.query(Usuario).filter(Usuario.username == username).first()
     if user is None:
-        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+        raise ErrorDeNegocio("SESION_VENCIDA", "El usuario de esta sesión ya no existe")
 
     # Cambiar la contrasena PORQUE alguien la vio no servia de nada: el token
     # que esa persona ya tenia seguia abierto hasta ocho horas mas.
@@ -183,7 +184,7 @@ def current_user_dep(
     API entera sin tener que acordarse ruta por ruta.
     """
     if credentials is None or not credentials.credentials:
-        raise HTTPException(status_code=401, detail="No autenticado")
+        raise ErrorDeNegocio("NO_AUTENTICADO", "No autenticado")
     user = get_current_user(credentials.credentials, db)
     if getattr(user, "debe_cambiar_password", False):
         raise HTTPException(
@@ -208,14 +209,14 @@ def usuario_autenticado_sin_exigir_cambio(
     ya cambiada, nadie podria cambiarla nunca.
     """
     if credentials is None or not credentials.credentials:
-        raise HTTPException(status_code=401, detail="No autenticado")
+        raise ErrorDeNegocio("NO_AUTENTICADO", "No autenticado")
     return get_current_user(credentials.credentials, db)
 
 
 def require_admin(user: Usuario = Depends(current_user_dep)) -> Usuario:
     """Dependencia FastAPI: exige que el usuario sea administrador."""
     if (user.rol or "").lower() != "administrador":
-        raise HTTPException(status_code=403, detail="Requiere permisos de administrador")
+        raise ErrorDeNegocio("SIN_PERMISO", "Requiere permisos de administrador")
     return user
 
 
@@ -232,7 +233,7 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
 
     if not user or not verify_password(login_data.password, user.password_hash):
         registrar_login_fallido(request, login_data.username)
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+        raise ErrorDeNegocio("CREDENCIALES_INVALIDAS", "Usuario o contraseña incorrectos")
 
     registrar_login_exitoso(request, login_data.username)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -273,7 +274,7 @@ def cambiar_password(
     deja de servir en el acto.
     """
     if not verify_password(datos.password_actual, user.password_hash):
-        raise HTTPException(status_code=401, detail="La contraseña actual no es correcta")
+        raise ErrorDeNegocio("CREDENCIALES_INVALIDAS", "La contraseña actual no es correcta")
 
     nueva = (datos.password_nueva or "").strip()
     if len(nueva) < 8:
@@ -315,7 +316,7 @@ def register(user_data: UsuarioCreate, db: Session = Depends(get_db), _: Usuario
     # Verificar si el usuario ya existe
     existing = db.query(Usuario).filter(Usuario.username == user_data.username).first()
     if existing:
-        raise HTTPException(status_code=400, detail="El nombre de usuario ya existe")
+        raise ErrorDeNegocio("YA_EXISTE", "El nombre de usuario ya existe")
     
     hashed_pw = hash_password(user_data.password)
     new_user = Usuario(

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
+from errores import ErrorDeNegocio
 from database import get_db
 from migraciones import dependientes
 from models import StockMercaderia
@@ -25,7 +26,7 @@ def get_stock(search: str = None, db: Session = Depends(get_db)):
 def get_stock_item(codigo: int, db: Session = Depends(get_db)):
     item = db.query(StockMercaderia).filter(StockMercaderia.codigo == codigo).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        raise ErrorDeNegocio("PRODUCTO_NO_EXISTE", "Producto no encontrado")
     return item
 
 
@@ -33,7 +34,7 @@ def get_stock_item(codigo: int, db: Session = Depends(get_db)):
 def create_stock(item_data: StockCreate, db: Session = Depends(get_db)):
     existing = db.query(StockMercaderia).filter(StockMercaderia.codigo == item_data.codigo).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Ya existe un producto con ese código")
+        raise ErrorDeNegocio("YA_EXISTE", "Ya existe un producto con ese código")
     
     new_item = StockMercaderia(**item_data.model_dump())
     db.add(new_item)
@@ -46,7 +47,7 @@ def create_stock(item_data: StockCreate, db: Session = Depends(get_db)):
 def update_stock(codigo: int, item_data: StockUpdate, db: Session = Depends(get_db)):
     item = db.query(StockMercaderia).filter(StockMercaderia.codigo == codigo).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        raise ErrorDeNegocio("PRODUCTO_NO_EXISTE", "Producto no encontrado")
     
     update_data = item_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -61,7 +62,7 @@ def update_stock(codigo: int, item_data: StockUpdate, db: Session = Depends(get_
 def delete_stock(codigo: int, db: Session = Depends(get_db)):
     item = db.query(StockMercaderia).filter(StockMercaderia.codigo == codigo).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        raise ErrorDeNegocio("PRODUCTO_NO_EXISTE", "Producto no encontrado")
     
     # Un maestro con movimientos NO se borra: su historico es lo que sostiene la
     # cuenta corriente, el libro de IVA y los comprobantes ya emitidos. Ahora eso
@@ -71,13 +72,11 @@ def delete_stock(codigo: int, db: Session = Depends(get_db)):
     usos = dependientes(db, "stockmercaderia", codigo)
     if usos:
         detalle = ", ".join(f"{u['cantidad']} en {u['tabla']}" for u in usos)
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "No se puede eliminar el producto porque tiene movimientos "
-                f"registrados ({detalle}). Los comprobantes ya emitidos no se "
-                "pueden dejar sin titular."
-            ),
+        raise ErrorDeNegocio(
+            "TIENE_MOVIMIENTOS",
+            "No se puede eliminar el producto porque tiene movimientos "
+            f"registrados ({detalle}). Los comprobantes ya emitidos no se "
+            "pueden dejar sin titular.",
         )
 
     db.delete(item)

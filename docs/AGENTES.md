@@ -30,7 +30,7 @@ rol, ausencia de SQL arbitrario, concurrencia en SQLite— ya estaba resuelto.
 | Trazabilidad de la persona detrás del agente | ✅ canal + actor, con intersección de permisos |
 | Idempotencia | ✅ `X-Operation-Id` en el middleware |
 | Confirmación con estado | ✅ operaciones pendientes reejecutables |
-| Errores legibles para el agente | ⚠️ legibles, pero sin código de máquina |
+| Errores legibles para el agente | ✅ código estable + acción sugerida |
 
 ---
 
@@ -170,12 +170,38 @@ Identidad y trazabilidad, idempotencia y confirmaciones con estado están
 implementadas y cubiertas por pruebas (ver `tests/test_origen_agentes.py`,
 `tests/test_idempotencia.py`, `tests/test_pendientes.py`).
 
-### Etapa 4 — Errores con código de máquina
+### Etapa 4 — Errores con código de máquina — hecha
 
-Agregar un código estable (`CLIENTE_AMBIGUO`, `STOCK_INSUFICIENTE`,
-`CONFIRMACION_REQUERIDA`…) junto al mensaje legible que ya existe, sin quitarlo.
-El mensaje sirve para que el modelo entienda; el código, para que el orquestador
-decida sin interpretar texto.
+Cada error trae ahora, junto al mensaje legible que ya existía y sin quitarlo,
+un **código estable** y una **acción sugerida**:
+
+```json
+{
+  "detail": "Stock insuficiente de 'Coca 2.25': se intentan facturar 12 y hay 5",
+  "codigo": "STOCK_INSUFICIENTE",
+  "accion": "corregir"
+}
+```
+
+`accion` es lo que resultó más útil de lo previsto, y es un conjunto **cerrado**
+de cuatro valores: `reintentar`, `corregir`, `preguntar`, `abortar`. Un agente
+nuevo se comporta bien sin conocer el catálogo entero — le alcanza con leer ese
+campo. Y los tres casos donde equivocarse cuesta plata quedan explícitos:
+reintentar un `CAE_YA_EMITIDO` duplica la declaración ante AFIP, no reintentar un
+`AFIP_NO_DISPONIBLE` pierde una venta que iba a entrar sola, e inventar una
+`CONFIRMACION_REQUERIDA` es tomar una decisión que no le corresponde.
+
+**No hizo falta migrar las 86 excepciones del sistema.** Hacerlo sitio por sitio
+habría dejado la mitad de la API sin código durante meses, que es la peor
+versión: un agente no puede confiar en un campo que a veces está. El código se
+resuelve en dos pasos — el preciso si la excepción lo declara, y uno derivado del
+estado HTTP si no (`404 → NO_ENCONTRADO`, `403 → SIN_PERMISO`). Así **todo** error
+tiene código desde el primer día, incluidos los `422` de Pydantic, y los precisos
+se agregan donde aportan.
+
+El catálogo completo se consulta en **`GET /api/errores`**, sin autenticarse: un
+agente que está recibiendo un `401` tiene que poder averiguar qué significa. Ver
+`backend/errores.py` y `tests/test_errores.py`.
 
 ### Etapa 5 — Cockpit de actividad
 
@@ -198,3 +224,5 @@ preservarlas:
   control de acceso.
 - **Ninguna operación inventa un CAE** ni da por guardado lo que el servidor no
   confirmó.
+- **Los códigos de error son un contrato.** Cambiar el texto de `detail` es
+  libre; cambiar o quitar un `codigo` rompe a los agentes ya conectados.

@@ -172,6 +172,29 @@ consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del 
 
 Ver **[mcp/README.md](mcp/README.md)** para instalarlo y conectarlo.
 
+### Errores que un agente puede interpretar
+
+Cada error trae, además del mensaje para la persona, un **código estable** y una
+**acción sugerida**, para que el agente no tenga que deducir del texto si conviene
+reintentar:
+
+```json
+{
+  "detail": "Stock insuficiente de 'Coca 2.25': se intentan facturar 12 y hay 5",
+  "codigo": "STOCK_INSUFICIENTE",
+  "accion": "corregir"
+}
+```
+
+`accion` es uno de cuatro: **`reintentar`** (era transitorio, sale solo),
+**`corregir`** (falta un dato que el agente puede arreglar), **`preguntar`** (hace
+falta una decisión que no le corresponde tomar) o **`abortar`** (insistir no va a
+cambiar nada). Es lo que evita los dos errores caros: reintentar para siempre algo
+que nunca va a andar, o darse por vencido con algo que iba a entrar.
+
+El catálogo completo está en **`GET /api/errores`** y se puede consultar sin
+autenticarse — un agente que recibe un `401` tiene que poder averiguar qué significa.
+
 > Un asistente conectado puede **crear comprobantes y mover dinero real**. Creá un
 > usuario con rol acotado (por ejemplo `caja`) en vez de darle las credenciales de `admin`.
 
@@ -233,11 +256,37 @@ de ningún comercio.
 
 ## Copias de seguridad
 
-Toda la información se guarda en **`backend/aldia.db`**. Para respaldar, copiá ese
-archivo (preferentemente con el servidor detenido). Para restaurar, reemplazalo.
+Toda la información se guarda en **`backend/aldia.db`**: clientes, comprobantes,
+cuentas corrientes y el registro de auditoría.
 
-Automatizar esta copia es responsabilidad de quien instala el sistema: una tarea
-programada que copie el archivo a otro disco o a la nube.
+**El sistema se hace la copia solo.** Al arrancar, una vez por día, deja un archivo
+fechado en `backend/copias/` y conserva los últimos 7. No hay que configurar nada.
+
+| | |
+|---|---|
+| Dónde | `backend/copias/aldia-AAAA-MM-DD.db` (cambiable con `ALDIA_BACKUP_DIR`) |
+| Cuándo | Al arrancar, si no se hizo ya la de hoy |
+| Cuántas | 7 días (cambiable con `ALDIA_COPIAS`) |
+| Apagarlo | `ALDIA_SIN_RESPALDO=1` |
+
+**Para restaurar:** parar el servidor, copiar el archivo del día que quieras sobre
+`backend/aldia.db`, borrar `aldia.db-wal` y `aldia.db-shm` si están, y arrancar.
+
+Dos detalles que hacen que esto sea un respaldo de verdad y no una copia que parece
+existir:
+
+- Se usa la **API de respaldo de SQLite**, no un copiar y pegar. La base corre en modo
+  WAL, así que las operaciones más recientes viven en `aldia.db-wal` y **no** dentro de
+  `aldia.db`: copiar el archivo con el servidor andando produce un respaldo sin las
+  últimas ventas del día. La copia que hace el sistema es coherente aunque se esté
+  facturando en ese momento, y queda en un archivo único que se restaura solo.
+- Cada copia se verifica con `PRAGMA integrity_check` apenas se hace. Un respaldo que
+  nadie comprobó es una suposición, y el día que hace falta es tarde para averiguarlo.
+
+> **Esto no te salva del disco que se rompe.** La copia queda en la misma máquina:
+> protege contra un borrado accidental o una base corrupta, no contra un incendio ni
+> contra ransomware. Sincronizá `backend/copias/` a un pendrive o a la nube — ahora es
+> una sola carpeta, y el sistema te lo recuerda por consola en cada arranque.
 
 ## Registro de auditoría
 
@@ -274,6 +323,8 @@ backend/            API FastAPI
   auditoria.py      registro inmutable de operaciones
   dinero.py         importes en centavos enteros y redondeo comercial
   idempotencia.py   que un reintento no ejecute la operacion dos veces
+  errores.py        codigos de error estables para agentes
+  respaldo.py       copia de seguridad automatica y verificada
   tiempo.py         el instante actual, en un solo formato
   afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
   models.py         tablas (SQLAlchemy)
@@ -296,8 +347,8 @@ certificados/       certificados de AFIP (ignorado por git)
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-**125 pruebas** que cubren la exactitud de los importes, la autenticación y los
-permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, y el
+**152 pruebas** que cubren la exactitud de los importes, la autenticación y los
+permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
 circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
 tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).
 

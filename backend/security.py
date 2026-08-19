@@ -23,6 +23,7 @@ import secrets
 import stat
 import threading
 
+from errores import ErrorDeNegocio
 from database import get_db
 from tiempo import ahora_utc
 from models import Modulo, Usuario
@@ -168,15 +169,15 @@ def _verificar_acceso(user: Usuario, clave: str, metodo: str, db: Session) -> No
         return
 
     if metodo in METODOS_DE_ESCRITURA and rol == ROL_SOLO_LECTURA:
-        raise HTTPException(
-            status_code=403,
-            detail=f"{user.username} tiene rol auditor, de solo consulta: no puede modificar datos",
+        raise ErrorDeNegocio(
+            "SOLO_LECTURA",
+            f"{user.username} tiene rol auditor, de solo consulta: no puede modificar datos",
         )
 
     if rol not in _roles_del_modulo(db, clave):
-        raise HTTPException(
-            status_code=403,
-            detail=f"{user.username} ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",
+        raise ErrorDeNegocio(
+            "SIN_PERMISO",
+            f"{user.username} ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",
         )
 
 
@@ -222,9 +223,9 @@ def resolver_actor(request: Request, db: Session, credencial: Usuario) -> Usuari
         return None
 
     if not puede_actuar_por_otro(credencial):
-        raise HTTPException(
-            status_code=403,
-            detail=(
+        raise ErrorDeNegocio(
+            "NO_PUEDE_ACTUAR_POR",
+            (
                 f"{credencial.username} no tiene permiso para actuar por otra persona: "
                 f"la cabecera {CABECERA_ACTOR} solo la puede usar una cuenta habilitada "
                 "para eso. Pidale al administrador que se lo habilite en "
@@ -239,9 +240,9 @@ def resolver_actor(request: Request, db: Session, credencial: Usuario) -> Usuari
         else consulta.filter(Usuario.username == declarado).first()
     )
     if actor is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
+        raise ErrorDeNegocio(
+            "ACTOR_INEXISTENTE",
+            (
                 f"El usuario declarado en {CABECERA_ACTOR} no existe ({declarado}). "
                 "La operacion no se ejecuta para no quedar atribuida a nadie."
             ),

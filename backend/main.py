@@ -12,7 +12,9 @@ import os
 import sys
 import uvicorn
 
-from database import engine, Base, SessionLocal, transaccion_de_escritura
+from database import engine, Base, SessionLocal, transaccion_de_escritura, DB_PATH
+from errores import instalar_errores
+from respaldo import respaldar_al_arrancar
 from migraciones import aplicar_migraciones, aplicar_claves_foraneas
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
@@ -21,6 +23,13 @@ from routers import (
 )
 from routers.auth import current_user_dep
 from security import require_modulo
+
+# Copia de seguridad del dia, ANTES de tocar nada.
+#
+# El orden no es casual: va antes de create_all y de las migraciones. Si una
+# migracion sale mal, la copia que se necesita es la de ANTES de esa migracion;
+# una copia posterior conserva el problema. Nunca aborta el arranque.
+respaldar_al_arrancar(DB_PATH)
 
 # Crear todas las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
@@ -358,6 +367,12 @@ def health_check():
 from auditoria import instalar_auditoria  # noqa: E402
 
 instalar_auditoria(app)
+
+# Codigos de error de maquina. Va DESPUES de todos los include_router para que
+# el manejador cubra a la aplicacion entera, incluidas las rutas de auditoria.
+# Sin esto, un agente tiene que adivinar leyendo castellano si un error se
+# reintenta, se corrige o se abandona (ver backend/errores.py).
+instalar_errores(app)
 
 
 # Los tipos MIME de las tipografias no vienen en la tabla de Python (y en
