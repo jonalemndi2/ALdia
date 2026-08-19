@@ -21,7 +21,23 @@ sys.path.insert(0, str(RAIZ / "mcp"))
 
 @pytest.fixture
 def srv(monkeypatch):
-    """El módulo del servidor MCP, con las reglas del país simuladas."""
+    """El módulo del servidor MCP, con las reglas del país simuladas.
+
+    Se saltea si el SDK `mcp` no está instalado, y eso es deliberado: el job de
+    CI que verifica el lock instala solo lo que instala un comercio, y el SDK no
+    es una dependencia del sistema —lo necesita el servidor MCP, que tiene su
+    propio `mcp/requirements.txt`. Romper esa verificación por una prueba sería
+    confundir dos cosas distintas.
+
+    Los jobs que instalan `requirements-dev.txt` sí lo tienen, así que estas
+    pruebas corren igual en cada push. Y `TestNoQuedanReglasFiscalesEscritasAMano`
+    no depende del SDK —lee el archivo— así que la guarda contra la regresión
+    está activa en todos lados.
+    """
+    pytest.importorskip(
+        "mcp.server",
+        reason="el SDK mcp no está instalado (pip install -r backend/requirements-dev.txt)",
+    )
     import aldia_mcp.server as s
     s._reglas = None
     yield s

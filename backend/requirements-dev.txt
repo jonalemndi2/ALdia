@@ -25,3 +25,9 @@ httpx>=0.27
 # el SDK instalado Python toma como paquete de espacio de nombres y tapa al
 # verdadero. Un paquete real tiene precedencia, asi que instalarlo lo resuelve.
 mcp>=1.2.0
+#
+# Si NO esta instalado, las pruebas de mcp/ se saltean en vez de fallar: el job
+# de CI que verifica el lock instala solo lo que instala un comercio, y romperlo
+# por una prueba seria confundir dos cosas distintas. La guarda que impide que
+# vuelvan las reglas fiscales escritas a mano en el MCP no depende del SDK --lee
+# el archivo-- asi que sigue activa en todos lados.
