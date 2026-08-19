@@ -1,13 +1,38 @@
-# ALdia — Sistema de Gestión Comercial
+# ALdía — Motor de gestión comercial operable por agentes
 
-Sistema de gestión comercial libre, pensado para **comercios, kioscos y supermercados
-pequeños** de Argentina. Funciona en red local con un servidor central: varias
-terminales (cajas, administración, depósito) acceden desde el navegador a un único
-servidor que guarda todos los datos.
+**ALdía lleva la gestión de un comercio y expone cada operación como una capacidad
+segura, validada y auditable, para que un asistente de IA pueda ejecutarla por vos.**
 
-Incluye stock, clientes, proveedores, remitos, facturación, cuentas corrientes, caja,
-chequera, gastos y libro IVA — con **control de acceso por rol** y **validación fiscal
-argentina** (CUIT con dígito verificador, alícuotas de IVA vigentes).
+Stock, clientes, proveedores, remitos, facturación electrónica, cuentas corrientes,
+caja, chequera, gastos y libro IVA — para comercios, kioscos y supermercados pequeños
+de Argentina.
+
+La diferencia no está en los módulos, sino en dónde viven las reglas: **toda la lógica
+de negocio está en el servidor**, así que da lo mismo si la operación entra por el
+navegador o por un agente. Las dos puertas pasan por las mismas validaciones, la misma
+transacción y el mismo registro de auditoría.
+
+```
+Usuario
+  │  "José me pagó la factura de las cámaras con este cheque."  [adjunta la foto]
+  ▼
+Asistente ── interpreta, extrae los datos, pregunta lo que falta
+  │
+  ▼  MCP
+ALdía ── valida, ejecuta y registra
+  │       ✓ cobro registrado          ✓ cheque ingresado a cartera
+  │       ✓ cuenta corriente al día   ✓ operación auditada
+  ▼
+Navegador ── donde mirás exactamente qué pasó, y corregís si hace falta
+```
+
+El asistente **interpreta**. ALdía **valida y ejecuta**. La web **supervisa**.
+Ninguna regla contable vive en el prompt de un modelo, y el agente nunca escribe SQL:
+solo puede pedir las operaciones comerciales que ALdía expone.
+
+Podés usarlo perfectamente sin ningún agente: la interfaz web es completa y funciona
+sola. Ver [docs/AGENTES.md](docs/AGENTES.md) para el estado de la integración y su
+hoja de ruta.
 
 > Antes de exponerlo a internet leé la sección [Seguridad](#seguridad): **hace falta HTTPS**.
 
