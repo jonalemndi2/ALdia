@@ -43,9 +43,9 @@ jobs:
         python: ['3.10', '3.13']
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
           # Cachea la carpeta de descargas de pip: sin esto cada corrida vuelve
@@ -60,8 +60,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements-dev.txt
 
+      - name: Dejar constancia de que se instalo
+        run: |
+          python -VV
+          python -m pip freeze
+
       - name: Correr la suite
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -ra --tb=short
 
   # ───────────────────────────────────────────────────────────────────────────
   # 2. La misma suite con el LOCK, o sea con las versiones exactas que se le
@@ -73,9 +78,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: pip
@@ -91,7 +96,7 @@ jobs:
           python -m pip check
 
       - name: Correr la suite
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -ra --tb=short
 
   # ───────────────────────────────────────────────────────────────────────────
   # 3. Que no se cuele ningún secreto.
@@ -107,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Que no haya secretos en el repositorio
         run: |
