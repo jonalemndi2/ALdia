@@ -43,6 +43,13 @@ COLUMNAS_NUEVAS = {
         # recibe del administrador de forma explicita, uno por uno.
         ("puede_actuar_por", "BOOLEAN NOT NULL DEFAULT 0"),
     ],
+    "caja": [
+        # En que cuenta cae el asiento: efectivo (el cajon) o banco. Las filas
+        # ya existentes quedan en "efectivo" a proposito -- es como se venian
+        # tratando, y reinterpretar asientos viejos cambiaria cierres de caja
+        # que el comercio ya dio por buenos.
+        ("cuenta", "VARCHAR(20) NOT NULL DEFAULT 'efectivo'"),
+    ],
     "ncp": [
         # Importe de la nota de credito (devolucion a proveedor), en centavos.
         # Antes la devolucion RESTABA del saldo del proveedor pero solo dejaba

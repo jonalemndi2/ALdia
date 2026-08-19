@@ -58,7 +58,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 __all__ = ["MedioDePago", "MEDIOS", "medios_de", "resolver", "es_cheque",
-           "entra_a_caja", "en_el_banco"]
+           "entra_a_caja", "en_el_banco", "cuenta_de",
+           "CUENTA_EFECTIVO", "CUENTA_BANCO"]
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,21 @@ def es_cheque(tipo: str) -> bool:
 def entra_a_caja(tipo: str) -> bool:
     """Si el importe se asienta en el libro de dinero. Ver el encabezado."""
     return resolver(tipo).entra_a_caja
+
+
+CUENTA_EFECTIVO = "efectivo"
+CUENTA_BANCO = "banco"
+
+
+def cuenta_de(tipo: str) -> str:
+    """En que cuenta cae el asiento de este medio de pago.
+
+    Es la respuesta a "¿donde esta la plata?", que es distinta de "¿entro?".
+    El efectivo esta en el cajon; una transferencia, un ACH o una tarjeta estan
+    en una cuenta. Las dos suman al patrimonio, pero solo una se puede contar
+    cerrando la caja a la noche.
+    """
+    return CUENTA_BANCO if resolver(tipo).en_el_banco else CUENTA_EFECTIVO
 
 
 def en_el_banco(tipo: str) -> bool:

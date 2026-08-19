@@ -491,6 +491,15 @@ class Caja(Base):
     haber = Column(Integer, default=0)  # centavos. Egreso
     descripcion = Column(String(500), default="")
 
+    # DONDE esta ese dinero. Hasta ahora habia una sola cuenta implicita y todo
+    # caia en ella: una transferencia recibida sumaba al mismo total que el
+    # efectivo, asi que el numero que el duenio lee como "cuanta plata hay en el
+    # cajon" incluia plata que estaba en el banco.
+    #
+    # Las filas que ya existen quedan en "efectivo", que es exactamente como se
+    # venian tratando: la migracion no reinterpreta el pasado.
+    cuenta = Column(String(20), default="efectivo", nullable=False)
+
 
 class Chequera(Base):
     __tablename__ = "chequera"

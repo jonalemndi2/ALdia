@@ -90,6 +90,7 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
         db.add(Caja(
             referencia=f"PAGO {new_ord}",
             fecha=pago_data.fecha,
+            cuenta=medios_de_pago.cuenta_de(pago_data.tipo),
             debe=0,
             haber=pago_data.monto,
             descripcion=f"Pago a {proveedor.nombre or proveedor.cuit}",

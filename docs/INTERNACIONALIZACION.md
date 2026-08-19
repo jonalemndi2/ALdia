@@ -251,12 +251,18 @@ primero, y lo que determina si el país es viable se prototipa temprano.
 | Moneda explícita | ✅ |
 | Medios de pago + ACH | ✅ |
 | Sales tax enchufable | ✅ interfaz; sin integración |
-| Datos W-9 / 1099 | ✅ modelo; sin generación |
+| Datos W-9 / 1099 | ✅ modelo + planilla de trabajo |
+| Libro de banco | ✅ efectivo y banco separados |
 
 **Lo que queda, y por qué se dejó afuera a propósito:**
 
-- **Generar los 1099.** Tiene reglas de umbral, de tipo de proveedor y de plazos
-  que cambian todos los años. Emitir una declaración mal es peor que no emitirla.
+- **Generar los 1099.** Hay una **planilla de trabajo**
+  (`GET /api/proveedores/informe-1099?anio=`) que junta cuánto se le pagó a cada
+  proveedor elegible y declara, en la misma respuesta, todo lo que el sistema no
+  puede saber: si el pago fue por servicios o por mercadería, si el proveedor es
+  una sociedad, si hubo retenciones. El formulario en sí no se emite: los
+  umbrales y los plazos cambian todos los años y una declaración presentada mal
+  es peor que no presentarla.
 - **Integrar un proveedor de sales tax.** La interfaz está; falta una cuenta real
   contra la cual probarla. Código que nadie ejecutó no se entrega como hecho.
 - **Traducir las 13 skills.** Son instrucciones de negocio densas; traducirlas
@@ -264,7 +270,32 @@ primero, y lo que determina si el país es viable se prototipa temprano.
 - **Renombrar la columna `cuit` a `tax_id`.** Mecánico: 14 destinos de FK, 48
   referencias del MCP y el frontend. La API ya expone los nombres neutros, así
   que es limpieza sin apuro.
-- **Un libro de banco.** Hoy `caja` es el único libro de dinero, así que una
-  transferencia se asienta ahí aunque el dinero esté en el banco. Está marcado
-  con `en_el_banco` en cada medio de pago: el día que exista el libro, es la
-  única bandera que hay que cambiar.
+- **Renombrar la columna `cuit` a `tax_id`** sigue pendiente y es deliberado:
+  toca 14 destinos de clave foránea, 48 referencias del MCP y el frontend, y el
+  beneficio es cosmético — la API ya expone `tax_id` y `tax_id_type`. Romper el
+  servidor MCP por estética no se paga.
+
+---
+
+## Libro de banco
+
+Al separar los medios de pago apareció un número que estaba mal desde antes: el
+**saldo de caja incluía transferencias y tarjetas**. O sea que cerrar la caja
+contando billetes no podía dar nunca ese total.
+
+`caja.cuenta` distingue ahora `efectivo` de `banco`, y `GET /api/caja/saldo`
+devuelve las tres cifras:
+
+```json
+{ "saldo": 152300.00, "efectivo": 48100.00, "banco": 104200.00 }
+```
+
+Tres decisiones detrás de esto:
+
+- **`saldo` conserva el significado de siempre** (el total). Cambiarle el número
+  de golpe a quien ya lo mira todos los días sería peor que el problema.
+- **Las filas que ya existen quedan en `efectivo`.** Es exactamente como se
+  venían tratando; reinterpretar asientos viejos cambiaría cierres de caja que
+  el comercio ya dio por buenos.
+- **Un medio desconocido se asume efectivo.** Es la suposición conservadora: si
+  alguien contó mal la caja, se nota al cerrarla.

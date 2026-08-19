@@ -48,12 +48,23 @@ def get_dashboard(db: Session = Depends(get_db)):
     # debe/haber estan en centavos: la resta es exacta, y recien al salir
     # se convierte a pesos para el frontend.
     caja_saldo = int(total_debe) - int(total_haber)
+
+    # Cuanto de ese total esta REALMENTE en el cajon. El resto entro por
+    # transferencia o tarjeta y esta en una cuenta: sumarlo al mismo numero hacia
+    # que "saldo de caja" no cerrara nunca contra lo que hay al contarlo.
+    efectivo = db.query(Caja).with_entities(
+        func.coalesce(func.sum(Caja.debe), 0) - func.coalesce(func.sum(Caja.haber), 0)
+    ).filter(Caja.cuenta == "efectivo").scalar() or 0
     
     return {
         "stock_count": stock_count,
         "cliente_count": cliente_count,
         "proveedor_count": prov_count,
-        "caja_saldo": a_pesos(caja_saldo)
+        # Se conserva el nombre y el significado de siempre --el total-- para no
+        # cambiarle el numero a nadie de golpe. La apertura va al lado.
+        "caja_saldo": a_pesos(caja_saldo),
+        "caja_efectivo": a_pesos(int(efectivo)),
+        "caja_banco": a_pesos(caja_saldo - int(efectivo)),
     }
 
 

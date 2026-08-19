@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 
+import medios_de_pago
 from database import get_db
 from dinero import a_pesos
 from models import Caja, Chequera
@@ -39,10 +40,23 @@ def get_saldo(db: Session = Depends(get_db)):
     con enteros y son exactas por muchos movimientos que haya. Solo al final se
     convierte a pesos, porque la API habla en pesos hacia afuera.
     """
-    # Session no expone .func: hay que usar sqlalchemy.func (antes lanzaba 500).
-    total_debe = db.query(func.coalesce(func.sum(Caja.debe), 0)).scalar() or 0
-    total_haber = db.query(func.coalesce(func.sum(Caja.haber), 0)).scalar() or 0
-    return {"saldo": a_pesos(int(total_debe) - int(total_haber))}
+    def _saldo(cuenta=None):
+        # Session no expone .func: hay que usar sqlalchemy.func (antes daba 500).
+        q = db.query(func.coalesce(func.sum(Caja.debe), 0),
+                     func.coalesce(func.sum(Caja.haber), 0))
+        if cuenta is not None:
+            q = q.filter(Caja.cuenta == cuenta)
+        debe, haber = q.first()
+        return int(debe or 0) - int(haber or 0)
+
+    # `saldo` sigue siendo el total de siempre, para no romper lo que ya lo lee.
+    # Lo que se agrega es la apertura: cuanto de eso se puede contar cerrando la
+    # caja a la noche, y cuanto esta en una cuenta.
+    return {
+        "saldo": a_pesos(_saldo()),
+        "efectivo": a_pesos(_saldo(medios_de_pago.CUENTA_EFECTIVO)),
+        "banco": a_pesos(_saldo(medios_de_pago.CUENTA_BANCO)),
+    }
 
 
 @router.get("/chequera")
