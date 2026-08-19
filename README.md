@@ -218,6 +218,7 @@ gets committed.
 | | |
 |---|---|
 | [`docs/AGENTES.md`](docs/AGENTES.md) | What agents can do, and what must not be broken |
+| [`docs/CONVERSATIONAL-COMMERCE.md`](docs/CONVERSATIONAL-COMMERCE.md) | **Not built yet** — an open design for autonomous selling, and where to start |
 | [`docs/INTERNACIONALIZACION.md`](docs/INTERNACIONALIZACION.md) | How country packs work; what's done and what isn't |
 | [`docs/AFIP.md`](docs/AFIP.md) | Argentine electronic invoicing setup |
 | [`mcp/README.md`](mcp/README.md) | Installing and connecting the MCP server |
@@ -234,6 +235,20 @@ service to others, you must publish your source** under the same license.
 
 The system is free software and will stay that way. Nobody can take this code,
 close it, and sell it as a proprietary product.
+
+---
+
+## Want to build on this?
+
+The next direction is letting an agent sell *to a customer* — discovery,
+stock reservation, order, payment, invoice, shipping — end to end, in natural
+language. **None of it is built.** The design is open, and so are three
+decisions that shape it:
+
+[`docs/CONVERSATIONAL-COMMERCE.md`](docs/CONVERSATIONAL-COMMERCE.md) explains
+what already exists to build on, where the real risk is (it's the stock
+model, not the order), and a sequence of small pull requests. Weighing in on
+the open questions costs nothing and is the most useful thing right now.
 
 ---
 
