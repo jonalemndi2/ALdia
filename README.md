@@ -225,6 +225,22 @@ gets committed.
 | [`skills/`](skills/) | Task playbooks for the assistant, per country |
 | [`SECURITY.md`](SECURITY.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) | Reporting a vulnerability · contributing |
 
+## Built with
+
+ALdía was designed and written with AI coding assistants, and it is built to be
+operated by them. Both halves of that sentence are the point.
+
+**Written with** — [Claude Code](https://claude.com/claude-code), OpenAI Codex,
+Google Gemini, DeepSeek, in [Visual Studio Code](https://code.visualstudio.com/).
+
+**Built to be driven by** — any [MCP](https://modelcontextprotocol.io/) client.
+[OpenClaw](https://github.com/openclaw) is the assistant this engine was shaped
+around, but nothing here depends on it: the 48 tools are plain MCP, and the
+server never assumes which client is on the other end.
+
+That's deliberate. An engine that only works with one assistant isn't
+infrastructure — it's a plugin.
+
 ## License
 
 **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
