@@ -1,400 +1,244 @@
-# ALdía — Motor de gestión comercial operable por agentes
+# ALdía
 
-**ALdía lleva la gestión de un comercio y expone cada operación como una capacidad
-segura, validada y auditable, para que un asistente de IA pueda ejecutarla por vos.**
+### The open-source business engine built for AI agents.
 
-Stock, clientes, proveedores, remitos, facturación electrónica, cuentas corrientes,
-caja, chequera, gastos y libro IVA — para comercios, kioscos y supermercados pequeños
-de Argentina.
+**ALdía turns an AI assistant into a business operator you can actually trust with money.**
 
-La diferencia no está en los módulos, sino en dónde viven las reglas: **toda la lógica
-de negocio está en el servidor**, así que da lo mismo si la operación entra por el
-navegador o por un agente. Las dos puertas pasan por las mismas validaciones, la misma
-transacción y el mismo registro de auditoría.
+Instead of handing an agent database access, ALdía exposes the business itself —
+invoicing, payments, customers, vendors, inventory, checks, expenses, cash — as
+**48 permission-controlled MCP tools**, with identity, idempotency, structured
+errors and an immutable audit trail already built in.
 
-```
-Usuario
-  │  "José me pagó la factura de las cámaras con este cheque."  [adjunta la foto]
-  ▼
-Asistente ── interpreta, extrae los datos, pregunta lo que falta
-  │
-  ▼  MCP
-ALdía ── valida, ejecuta y registra
-  │       ✓ cobro registrado          ✓ cheque ingresado a cartera
-  │       ✓ cuenta corriente al día   ✓ operación auditada
-  ▼
-Navegador ── donde mirás exactamente qué pasó, y corregís si hace falta
+*[Léeme en español](README.es.md)*
+
+```text
+You: "John paid invoice #1842 with this check."   [photo attached]
+
+  Assistant  ── reads it, extracts the data, asks what's missing
+      ↓  MCP
+  ALdía      ── validates, executes, records
+      │        ✓ payment recorded        ✓ check added to the portfolio
+      │        ✓ customer balance updated ✓ operation audited
+      ↓
+  Browser    ── where you see exactly what happened, and fix it if needed
 ```
 
-El asistente **interpreta**. ALdía **valida y ejecuta**. La web **supervisa**.
-Ninguna regla contable vive en el prompt de un modelo, y el agente nunca escribe SQL:
-solo puede pedir las operaciones comerciales que ALdía expone.
+The assistant **interprets**. ALdía **validates and executes**. The web console
+**supervises**.
 
-Podés usarlo perfectamente sin ningún agente: la interfaz web es completa y funciona
-sola. Ver [docs/AGENTES.md](docs/AGENTES.md) para el estado de la integración y su
-hoja de ruta.
+No accounting rule lives inside a model's prompt, and the agent never writes SQL.
 
-> Antes de exponerlo a internet leé la sección [Seguridad](#seguridad): **hace falta HTTPS**.
+---
 
-## Índice
+## Why this is different
 
-- [Arquitectura](#arquitectura)
-- [Instalación](#instalación)
-- [Roles y módulos](#roles-y-módulos)
-- [Facturación electrónica AFIP](#facturación-electrónica-afip)
-- [Integración con asistentes de IA](#integración-con-asistentes-de-ia)
-- [Seguridad](#seguridad)
-- [Registro de auditoría](#registro-de-auditoría)
-- [Copias de seguridad](#copias-de-seguridad)
-- [Pruebas](#pruebas)
-- [Otros países](#otros-países)
-- [Licencia](#licencia)
+Most business software is built around forms. ALdía is built around **operations**.
 
-## Arquitectura
-
-- **Backend:** API REST con FastAPI + SQLAlchemy + SQLite (un solo archivo de base de datos).
-- **Frontend:** SPA en HTML/CSS/JavaScript (Bootstrap 5) servida por el mismo servidor.
-- **Autenticación:** JWT + contraseñas cifradas con bcrypt.
-- **Autorización:** por rol y módulo, **validada en el servidor** (no solo en el menú).
-- **Módulos habilitables:** el administrador activa/desactiva módulos y define qué roles
-  acceden a cada uno, para instalar el sistema con distintas configuraciones.
+An agent connected to ALdía doesn't get a database. It gets a vocabulary:
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Caja 1     │     │  Caja 2     │     │ Depósito    │   ← Terminales (navegador)
-└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
-       └───────────────────┼───────────────────┘
-                  Red local │ (http://IP-SERVIDOR:8000)
-                     ┌──────┴───────┐
-                     │   SERVIDOR   │   ← PC con Python + ALdia
-                     │  FastAPI +   │
-                     │   SQLite     │
-                     └──────────────┘
+buscar_cliente          find a customer
+ver_saldo_cliente       what they owe, and since when
+emitir_factura          issue an invoice
+registrar_cobro         record a payment
+registrar_pago          pay a vendor
+cargar_gasto            record an expense
+buscar_producto         check inventory
+ver_chequera            checks in the portfolio
+ver_deudores            who owes money
+ver_auditoria           what happened, and who did it
 ```
 
-Toda la lógica de negocio vive en el servidor y es **transaccional**: emitir un remito
-descuenta el stock, facturar suma la deuda del cliente, un cobro baja el saldo y genera
-el asiento de caja — todo en una sola operación que no puede quedar a medias. Anular
-cualquier comprobante revierte sus efectos.
+> **Note:** tool names are currently in Spanish, the language the project was
+> built in. They are business actions, not fiscal ones — `emitir_factura` means
+> the same thing in Miami as in Córdoba.
 
-## Instalación
+Every write goes through the **same code path as the web application**: the same
+validations, the same transaction, the same audit record. There is no second
+implementation to drift out of sync, because the MCP server never touches the
+database — it speaks HTTP to the same API your browser does.
 
-En la PC que va a actuar como servidor:
+## The part nobody builds until it hurts
 
-1. Instalar **Python 3.10 o superior** desde <https://www.python.org/downloads/>
-   (marcar *"Add Python to PATH"*).
-2. Ejecutar **`instalar.bat`** (solo la primera vez): crea el entorno e instala las dependencias.
-   Para una instalación productiva conviene fijar las versiones exactas ya verificadas:
-   `.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt`.
-3. Ejecutar **`iniciar_web.bat`** para arrancar el sistema.
+When an agent starts moving real money, four problems show up. All four are
+already solved here, and covered by tests.
 
-El script muestra la dirección para conectarse desde otras PCs:
+**🔁 Idempotency that actually holds**
+An agent retries when it doesn't get a response — and a lost response doesn't
+mean a lost operation. Send `X-Operation-Id` and the identifier is **reserved
+before execution**, not recorded after it. Two simultaneous retries can't both
+get through. *(The naive version — check, execute, then save — leaves a window
+where both do. We wrote the test that proves it, then closed it.)*
 
-```
-En esta PC (servidor):   http://localhost:8000
-Desde otras PCs:         http://192.168.0.10:8000
-```
-
-### Primer ingreso
-
-- **Usuario:** `admin` · **Contraseña:** `admin123`
-
-El sistema **te obliga a cambiarla** antes de dejarte hacer nada: esta contraseña
-es pública (está en este README), así que una instalación que la conserve tiene un
-acceso conocido por cualquiera. Lo mismo vale para cada empleado que des de alta:
-la contraseña que le pongas es provisoria y él la reemplaza al entrar, así el
-registro de auditoría refleja a personas y no a una clave compartida.
-
-### Con qué te encontrás la primera vez
-
-ALdia arranca con la **base vacía**: no trae datos de ejemplo ni de ningún otro
-comercio. En el primer arranque solo se crea lo mínimo para poder entrar y empezar
-a cargar tu negocio.
-
-| | Estado inicial |
-|---|---|
-| Clientes, proveedores, artículos | **0** |
-| Facturas, remitos, cobros, movimientos de caja | **0** |
-| Usuarios | **1** (`admin`) |
-| Módulos del sistema | **10**, todos habilitados |
-| Facturación electrónica AFIP | **Deshabilitada** (requiere tu certificado) |
-| Registro de auditoría | **Activo desde el primer arranque** |
-
-Primeros pasos recomendados:
-
-1. Cambiar la contraseña de `admin` (**Menú → Usuarios**).
-2. Cargar los datos de tu comercio: nombre, CUIT, condición frente al IVA y punto
-   de venta (**Menú → Configuración del Negocio**). El nombre aparece en la barra
-   superior y en los comprobantes.
-3. Crear los usuarios reales con su rol (caja, ventas, depósito…) en vez de que
-   todos compartan `admin`. **El registro de auditoría solo sirve si cada persona
-   entra con su propio usuario.**
-4. Cargar artículos, clientes y proveedores, o empezar a operar directamente.
-
-### Otras terminales
-
-En cualquier PC de la misma red, abrir el navegador en la dirección del servidor.
-No hay que instalar nada. Si no conecta, permitir el puerto 8000 en el Firewall de Windows.
-
-## Roles y módulos
-
-| Rol | Uso típico |
-|-----|-----------|
-| `administrador` | Acceso total, gestión de módulos, usuarios y configuración |
-| `caja` | Cobros, caja, clientes |
-| `encargado_ventas` | Ventas, remitos, facturación, stock |
-| `encargado_compras` | Proveedores, compras, gastos, stock |
-| `encargado_deposito` | Stock / inventario |
-| `finanzas` | Caja, cuentas corrientes, IVA, gastos |
-| `auditor` | Consulta de todos los módulos, **sin poder modificar nada** |
-
-Los permisos se validan en el servidor contra la tabla `modulos`, la misma que edita el
-administrador desde **Menú → Módulos del Sistema**. Ocultar un menú no alcanza: un rol
-sin permiso recibe `403` aunque llame la API directamente.
-
-**Módulos:** Stock · Clientes · Ventas · Proveedores · Gastos · Cuentas Corrientes ·
-Caja · IVA · Administración.
-
-## Facturación electrónica AFIP
-
-El sistema integra los web services de AFIP (WSAA + WSFEv1) para obtener el **CAE** de
-las facturas. Está **desactivada por defecto** y requiere tramitar un certificado digital.
-
-Ver **[docs/AFIP.md](docs/AFIP.md)** para el procedimiento completo.
-
-> El certificado y la clave privada son tu **identidad fiscal**: con ellos un tercero
-> puede facturar en tu nombre. Nunca los subas a un repositorio — el `.gitignore` de este
-> proyecto ya los excluye.
-
-## Integración con asistentes de IA
-
-ALdia incluye un **servidor MCP** que permite a un asistente personal operar el sistema:
-consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del día.
-
-Ver **[mcp/README.md](mcp/README.md)** para instalarlo y conectarlo.
-
-### Errores que un agente puede interpretar
-
-Cada error trae, además del mensaje para la persona, un **código estable** y una
-**acción sugerida**, para que el agente no tenga que deducir del texto si conviene
-reintentar:
+**🧠 Errors an agent can act on**
+Every error carries a stable `codigo`, the data that filled it (`params`), and
+an `accion` from a closed set of four:
 
 ```json
-{
-  "detail": "Stock insuficiente de 'Coca 2.25': se intentan facturar 12 y hay 5",
+{ "detail": "Not enough stock for 'Coca 2.25': 12 requested, 5 on hand",
   "codigo": "STOCK_INSUFICIENTE",
-  "accion": "corregir"
-}
+  "accion": "corregir",
+  "params": { "producto": "Coca 2.25", "pedido": 12, "disponible": 5 } }
 ```
 
-`accion` es uno de cuatro: **`reintentar`** (era transitorio, sale solo),
-**`corregir`** (falta un dato que el agente puede arreglar), **`preguntar`** (hace
-falta una decisión que no le corresponde tomar) o **`abortar`** (insistir no va a
-cambiar nada). Es lo que evita los dos errores caros: reintentar para siempre algo
-que nunca va a andar, o darse por vencido con algo que iba a entrar.
+`reintentar` · `corregir` · `preguntar` · `abortar`. A new agent behaves
+correctly without knowing the whole catalogue — it just reads that field. The 32
+codes are published at `GET /api/errores`, no authentication required, because
+an agent getting a `401` needs to be able to look it up.
 
-El catálogo completo está en **`GET /api/errores`** y se puede consultar sin
-autenticarse — un agente que recibe un `401` tiene que poder averiguar qué significa.
+**🔐 Who asked, and who executed**
+An agent can declare which person it's acting for. Permissions are the
+**intersection** of the service account and that person — never one or the
+other, so a leaked agent credential can't become a universal impersonation key.
+Acting on someone's behalf is an explicit permission an administrator grants,
+account by account.
 
-> Un asistente conectado puede **crear comprobantes y mover dinero real**. Creá un
-> usuario con rol acotado (por ejemplo `caja`) en vez de darle las credenciales de `admin`.
+**❓ Ambiguity without redoing the work**
+*"There are two customers named John Smith. Which one?"* The operation is stored
+exactly as it was going to run; confirming it means "execute what you already
+described, with this clarification." The agent doesn't rebuild the request and
+risk changing something else.
 
-Si el agente atiende a varias personas, puede declarar por cuál está actuando con la
-cabecera `X-Actor-User-Id`, y la operación queda atribuida a esa persona en la auditoría.
-Los permisos efectivos son la **intersección**: la operación tiene que estar permitida
-para la cuenta del agente **y** para la persona declarada.
+**📋 An audit log that can't be edited**
+Every write is recorded automatically by middleware — including the **rejected**
+attempts, which are usually the interesting ones. It lives in its own schema, so
+it survives a full database wipe, and there is no endpoint to delete or modify
+it. Not even for the administrator.
 
-Ese permiso **no viene de fábrica**: la impersonación tiene que ser una decisión de
-alguien. Se otorga cuenta por cuenta, y solo el administrador puede hacerlo:
+---
 
+## Runs on your machine. No cloud, no subscription.
+
+ALdía is a single Python process and one SQLite file. It installs on the shop's
+own PC and the terminals reach it over the local network.
+
+**It works with the internet down.** Nothing is loaded from a CDN — that was a
+deliberate fix, not an accident. A store that loses connectivity keeps invoicing.
+
+It also backs itself up: once a day at startup, keeping the last 7, using
+SQLite's backup API rather than a file copy — in WAL mode, copying the file
+silently loses the day's most recent sales. Each copy is verified with
+`integrity_check` on the spot.
+
+## Built for more than one country
+
+Business operations are universal. Tax rules aren't.
+
+ALdía keeps a common engine and swaps **country packs**. One configuration key
+changes how identifiers are validated, which tax applies, and whether documents
+need approval from an agency.
+
+|                        | 🇦🇷 Argentina | 🇺🇸 United States |
+|------------------------|--------------|-------------------|
+| Tax ID                 | CUIT, with check digit | EIN, format + assigned prefix |
+| Sales tax              | VAT — closed list of legal rates | Sales tax — any plausible rate |
+| Document authorization | CAE from ARCA (WSAA + WSFEv1) | none |
+| Currency               | ARS | USD |
+| Payment methods        | cash, check, transfer, cards | + ACH |
+| Vendor records         | — | legal name, DBA, W-9, 1099 worksheet |
+
+> **U.S. sales tax is not a compliance solution, and the system says so itself.**
+> It applies **one rate you type in**, to everything. That's correct for a
+> single-location business with obligations in one jurisdiction. It does **not**
+> determine jurisdiction (state + county + city + special districts), apply
+> origin/destination sourcing, track economic nexus, handle exempt categories, or
+> manage resale certificates. A specialised tax provider can be plugged in
+> without touching the core — the interface is there and tested; no integration
+> ships with it. `GET /api/config/pais` returns these limits as `advertencias`
+> so an agent can repeat them to the user instead of hiding them.
+
+Adding a country means implementing three questions — how the tax ID validates,
+what tax applies, whether documents need authorization — and nothing in the core
+changes. Your agent keeps calling the same tools either way.
+
+## Money is not a float
+
+Every amount is stored as **integer cents**, with commercial rounding applied
+once, explicitly, at the point of conversion. This isn't pedantry:
+
+```python
+sum([0.10] * 10)   # 0.9999999999999999
+1234.56 * 0.21     # 259.25759999999997   ← the VAT on a real invoice
 ```
-POST /api/auth/usuarios/{id}/actuar-por     {"habilitado": true}
+
+Balances, ledger entries and period totals reconcile to the cent, permanently.
+Invoice numbering comes from a sequence table, not `max + 1`, so voiding a
+document never causes its number to be reused.
+
+## Quick start
+
+Requires **Python 3.10+**. On the machine that will act as the server:
+
+```bash
+git clone https://github.com/jonalemndi2/ALdia.git
+cd ALdia
+instalar.bat        # Windows — creates the venv and installs dependencies
+iniciar_web.bat     # starts the server
 ```
 
-> **Si ya tenías un agente andando**, después de actualizar tenés que otorgarle este
-> permiso: hasta que lo hagas, sus llamadas con `X-Actor-User-Id` reciben `403`. Sin la
-> cabecera sigue funcionando como siempre, atribuyendo todo a la cuenta del agente.
+Then open `http://localhost:8000`. First login is `admin` / `admin123`, and the
+system **refuses to let you operate until you change it** — that password is
+published in this file, so an installation that keeps it has a known way in.
 
-## Seguridad
+To connect an assistant, see [`mcp/README.md`](mcp/README.md). Give it a
+**limited-role account**, not the administrator's: a connected agent can create
+documents and move real money.
 
-El sistema aplica autenticación en toda la API, autorización por rol, límite de intentos
-de login (por IP **y por usuario**), validación fiscal y una clave de firma única por
-instalación (se genera sola en el primer arranque; no hay claves por defecto en el código).
+## Before exposing it to the internet
 
-Cambiar la contraseña **cierra todas las sesiones abiertas** con esa cuenta: el motivo
-más común para cambiarla es que alguien la vio, así que un token viejo que siguiera
-sirviendo ocho horas más haría inútil el cambio. La respuesta del cambio trae un token
-nuevo, así que quien la cambia no se queda afuera.
+**HTTPS is mandatory.** Without a certificate, credentials and session tokens
+travel in plaintext. Use a reverse proxy — [Caddy](https://caddyserver.com/)
+handles it in a few lines.
 
-La interfaz web **no depende de internet**: Bootstrap y sus iconos se sirven desde el
-propio servidor (`Web/vendor/`). Un comercio sin conexión sigue facturando.
+And declare your proxy: `ALDIA_PROXIES=127.0.0.1`. Without it the server sees
+every request as coming from the proxy, and eight failed logins are enough to
+lock out the entire store.
 
-### Antes de exponerlo a internet
+## Honest limits
 
-**Es obligatorio poner HTTPS.** Sin certificado, el usuario, la contraseña y el token de
-sesión viajan en texto plano y se puede interceptar todo. Usá un proxy inverso con
-certificado — [Caddy](https://caddyserver.com/) lo resuelve en pocas líneas, o Nginx con
-Let's Encrypt.
+- Anyone with filesystem access to `backend/aldia.db` can edit it outside the
+  application. There, the protection is OS permissions and backups.
+- The audit log records writes, not reads.
+- One installation, one business. There is no multi-tenancy, by design.
+- U.S. sales tax: see the warning above.
+- No 1099 forms are generated — only a worksheet. Thresholds, exclusions and
+  deadlines change every year, and a return filed wrong is worse than none.
 
-Además:
+## Verified
 
-- Cambiá la contraseña de `admin`.
-- Definí una clave de sesión propia: `set ALDIA_SECRET_KEY=una-clave-larga-y-secreta`
-  (si no, se genera una aleatoria por instalación, que también es segura).
-- **Declará tu proxy inverso**: `set ALDIA_PROXIES=127.0.0.1`. Sin esto, el servidor ve
-  todas las peticiones como si vinieran del proxy: el límite de intentos deja de
-  distinguir atacantes y ocho fallos bastan para bloquear a todo el comercio. Solo se
-  confía en `X-Forwarded-For` si la conexión llega desde una IP de esta lista.
-- Restringí orígenes si servís el frontend aparte: `ALDIA_ORIGINS=https://tudominio`.
-- La documentación interactiva de la API está deshabilitada; se habilita con `ALDIA_DOCS=1`
-  solo si la necesitás.
+**236 tests** covering amount exactness, authentication and per-role
+permissions, fiscal validation, idempotency under real concurrency, automatic
+backup, and the full commercial cycle with its reversals. They run on every push
+against Python 3.10 and 3.13, plus once more with the exact pinned versions
+recommended for production, plus a job that fails if a secret or a database ever
+gets committed.
 
-### Reportar una vulnerabilidad
-
-Ver **[SECURITY.md](SECURITY.md)**. En resumen: si es explotable, usá un aviso de
-seguridad privado en vez de un issue público; y en cualquier caso, **sin datos reales**
-de ningún comercio.
-
-## Otros países
-
-ALdía tiene un **núcleo comercial común y paquetes de país**: no hay un fork por
-país. Cambiando `negocio_pais` en la configuración, la misma instalación valida
-un EIN en vez de un CUIT, aplica sales tax en vez de IVA y deja de pedir el CAE.
-
-Argentina está completa y en producción. **Estados Unidos es una rebanada
-exploratoria**: factura de punta a punta, pero su cálculo de sales tax es una
-tasa manual que no contempla nexus, sourcing ni exenciones — no sirve para
-cumplir. El propio sistema lo declara en `GET /api/config/pais`.
-
-Ver **[docs/INTERNACIONALIZACION.md](docs/INTERNACIONALIZACION.md)** para el
-estado real, lo que falta y en qué orden conviene hacerlo.
-
-## Copias de seguridad
-
-Toda la información se guarda en **`backend/aldia.db`**: clientes, comprobantes,
-cuentas corrientes y el registro de auditoría.
-
-**El sistema se hace la copia solo.** Al arrancar, una vez por día, deja un archivo
-fechado en `backend/copias/` y conserva los últimos 7. No hay que configurar nada.
+## Documentation
 
 | | |
 |---|---|
-| Dónde | `backend/copias/aldia-AAAA-MM-DD.db` (cambiable con `ALDIA_BACKUP_DIR`) |
-| Cuándo | Al arrancar, si no se hizo ya la de hoy |
-| Cuántas | 7 días (cambiable con `ALDIA_COPIAS`) |
-| Apagarlo | `ALDIA_SIN_RESPALDO=1` |
+| [`docs/AGENTES.md`](docs/AGENTES.md) | What agents can do, and what must not be broken |
+| [`docs/INTERNACIONALIZACION.md`](docs/INTERNACIONALIZACION.md) | How country packs work; what's done and what isn't |
+| [`docs/AFIP.md`](docs/AFIP.md) | Argentine electronic invoicing setup |
+| [`mcp/README.md`](mcp/README.md) | Installing and connecting the MCP server |
+| [`skills/`](skills/) | Task playbooks for the assistant, per country |
+| [`SECURITY.md`](SECURITY.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) | Reporting a vulnerability · contributing |
 
-**Para restaurar:** parar el servidor, copiar el archivo del día que quieras sobre
-`backend/aldia.db`, borrar `aldia.db-wal` y `aldia.db-shm` si están, y arrancar.
+## License
 
-Dos detalles que hacen que esto sea un respaldo de verdad y no una copia que parece
-existir:
+**GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
 
-- Se usa la **API de respaldo de SQLite**, no un copiar y pegar. La base corre en modo
-  WAL, así que las operaciones más recientes viven en `aldia.db-wal` y **no** dentro de
-  `aldia.db`: copiar el archivo con el servidor andando produce un respaldo sin las
-  últimas ventas del día. La copia que hace el sistema es coherente aunque se esté
-  facturando en ese momento, y queda en un archivo único que se restaura solo.
-- Cada copia se verifica con `PRAGMA integrity_check` apenas se hace. Un respaldo que
-  nadie comprobó es una suposición, y el día que hace falta es tarde para averiguarlo.
+Free to use, including commercially. Free to modify. You may charge for
+installing, supporting or adapting it. **If you modify it and offer it as a
+service to others, you must publish your source** under the same license.
 
-> **Esto no te salva del disco que se rompe.** La copia queda en la misma máquina:
-> protege contra un borrado accidental o una base corrupta, no contra un incendio ni
-> contra ransomware. Sincronizá `backend/copias/` a un pendrive o a la nube — ahora es
-> una sola carpeta, y el sistema te lo recuerda por consola en cada arranque.
+The system is free software and will stay that way. Nobody can take this code,
+close it, and sell it as a proprietary product.
 
-## Registro de auditoría
+---
 
-Cada operación que **modifica** datos queda asentada automáticamente: quién la hizo,
-con qué rol, cuándo, desde qué dirección, sobre qué registro, y —en los cambios
-sensibles— **el valor anterior y el nuevo**. También se registran los intentos
-**rechazados**, que suelen ser los más reveladores.
+**The assistant understands. ALdía validates. ALdía executes. You stay in control.**
 
-```
-18/08 10:22  admin     administrador  stock       modificación   artículo 901   [precio: 15.000,00 → 22.500,50]
-18/08 10:22  caja1     caja           cta. cte.   cobro          cobro 1        [saldo: 54.451,21 → 34.451,21]
-18/08 10:22  caja1     caja           stock       modificación   artículo 901   RECHAZADO (sin permiso)
-18/08 10:22  admin     administrador  ventas      anulación      factura 2      [stock: 98 → 100]
-```
-
-Se consulta desde **Menú → Auditoría** (administrador y auditor), con filtros por
-fecha, usuario, módulo y resultado, y exportación a CSV.
-
-**Es inmutable**: no existe ningún endpoint que lo borre ni lo edite — tampoco para el
-administrador. Vive en un esquema separado, de modo que sobrevive incluso al borrado
-completo de la base.
-
-> **Límites honestos.** Quien tenga acceso al archivo `backend/aldia.db` puede editarlo
-> por fuera de la aplicación sin dejar rastro: ahí la protección son los permisos del
-> sistema operativo y las copias de seguridad. Y solo se registran las escrituras, no
-> las consultas.
-
-## Estructura del proyecto
-
-```
-backend/            API FastAPI
-  main.py           arranque, montaje de routers y control de acceso
-  security.py       clave de sesión, permisos por rol, anti fuerza bruta
-  auditoria.py      registro inmutable de operaciones
-  dinero.py         importes en centavos enteros y redondeo comercial
-  idempotencia.py   que un reintento no ejecute la operacion dos veces
-  errores.py        codigos de error estables para agentes
-  paises/           lo que cambia de un pais a otro (AR / US)
-  idiomas.py        mensajes por codigo de error, no por texto
-  direcciones.py    direccion internacional, compatible con la vieja
-  medios_de_pago.py efectivo, cheque, transferencia, ACH, tarjetas
-  impuestos.py      calculo local + enchufe para un proveedor externo
-  respaldo.py       copia de seguridad automatica y verificada
-  tiempo.py         el instante actual, en un solo formato
-  afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
-  models.py         tablas (SQLAlchemy)
-  schemas.py        validación (Pydantic): CUIT, IVA, importes
-  routers/          un archivo por módulo
-Web/                frontend (SPA)
-  js/api.js         cliente HTTP de la API
-  js/modules/       un archivo por módulo de la interfaz
-  vendor/           Bootstrap e iconos servidos localmente (sin CDN)
-mcp/                servidor MCP para asistentes de IA
-skills/             skills de tareas comerciales
-docs/               documentación (AFIP, etc.)
-certificados/       certificados de AFIP (ignorado por git)
-```
-
-## Pruebas
-
-```bash
-.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
-.venv\Scripts\python.exe -m pytest tests/ -q
-```
-
-**236 pruebas** que cubren la exactitud de los importes, la autenticación y los
-permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
-circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
-tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).
-
-Corren solas en cada push y cada *pull request* (Linux, Python 3.10 y 3.13), y además
-una vez con las versiones exactas de `backend/requirements.lock.txt`.
-
-## Contribuir
-
-Las contribuciones son bienvenidas. Ver **[CONTRIBUTING.md](CONTRIBUTING.md)** para
-levantar el entorno y correr las pruebas. Las tres reglas que no se negocian:
-
-- No incluyas datos reales de ningún comercio (CUIT, clientes, facturación).
-- Si tocás lógica de dinero o stock, explicá cómo lo verificaste.
-- Mantené la validación del lado del servidor: el navegador no es una barrera de seguridad.
-
-## Licencia
-
-**GNU Affero General Public License v3.0** — ver [LICENSE](LICENSE).
-
-En términos prácticos:
-
-- ✅ Podés **usarlo gratis**, incluso para tu comercio.
-- ✅ Podés **modificarlo** y adaptarlo a tus necesidades.
-- ✅ Podés **cobrar** por instalarlo, soportarlo o adaptarlo.
-- ⚠️ Si lo modificás y lo ofrecés **como servicio a terceros** (por ejemplo, un SaaS de
-  gestión), estás **obligado a publicar el código** de tu versión bajo la misma licencia.
-
-Es decir: el sistema es libre y siempre va a seguir siéndolo. Nadie puede tomar este
-código, cerrarlo y venderlo como producto propietario.
+ALdía isn't trying to make AI your accountant. It's the transactional
+infrastructure that lets an agent operate a real business without becoming the
+business logic.
