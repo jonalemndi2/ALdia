@@ -19,14 +19,14 @@ comerciante va a creer que tiene dinero que no tiene.
 | Cobro o pago en **efectivo/transferencia** | Dinero real. | Genera el asiento de caja |
 
 Por eso, cuando alguien pregunta "¿cuánto tengo?", hay **dos respuestas** y
-conviene dar las dos: el efectivo (`ver_saldo_caja`) y los valores en cartera
-(`ver_chequera`).
+conviene dar las dos: el efectivo (`get_cash_balance`) y los valores en cartera
+(`list_checks`).
 
 ## Paso 1 — Ver la cartera
 
 ```
-ver_chequera(solo_pendientes=true)    # solo los que siguen sin usarse/cobrarse
-ver_chequera()                        # todos, incluidos los ya aplicados
+list_checks(solo_pendientes=true)    # solo los que siguen sin usarse/cobrarse
+list_checks()                        # todos, incluidos los ya aplicados
 ```
 
 Distinga siempre los dos grupos que devuelve:
@@ -43,7 +43,7 @@ Cuando un cliente paga con cheque, no es un movimiento de caja: es un cobro con
 `tipo="cheque"`.
 
 ```
-registrar_cobro(
+record_payment(
   cliente="30712345671",
   monto=45000,
   tipo="cheque",
@@ -67,7 +67,7 @@ Hay dos casos distintos y conviene preguntar cuál es:
 **a) Cheque propio** (el comerciante libra un cheque de su chequera):
 
 ```
-registrar_pago(proveedor="30500010912", monto=45000, tipo="cheque",
+record_vendor_payment(proveedor="30500010912", monto=45000, tipo="cheque",
                referencia="CH-99887", banco="Banco Nación",
                vencimiento="2026-11-30")
 ```
@@ -76,8 +76,8 @@ registrar_pago(proveedor="30500010912", monto=45000, tipo="cheque",
 dieron a él). Primero identifique el cheque en la cartera y pase su `cheque_id`:
 
 ```
-ver_chequera(solo_pendientes=true)          # elegir el cheque
-registrar_pago(proveedor="30500010912", monto=45000,
+list_checks(solo_pendientes=true)          # elegir el cheque
+record_vendor_payment(proveedor="30500010912", monto=45000,
                tipo="cheque tercero", cheque_id=4)
 ```
 
@@ -91,13 +91,13 @@ ALdia registra el cheque en la chequera, pero el **ingreso efectivo del dinero**
 al depositarlo se carga como movimiento de caja o de banco:
 
 ```
-registrar_movimiento_caja(concepto="Acreditación cheque CH-00123456", ingreso=45000)
+record_cash_movement(concepto="Acreditación cheque CH-00123456", ingreso=45000)
 ```
 
 Hágalo solo cuando el usuario confirme que el banco lo acreditó. Un cheque
 rechazado no se acredita: en ese caso hay que volver a generar la deuda del
 cliente, y conviene avisarle al usuario que eso requiere una decisión suya
-(anular el cobro con `anular_cobro(..., confirmar=true)` y volver a gestionarlo).
+(anular el cobro con `void_payment(..., confirmar=true)` y volver a gestionarlo).
 
 ## Cómo informar
 

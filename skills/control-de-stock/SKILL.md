@@ -12,7 +12,7 @@ herramientas de mercadería.
 ## A. Qué falta reponer
 
 ```
-buscar_producto(solo_faltantes=true, minimo=<umbral>)
+find_product(solo_faltantes=true, minimo=<umbral>)
 ```
 
 `minimo` es el punto de pedido. ALdia **no guarda un stock mínimo por
@@ -23,7 +23,7 @@ artículo** (ver "Limitaciones"), así que hay que fijarlo:
 - Para un kiosco o almacén, un barrido con `minimo=5` o `minimo=10` suele
   mostrar lo que está por cortarse.
 - Si el usuario tiene un criterio por rubro ("de bebidas quiero 24 mínimo"),
-  filtre con `buscar_producto(texto="gaseosa")` y aplique el umbral usted.
+  filtre con `find_product(texto="gaseosa")` y aplique el umbral usted.
 
 Un stock **negativo** no es un error de la herramienta: significa que se entregó
 o facturó más de lo que había cargado. Señálelo — suele indicar mercadería que
@@ -40,10 +40,10 @@ entró sin registrarse como compra.
    precio de compra** (`precio_compra` viene en la respuesta) y el total
    estimado del pedido.
 4. **Espere la confirmación del usuario.** Recién cuando la mercadería llegue se
-   registra con `registrar_compra`, que suma al stock y genera la deuda con el
+   registra con `record_purchase`, que suma al stock y genera la deuda con el
    proveedor (ver la skill de carga de comprobantes).
 
-Nunca use `actualizar_producto(cantidad=...)` para "cargar" mercadería comprada:
+Nunca use `update_product(cantidad=...)` para "cargar" mercadería comprada:
 ese parámetro **pisa** el stock, no lo suma, y además deja la compra sin
 comprobante ni deuda registrada.
 
@@ -52,12 +52,12 @@ comprobante ni deuda registrada.
 ALdia no expone un endpoint de rotación por artículo (ver "Limitaciones"), así
 que la aproximación honesta es:
 
-1. `buscar_producto()` sin filtros para tener el inventario completo.
+1. `find_product()` sin filtros para tener el inventario completo.
 2. Señale como candidatos a "no rota" los artículos con **stock alto y precio de
    compra alto** (capital inmovilizado), ordenados por `stock × precio_compra`.
 3. Aclare al usuario que es una estimación por inventario, no por ventas, y
    ofrezca verificar los que le interesen mirando las facturas del período con
-   `resumen_negocio` o preguntándole desde cuándo no vende ese artículo.
+   `get_business_summary` o preguntándole desde cuándo no vende ese artículo.
 
 No invente cifras de rotación ni de "unidades vendidas por mes": el sistema hoy
 no las devuelve.
@@ -67,14 +67,14 @@ no las devuelve.
 **Un artículo puntual:**
 
 ```
-actualizar_producto(codigo=990001, precio_venta=2800)
+update_product(codigo=990001, precio_venta=2800)
 ```
 
 **Remarcación porcentual (lista o rubro):**
 
 ```
-buscar_producto(texto="gaseosa")            # 1. ver a qué artículos afecta
-actualizar_producto(codigo=..., aumento_pct=12)   # 2. uno por artículo
+find_product(texto="gaseosa")            # 1. ver a qué artículos afecta
+update_product(codigo=..., aumento_pct=12)   # 2. uno por artículo
 ```
 
 `aumento_pct=12` sube el precio de venta un 12 % sobre el precio actual,
@@ -104,12 +104,12 @@ lo agrega la factura.
 ## E. Alta de artículos nuevos
 
 ```
-alta_producto(codigo=..., producto="...", cantidad=0, unidad="UN",
+create_product(codigo=..., producto="...", cantidad=0, unidad="UN",
               precio_venta=..., precio_compra=..., iva=21)
 ```
 
 - El `codigo` debe ser único; si ya existe, la operación falla.
-- Deje `cantidad=0` y cargue el stock inicial con `registrar_compra`, así queda
+- Deje `cantidad=0` y cargue el stock inicial con `record_purchase`, así queda
   el comprobante y la deuda con el proveedor.
 - `unidad`: "UN", "Kg", "Lt", "Caja"... según cómo se venda.
 

@@ -8,7 +8,7 @@ description: Ventas en ALdia - emitir remitos (entrega de mercadería), facturar
 Herramientas MCP del servidor **aldia**. Lo primero es distinguir los dos
 comprobantes, porque hacen cosas distintas:
 
-| | `registrar_remito` | `emitir_factura` |
+| | `create_delivery_note` | `create_invoice` |
 | --- | --- | --- |
 | Qué documenta | la **entrega** de mercadería | la **venta** y su precio |
 | Stock | lo **descuenta** | lo descuenta sólo si la línea no venía de un remito |
@@ -22,7 +22,7 @@ la deuda**. Un remito sin facturar es plata entregada que todavía no se reclam�
 ## Antes de facturar: el cliente
 
 ```
-buscar_cliente(texto="<nombre o CUIT>")
+find_customer(texto="<nombre o CUIT>")
 ```
 
 Tiene que existir y tener bien cargada la **condición frente al IVA**, porque de
@@ -36,7 +36,7 @@ Es el circuito clásico del reparto y del mayorista: sale la mercadería con
 remito y a fin de mes se factura todo junto.
 
 ```
-registrar_remito(
+create_delivery_note(
   cliente="<CUIT o nombre>",
   items=[{"codigo": 990001, "cantidad": 12}, {"codigo": 990002, "cantidad": 6, "precio": 3500}],
   fecha="YYYY-MM-DD",
@@ -55,7 +55,7 @@ registrar_remito(
 ## Caso 2 — Facturar lo entregado (remito → factura)
 
 ```
-ver_remitos_sin_facturar(cliente="<CUIT o nombre>")
+list_uninvoiced_delivery_notes(cliente="<CUIT o nombre>")
 ```
 
 Devuelve **líneas** (no remitos completos) con su `id`, número de remito,
@@ -68,7 +68,7 @@ producto, cantidad y precio. Ese `id` es lo que se factura.
 3. Emita:
 
 ```
-emitir_factura(cliente="<CUIT o nombre>", lineas_remito_ids=[12, 13, 14], fecha="YYYY-MM-DD")
+create_invoice(cliente="<CUIT o nombre>", lineas_remito_ids=[12, 13, 14], fecha="YYYY-MM-DD")
 ```
 
 - **No se pueden mezclar clientes** en una factura: la herramienta lo rechaza.
@@ -81,7 +81,7 @@ Venta de mostrador a cuenta corriente, servicio, o mercadería que se lleva en e
 momento y no pasó por remito:
 
 ```
-emitir_factura(
+create_invoice(
   cliente="<CUIT o nombre>",
   items=[{"codigo": 990001, "cantidad": 3}, {"codigo": 990005, "cantidad": 1, "precio": 12000}],
   fecha="YYYY-MM-DD"
@@ -97,7 +97,7 @@ lo ya entregado más `items` para lo que se agrega en el momento.
 
 ## Los importes los calcula el sistema
 
-No pase subtotal, IVA ni total: `emitir_factura` los calcula con el precio y la
+No pase subtotal, IVA ni total: `create_invoice` los calcula con el precio y la
 alícuota de cada artículo. Lo que sí tiene que hacer usted es **mostrar el
 borrador antes de emitir**:
 
@@ -125,14 +125,14 @@ Y espere el sí. Una factura emitida ya le generó deuda al cliente.
 Para ver cómo quedó un comprobante, incluido su estado ante AFIP:
 
 ```
-ver_factura(numero=<n>)
+get_invoice(numero=<n>)
 ```
 
 ## Errores frecuentes
 
 | Situación | Qué significa | Qué hacer |
 | --- | --- | --- |
-| `La linea de remito X no existe o ya fue facturada` | otro usuario la facturó, o la lista está vieja | volver a pedir `ver_remitos_sin_facturar` |
+| `La linea de remito X no existe o ya fue facturada` | otro usuario la facturó, o la lista está vieja | volver a pedir `list_uninvoiced_delivery_notes` |
 | `La linea de remito X es del cliente ...` | se mezclaron clientes | emitir una factura por cliente |
 | `Stock insuficiente de '...'` | no hay mercadería | ajustar cantidad o cargar la compra |
 | `PERMISO DENEGADO (403) ... modulo 'ventas'` | el rol no factura (p. ej. `caja`) | decírselo al usuario; lo hace un usuario de ventas o el administrador |
@@ -140,7 +140,7 @@ ver_factura(numero=<n>)
 
 ## Corregir una factura
 
-- **Sin CAE y recién emitida**: `anular_factura(numero=<n>, confirmar=true)`.
+- **Sin CAE y recién emitida**: `void_invoice(numero=<n>, confirmar=true)`.
   Revierte la deuda, devuelve al stock lo facturado sin remito y deja los
   remitos otra vez como pendientes. Es **destructiva**: primero dígale al
   usuario número, cliente e importe, espere la autorización explícita y recién
@@ -153,9 +153,9 @@ ver_factura(numero=<n>)
 ## Cuánto se vendió
 
 ```
-resumen_negocio(fecha_desde="YYYY-MM-DD", fecha_hasta="YYYY-MM-DD")
+get_business_summary(fecha_desde="YYYY-MM-DD", fecha_hasta="YYYY-MM-DD")
 ```
 
 Trae ventas facturadas, cantidad de facturas y remitos del período. Recuerde la
 distinción al informar: **facturado no es cobrado**. Lo cobrado sale de
-`ver_movimientos_del_dia` y de la skill de cobranzas.
+`get_daily_cash_movements` y de la skill de cobranzas.

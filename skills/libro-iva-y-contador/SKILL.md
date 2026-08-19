@@ -12,8 +12,8 @@ problema en vez de estimar.
 ## Paso 1 — Traer el período
 
 ```
-consultar_libro_iva(mes="2026-07")                          # mes completo
-consultar_libro_iva(fecha_desde="2026-07-01", fecha_hasta="2026-07-31")
+get_vat_book(mes="2026-07")                          # mes completo
+get_vat_book(fecha_desde="2026-07-01", fecha_hasta="2026-07-31")
 ```
 
 Devuelve tres cosas:
@@ -36,7 +36,7 @@ número por bueno, revise:
 electrónica válida**: está en el libro pero AFIP no la tiene.
 
 ```
-ver_estado_afip()          # ¿está habilitada la facturación electrónica?
+get_einvoicing_status()          # ¿está habilitada la facturación electrónica?
 ```
 
 Si hay facturas sin CAE en el período, list�elas y avise que hay que
@@ -78,7 +78,7 @@ Libro IVA — julio 2026
     · 2 facturas sin CAE (N° 118 y 121)
 ```
 
-Y agregue el contexto del negocio si ayuda a decidir: `resumen_negocio()` da
+Y agregue el contexto del negocio si ayuda a decidir: `get_business_summary()` da
 ventas, compras, cobros y pagos del período.
 
 ## Paso 4 — Exportar

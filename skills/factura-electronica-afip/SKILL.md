@@ -9,7 +9,7 @@ Herramientas MCP del servidor **aldia**. En ALdia la factura se emite **primero*
 en el sistema y **después** se le pide la autorización a AFIP:
 
 ```
-emitir_factura(...)  →  solicitar_cae(numero=...)  →  CAE + vencimiento
+create_invoice(...)  →  request_fiscal_authorization(numero=...)  →  CAE + vencimiento
 ```
 
 El **CAE** (Código de Autorización Electrónico) es el número que le da validez
@@ -19,7 +19,7 @@ cliente, pero **no es un comprobante fiscal válido**.
 ## Regla que no se negocia
 
 **El CAE lo otorga AFIP. Usted nunca lo inventa, nunca lo supone y nunca da por
-autorizada una factura que no lo esté.** Si `solicitar_cae` devuelve un error, la
+autorizada una factura que no lo esté.** Si `request_fiscal_authorization` devuelve un error, la
 factura NO quedó autorizada: dígaselo al usuario con el mensaje real del sistema.
 Un CAE inventado en un comprobante impreso es un problema fiscal serio para el
 comercio.
@@ -27,7 +27,7 @@ comercio.
 ## Paso 1 — ¿Este ALdia puede facturar electrónicamente?
 
 ```
-ver_estado_afip()
+get_einvoicing_status()
 ```
 
 Mire `puede_pedir_cae`:
@@ -58,8 +58,8 @@ Notas asociadas: **crédito** 3 (A), 8 (B), 13 (C); **débito** 2 (A), 7 (B),
 Para verlo aplicado a un comprobante concreto:
 
 ```
-ver_factura(numero=<n>)      # trae clase_que_corresponde y tipo_sugerido_para_cae
-ver_configuracion_negocio()  # condición del negocio y el mapa completo
+get_invoice(numero=<n>)      # trae clase_que_corresponde y tipo_sugerido_para_cae
+get_business_config()  # condición del negocio y el mapa completo
 ```
 
 Si no se pasa `tipo_comprobante`, el sistema lo deduce solo, y para facturas eso
@@ -71,7 +71,7 @@ porque su importe es negativo.
 ## Paso 3 — Pedir el CAE
 
 ```
-solicitar_cae(numero=<n>)
+request_fiscal_authorization(numero=<n>)
 ```
 
 Parámetros opcionales: `tipo_comprobante`, `punto_venta`, `concepto`
@@ -137,11 +137,11 @@ con una nota de crédito (skill de notas de crédito y débito).
 Se autorizan igual que una factura, pero indicando el tipo:
 
 ```
-emitir_nota_credito(cliente="...", items=[...], motivo="Devolución")
-solicitar_cae(numero=<n>, tipo_comprobante=3)    # 3 = NC A, 8 = NC B, 13 = NC C
+create_credit_note(cliente="...", items=[...], motivo="Devolución")
+request_fiscal_authorization(numero=<n>, tipo_comprobante=3)    # 3 = NC A, 8 = NC B, 13 = NC C
 
-emitir_nota_debito(cliente="...", concepto="Intereses", importe_neto=5000)
-solicitar_cae(numero=<n>, tipo_comprobante=7)    # 2 = ND A, 7 = ND B, 12 = ND C
+create_debit_note(cliente="...", concepto="Intereses", importe_neto=5000)
+request_fiscal_authorization(numero=<n>, tipo_comprobante=7)    # 2 = ND A, 7 = ND B, 12 = ND C
 ```
 
 La respuesta de cada nota trae `tipo_comprobante_para_cae` ya calculado: úselo.

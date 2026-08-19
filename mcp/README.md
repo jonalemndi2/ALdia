@@ -175,44 +175,44 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 
 | Herramienta                | Qué hace                                                                       |
 | -------------------------- | ------------------------------------------------------------------------------ |
-| `verificar_conexion`       | Comprueba el servidor y las credenciales; informa usuario, rol y módulos.       |
-| `buscar_producto`          | Busca artículos por texto o código; opción "sólo faltantes" para reposición.    |
-| `buscar_cliente`           | Busca clientes por nombre o CUIT; devuelve ficha y saldo.                       |
-| `buscar_proveedor`         | Busca proveedores por nombre o CUIT; devuelve ficha y saldo a pagar.            |
-| `ver_saldo_cliente`        | Saldo de un cliente más sus facturas y cobros recientes.                        |
-| `ver_deudores`             | Clientes con deuda, ordenados; opción de antigüedad (días sin pagar).           |
-| `ver_saldo_caja`           | Saldo acumulado de caja (ingresos menos egresos).                               |
-| `ver_movimientos_del_dia`  | Caja, cobros, pagos, gastos y facturas de una fecha, con totales. Base del cierre. |
-| `ver_chequera`             | Cheques recibidos a depositar y cheques propios emitidos.                       |
-| `consultar_libro_iva`      | IVA débito, crédito y saldo del período (acepta `mes` en formato YYYY-MM).      |
-| `resumen_negocio`          | Ventas, compras, gastos, cobros y pagos de un rango, más el estado actual.      |
-| `ver_remitos_sin_facturar` | Líneas de mercadería entregada pendientes de facturación.                       |
+| `check_connection`       | Comprueba el servidor y las credenciales; informa usuario, rol y módulos.       |
+| `find_product`          | Busca artículos por texto o código; opción "sólo faltantes" para reposición.    |
+| `find_customer`           | Busca clientes por nombre o CUIT; devuelve ficha y saldo.                       |
+| `find_vendor`         | Busca proveedores por nombre o CUIT; devuelve ficha y saldo a pagar.            |
+| `get_customer_balance`        | Saldo de un cliente más sus facturas y cobros recientes.                        |
+| `list_debtors`             | Clientes con deuda, ordenados; opción de antigüedad (días sin pagar).           |
+| `get_cash_balance`           | Saldo acumulado de caja (ingresos menos egresos).                               |
+| `get_daily_cash_movements`  | Caja, cobros, pagos, gastos y facturas de una fecha, con totales. Base del cierre. |
+| `list_checks`             | Cheques recibidos a depositar y cheques propios emitidos.                       |
+| `get_vat_book`      | IVA débito, crédito y saldo del período (acepta `mes` en formato YYYY-MM).      |
+| `get_business_summary`          | Ventas, compras, gastos, cobros y pagos de un rango, más el estado actual.      |
+| `list_uninvoiced_delivery_notes` | Líneas de mercadería entregada pendientes de facturación.                       |
 
 ### Operación (crean comprobantes / mueven dinero)
 
 | Herramienta                 | Qué hace                                                                    |
 | --------------------------- | --------------------------------------------------------------------------- |
-| `alta_producto`             | Crea un artículo nuevo en el stock.                                         |
-| `actualizar_producto`       | Cambia precios (incluido aumento por porcentaje), descripción, IVA o stock. |
-| `alta_cliente`              | Crea la ficha de un cliente (valida CUIT).                                  |
-| `alta_proveedor`            | Crea la ficha de un proveedor (valida CUIT).                                |
-| `registrar_remito`          | Venta con entrega: guarda el remito y descuenta stock.                      |
-| `emitir_factura`            | Factura remitos pendientes y/o artículos sin remito; calcula IVA y totales; carga la deuda al cliente. |
-| `registrar_cobro`           | Cobro de cliente: baja el saldo y entra a caja (o a la chequera si es cheque). |
-| `registrar_pago`            | Pago a proveedor: baja la deuda y sale de caja (o emite/endosa cheque).      |
-| `registrar_movimiento_caja` | Ingreso o egreso manual de caja (fondo fijo, retiro, ajuste de arqueo).      |
-| `cargar_gasto`              | Factura de gasto con conceptos; suma deuda al proveedor y egresa de caja.    |
-| `registrar_compra`          | Compra a proveedor: ingresa mercadería al stock y suma la deuda.             |
+| `create_product`             | Crea un artículo nuevo en el stock.                                         |
+| `update_product`       | Cambia precios (incluido aumento por porcentaje), descripción, IVA o stock. |
+| `create_customer`              | Crea la ficha de un cliente (valida CUIT).                                  |
+| `create_vendor`            | Crea la ficha de un proveedor (valida CUIT).                                |
+| `create_delivery_note`          | Venta con entrega: guarda el remito y descuenta stock.                      |
+| `create_invoice`            | Factura remitos pendientes y/o artículos sin remito; calcula IVA y totales; carga la deuda al cliente. |
+| `record_payment`           | Cobro de cliente: baja el saldo y entra a caja (o a la chequera si es cheque). |
+| `record_vendor_payment`            | Pago a proveedor: baja la deuda y sale de caja (o emite/endosa cheque).      |
+| `record_cash_movement` | Ingreso o egreso manual de caja (fondo fijo, retiro, ajuste de arqueo).      |
+| `record_expense`              | Factura de gasto con conceptos; suma deuda al proveedor y egresa de caja.    |
+| `record_purchase`          | Compra a proveedor: ingresa mercadería al stock y suma la deuda.             |
 
 ### Anulaciones (destructivas — exigen `confirmar=true`)
 
 | Herramienta              | Qué hace                                                                |
 | ------------------------ | ----------------------------------------------------------------------- |
-| `anular_factura`         | Borra la factura, revierte la deuda y libera los remitos.                |
-| `anular_cobro`           | Borra el cobro, devuelve el saldo al cliente y quita el ingreso de caja. |
-| `anular_pago`            | Borra el pago, devuelve la deuda y libera el cheque endosado.            |
-| `anular_gasto`           | Borra el gasto, revierte la deuda y el egreso de caja.                   |
-| `borrar_movimiento_caja` | Borra un movimiento manual de caja.                                      |
+| `void_invoice`         | Borra la factura, revierte la deuda y libera los remitos.                |
+| `void_payment`           | Borra el cobro, devuelve el saldo al cliente y quita el ingreso de caja. |
+| `void_vendor_payment`            | Borra el pago, devuelve la deuda y libera el cheque endosado.            |
+| `void_expense`           | Borra el gasto, revierte la deuda y el egreso de caja.                   |
+| `delete_cash_movement` | Borra un movimiento manual de caja.                                      |
 
 Estas cinco devuelven un error si se las llama sin `confirmar=true`, con un
 texto que le indica al asistente que primero debe pedir autorización al usuario.
@@ -264,7 +264,7 @@ datos de los necesarios:
    administrador.
 10. **Facturación electrónica AFIP.** En desarrollo por otro equipo. Cuando
     exista (CAE, tipo de comprobante, punto de venta), habrá que ampliar
-    `emitir_factura` para exponer esos datos.
+    `create_invoice` para exponer esos datos.
 
 ---
 

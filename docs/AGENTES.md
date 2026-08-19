@@ -75,7 +75,7 @@ Telegram. *"Soy el dueño, cargá esto"* no es una identidad.
 
 No existe `operation_id` en ninguna parte del código.
 
-Si OpenClaw envía `registrar_cobro`, el servidor lo procesa y la respuesta se
+Si OpenClaw envía `record_payment`, el servidor lo procesa y la respuesta se
 pierde por un timeout de red, el agente reintenta — y se registra **el cobro dos
 veces**. Con facturación fiscal el problema es peor: dos comprobantes ante AFIP.
 
@@ -94,7 +94,7 @@ puede ser transitorio y quien llama tiene derecho a reintentarlo de verdad.
 
 ### 3. 🟠 Confirmar obliga a reenviar todo
 
-Hoy la confirmación es un parámetro booleano: `anular_factura(numero, confirmar=True)`.
+Hoy la confirmación es un parámetro booleano: `void_invoice(numero, confirmar=True)`.
 Funciona para "¿estás seguro?", pero no para resolver ambigüedades.
 
 En el flujo que describe la visión —*"encontré dos clientes llamados José Pérez"*—

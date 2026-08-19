@@ -8,7 +8,7 @@ description: Notas de crédito y de débito a clientes en ALdia - devoluciones d
 Herramientas MCP del servidor **aldia**. Una nota corrige una factura **ya
 emitida**, sin borrarla.
 
-| | `emitir_nota_credito` | `emitir_nota_debito` |
+| | `create_credit_note` | `create_debit_note` |
 | --- | --- | --- |
 | Efecto en la cuenta del cliente | **baja** la deuda | **sube** la deuda |
 | Cuándo | devolución, facturé de más, bonificación, algo que no se entregó | intereses por mora, flete o envase que faltó facturar, facturé de menos |
@@ -19,7 +19,7 @@ emitida**, sin borrarla.
 
 | La factura... | Qué corresponde |
 | --- | --- |
-| se emitió recién, **no tiene CAE** y está mal de punta a punta | **anularla** y rehacerla (`anular_factura`, skill de facturación) |
+| se emitió recién, **no tiene CAE** y está mal de punta a punta | **anularla** y rehacerla (`void_invoice`, skill de facturación) |
 | **ya tiene CAE** | **nota de crédito**: no se anula un comprobante declarado a AFIP |
 | es de un período ya presentado al contador | **nota de crédito**, aunque no tenga CAE: el libro IVA de ese mes ya se cerró |
 | está bien, pero hay que agregarle algo | **nota de débito** |
@@ -30,7 +30,7 @@ que un contador y AFIP esperan ver.
 ## Paso 1 — Mirar la factura original
 
 ```
-ver_factura(numero=<n>)
+get_invoice(numero=<n>)
 ```
 
 Confirme con el usuario: cliente, fecha, importe, renglones, y si tiene CAE. Con
@@ -39,7 +39,7 @@ eso decide (tabla de arriba) y sabe qué importe acreditar.
 ## Paso 2a — Nota de crédito por mercadería devuelta
 
 ```
-emitir_nota_credito(
+create_credit_note(
   cliente="<CUIT o nombre>",
   items=[{"codigo": 990001, "cantidad": 2}],
   motivo="Devolución: mercadería fallada",
@@ -62,7 +62,7 @@ emitir_nota_credito(
 ## Paso 2b — Nota de crédito por importe (bonificación o error de precio)
 
 ```
-emitir_nota_credito(
+create_credit_note(
   cliente="<CUIT o nombre>",
   importe_neto=15000, iva_pct=21,
   motivo="Bonificación comercial s/factura 12",
@@ -77,7 +77,7 @@ sistema. Si el usuario le dice el total con IVA de un producto al 21 %,
 ## Paso 2c — Nota de débito
 
 ```
-emitir_nota_debito(
+create_debit_note(
   cliente="<CUIT o nombre>",
   concepto="Intereses por mora s/factura 12",
   importe_neto=8000, iva_pct=21,
@@ -107,20 +107,20 @@ Nota de crédito B a Distribuidora del Litoral SRL (30-71234567-1)
 1. Informe **número de comprobante** y cómo quedó el saldo del cliente.
 2. **Pida el CAE** si el negocio factura electrónicamente, con el tipo que
    devuelve la respuesta en `tipo_comprobante_para_cae`:
-   `solicitar_cae(numero=<n>, tipo_comprobante=8)` (skill de factura electrónica
+   `request_fiscal_authorization(numero=<n>, tipo_comprobante=8)` (skill de factura electrónica
    AFIP). Para las notas de débito ese parámetro es **obligatorio**.
 3. **Anote la factura original en el comprobante impreso.** ALdia no guarda ese
    vínculo: la nota queda como un comprobante suelto de importe negativo. Es una
    limitación conocida; avísele al usuario para que lo escriba a mano.
 4. La nota **no mueve la caja**. Si además hay que devolverle plata al cliente,
-   eso es un egreso aparte (`registrar_movimiento_caja` con concepto claro), y
+   eso es un egreso aparte (`record_cash_movement` con concepto claro), y
    sólo si el usuario lo confirma.
 
 ## Cómo se ve después
 
-- `ver_saldo_cliente(cliente="...")` — el saldo ya tiene la nota aplicada.
-- `ver_factura(numero=<n>)` — la nota aparece con `es_nota_de_credito: true`.
-- `consultar_libro_iva(mes="YYYY-MM")` — el IVA de la nota de crédito **resta**
+- `get_customer_balance(cliente="...")` — el saldo ya tiene la nota aplicada.
+- `get_invoice(numero=<n>)` — la nota aparece con `es_nota_de_credito: true`.
+- `get_vat_book(mes="YYYY-MM")` — el IVA de la nota de crédito **resta**
   del débito fiscal del mes; el de la nota de débito suma. Por eso importa
   cargarle bien la alícuota.
 

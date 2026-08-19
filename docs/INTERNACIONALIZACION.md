@@ -227,7 +227,7 @@ primero, y lo que determina si el país es viable se prototipa temprano.
 ## Lo que sigue igual, y no hay que romper
 
 - **El MCP no conoce países.** Las tools expresan intenciones comerciales
-  (`crear_factura`, `registrar_cobro`), nunca `crear_factura_afip`. Hoy ya es
+  (`crear_factura`, `record_payment`), nunca `crear_factura_afip`. Hoy ya es
   cierto estructuralmente: el MCP habla HTTP contra la misma API que el
   navegador. El mismo mensaje —*"John me pagó la factura con este cheque"*—
   funciona en los dos países sin que el agente sepa de impuestos.
@@ -320,7 +320,7 @@ En una instalación argentina daba el mismo resultado que el servidor, así que 
 se notaba. En una estadounidense, el 7 % de Florida —que el servidor acepta— era
 rechazado por el MCP antes de que la petición saliera.
 
-Ahora las reglas se le preguntan al servidor (`ver_reglas_del_pais()`, cacheado
+Ahora las reglas se le preguntan al servidor (`get_country_rules()`, cacheado
 por sesión) y **si no se pueden averiguar, no se valida**: es preferible un viaje
 de ida y vuelta a rechazar acá una tasa perfectamente legítima del otro lado del
 mundo. Hay una prueba que lee el código fuente y falla si `_validar_iva` vuelve a

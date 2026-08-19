@@ -310,7 +310,7 @@ def _tipo_comprobante(clase: str, naturaleza: str) -> int:
         "que conviene decirle al usuario en vez de callarlos."
     ),
 )
-def ver_reglas_del_pais() -> dict[str, Any]:
+def get_country_rules() -> dict[str, Any]:
     global _reglas
     _reglas = None          # siempre fresco: es una consulta explicita
     reglas = _reglas_del_pais()
@@ -332,7 +332,7 @@ def ver_reglas_del_pais() -> dict[str, Any]:
         "permisos, para saber que puede y que no puede hacer este usuario."
     ),
 )
-def verificar_conexion() -> dict[str, Any]:
+def check_connection() -> dict[str, Any]:
     cli = api()
     usuario = cli.usuario_actual
     try:
@@ -366,7 +366,7 @@ def verificar_conexion() -> dict[str, Any]:
         "Sin ningun parametro devuelve el listado completo de articulos."
     ),
 )
-def buscar_producto(
+def find_product(
     texto: str | None = None,
     codigo: int | None = None,
     solo_faltantes: bool = False,
@@ -399,7 +399,7 @@ def buscar_producto(
         "Sin parametros devuelve todos los clientes."
     ),
 )
-def buscar_cliente(texto: str | None = None) -> dict[str, Any]:
+def find_customer(texto: str | None = None) -> dict[str, Any]:
     clientes = api().get("/api/clientes/", search=texto) or []
     return {
         "cantidad": len(clientes),
@@ -428,7 +428,7 @@ def buscar_cliente(texto: str | None = None) -> dict[str, Any]:
         "Sin parametros devuelve todos los proveedores."
     ),
 )
-def buscar_proveedor(texto: str | None = None) -> dict[str, Any]:
+def find_vendor(texto: str | None = None) -> dict[str, Any]:
     provs = api().get("/api/proveedores/", search=texto) or []
     return {
         "cantidad": len(provs),
@@ -458,7 +458,7 @@ def buscar_proveedor(texto: str | None = None) -> dict[str, Any]:
         "- limite: cuantos comprobantes recientes traer de cada tipo (por defecto 10)."
     ),
 )
-def ver_saldo_cliente(cliente: str, limite: int = 10) -> dict[str, Any]:
+def get_customer_balance(cliente: str, limite: int = 10) -> dict[str, Any]:
     cli = api()
     ficha = cli.resolver_cliente(cliente)
     cuit = ficha.get("cuit")
@@ -507,7 +507,7 @@ def ver_saldo_cliente(cliente: str, limite: int = 10) -> dict[str, Any]:
         "consulta el historial de cada cliente."
     ),
 )
-def ver_deudores(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dict[str, Any]:
+def list_debtors(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dict[str, Any]:
     cli = api()
     morosos = cli.get("/api/admin/morosos") or []
     morosos = [m for m in morosos if float(m.get("saldo") or 0) >= float(monto_minimo)]
@@ -545,7 +545,7 @@ def ver_deudores(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dic
         "dia: para eso use la herramienta de movimientos del dia."
     ),
 )
-def ver_saldo_caja() -> dict[str, Any]:
+def get_cash_balance() -> dict[str, Any]:
     datos = api().get("/api/caja/saldo") or {}
     return {"saldo_acumulado": datos.get("saldo"), "moneda": "ARS"}
 
@@ -567,7 +567,7 @@ def ver_saldo_caja() -> dict[str, Any]:
         "Parametro fecha: YYYY-MM-DD; si se omite, el dia de hoy."
     ),
 )
-def ver_movimientos_del_dia(fecha: str | None = None) -> dict[str, Any]:
+def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
     cli = api()
     dia = _fecha(fecha)
 
@@ -620,7 +620,7 @@ def ver_movimientos_del_dia(fecha: str | None = None) -> dict[str, Any]:
         "usaron ni depositaron."
     ),
 )
-def ver_chequera(solo_pendientes: bool = False) -> dict[str, Any]:
+def list_checks(solo_pendientes: bool = False) -> dict[str, Any]:
     cheques = api().get("/api/caja/chequera") or []
     if solo_pendientes:
         cheques = [c for c in cheques if not (c.get("pagado") or "").strip()]
@@ -650,7 +650,7 @@ def ver_chequera(solo_pendientes: bool = False) -> dict[str, Any]:
         "negativo, que le queda saldo tecnico a favor."
     ),
 )
-def consultar_libro_iva(
+def get_vat_book(
     fecha_desde: str | None = None,
     fecha_hasta: str | None = None,
     mes: str | None = None,
@@ -686,7 +686,7 @@ def consultar_libro_iva(
         "rango abarca toda la historia cargada."
     ),
 )
-def resumen_negocio(fecha_desde: str | None = None, fecha_hasta: str | None = None) -> dict[str, Any]:
+def get_business_summary(fecha_desde: str | None = None, fecha_hasta: str | None = None) -> dict[str, Any]:
     cli = api()
     resumen = cli.get(
         "/api/admin/resumen",
@@ -723,7 +723,7 @@ def resumen_negocio(fecha_desde: str | None = None, fecha_hasta: str | None = No
         "factura correspondiente."
     ),
 )
-def ver_remitos_sin_facturar(cliente: str | None = None) -> dict[str, Any]:
+def list_uninvoiced_delivery_notes(cliente: str | None = None) -> dict[str, Any]:
     cli = api()
     lineas = cli.get("/api/remitos/nofacturados") or []
     if cliente:
@@ -773,7 +773,7 @@ def ver_remitos_sin_facturar(cliente: str | None = None) -> dict[str, Any]:
         "la llamada devuelve un error de permisos."
     ),
 )
-def ver_auditoria(
+def get_audit_log(
     fecha_desde: str | None = None,
     fecha_hasta: str | None = None,
     usuario: str | None = None,
@@ -837,7 +837,7 @@ def ver_auditoria(
         "Para modificar un articulo existente use la herramienta de actualizacion de precio."
     ),
 )
-def alta_producto(
+def create_product(
     codigo: int,
     producto: str,
     cantidad: float = 0.0,
@@ -877,7 +877,7 @@ def alta_producto(
         "la deuda con el proveedor."
     ),
 )
-def actualizar_producto(
+def update_product(
     codigo: int,
     precio_venta: float | None = None,
     aumento_pct: float | None = None,
@@ -949,7 +949,7 @@ def actualizar_producto(
         "Si el CUIT ya existe, la operacion falla: busque primero al cliente."
     ),
 )
-def alta_cliente(
+def create_customer(
     cuit: str = "",
     nombre: str = "",
     condicion_iva: str = "consumidor_final",
@@ -1027,7 +1027,7 @@ def alta_cliente(
         "debe tener 11 digitos y digito verificador valido, y el nombre es obligatorio."
     ),
 )
-def alta_proveedor(
+def create_vendor(
     cuit: str = "",
     nombre: str = "",
     domicilio: str = "",
@@ -1101,7 +1101,7 @@ def alta_proveedor(
         "explicitamente dejar el stock en negativo."
     ),
 )
-def registrar_remito(
+def create_delivery_note(
     cliente: str,
     items: list[dict[str, Any]],
     fecha: str | None = None,
@@ -1193,7 +1193,7 @@ def registrar_remito(
         "Parametros: cliente (CUIT o nombre) y fecha (YYYY-MM-DD, por defecto hoy)."
     ),
 )
-def emitir_factura(
+def create_invoice(
     cliente: str,
     lineas_remito_ids: list[int] | None = None,
     items: list[dict[str, Any]] | None = None,
@@ -1331,7 +1331,7 @@ def emitir_factura(
         "Confirme con el usuario el cliente y el importe antes de ejecutar."
     ),
 )
-def registrar_cobro(
+def record_payment(
     cliente: str,
     monto: float,
     tipo: str = "efectivo",
@@ -1395,7 +1395,7 @@ def registrar_cobro(
         "Confirme proveedor e importe con el usuario antes de ejecutar."
     ),
 )
-def registrar_pago(
+def record_vendor_payment(
     proveedor: str,
     monto: float,
     tipo: str = "efectivo",
@@ -1458,7 +1458,7 @@ def registrar_pago(
         "Cargarlos tambien por aca duplicaria el importe."
     ),
 )
-def registrar_movimiento_caja(
+def record_cash_movement(
     concepto: str,
     ingreso: float = 0.0,
     egreso: float = 0.0,
@@ -1520,7 +1520,7 @@ def registrar_movimiento_caja(
         "aca es el que despues aparece como credito fiscal en el libro IVA."
     ),
 )
-def cargar_gasto(
+def record_expense(
     proveedor: str,
     conceptos: list[dict[str, Any]],
     numero_factura: str = "",
@@ -1597,7 +1597,7 @@ def cargar_gasto(
         "- fecha: YYYY-MM-DD, por defecto hoy."
     ),
 )
-def registrar_compra(
+def record_purchase(
     proveedor: str,
     items: list[dict[str, Any]],
     numero_factura: str = "",
@@ -1667,7 +1667,7 @@ def registrar_compra(
         "importe, y recien entonces llamar de nuevo con confirmar=true."
     ),
 )
-def anular_factura(numero: int, confirmar: bool = False) -> dict[str, Any]:
+def void_invoice(numero: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     factura = cli.get(f"/api/facturas/{int(numero)}")
     _exigir_confirmacion(
@@ -1690,7 +1690,7 @@ def anular_factura(numero: int, confirmar: bool = False) -> dict[str, Any]:
         "confirmar=true."
     ),
 )
-def anular_cobro(orden_de_cobro: int, confirmar: bool = False) -> dict[str, Any]:
+def void_payment(orden_de_cobro: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     _exigir_confirmacion(confirmar, f"Anular el cobro Nro {orden_de_cobro}")
     cli.delete(f"/api/cobros/{int(orden_de_cobro)}")
@@ -1707,7 +1707,7 @@ def anular_cobro(orden_de_cobro: int, confirmar: bool = False) -> dict[str, Any]
         "Requiere confirmacion explicita del usuario antes de llamar con confirmar=true."
     ),
 )
-def anular_pago(orden_de_pago: int, confirmar: bool = False) -> dict[str, Any]:
+def void_vendor_payment(orden_de_pago: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     _exigir_confirmacion(confirmar, f"Anular el pago Nro {orden_de_pago}")
     cli.delete(f"/api/pagos/{int(orden_de_pago)}")
@@ -1725,7 +1725,7 @@ def anular_pago(orden_de_pago: int, confirmar: bool = False) -> dict[str, Any]:
         "cuenta corriente. Requiere confirmacion explicita del usuario."
     ),
 )
-def borrar_movimiento_caja(movimiento_id: int, confirmar: bool = False) -> dict[str, Any]:
+def delete_cash_movement(movimiento_id: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     _exigir_confirmacion(confirmar, f"Borrar el movimiento de caja id {movimiento_id}")
     cli.delete(f"/api/caja/{int(movimiento_id)}")
@@ -1742,7 +1742,7 @@ def borrar_movimiento_caja(movimiento_id: int, confirmar: bool = False) -> dict[
         "confirmacion explicita del usuario."
     ),
 )
-def anular_gasto(gasto_id: int, confirmar: bool = False) -> dict[str, Any]:
+def void_expense(gasto_id: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     _exigir_confirmacion(confirmar, f"Anular el gasto id {gasto_id}")
     cli.delete(f"/api/gastos/{int(gasto_id)}")
@@ -1772,7 +1772,7 @@ def anular_gasto(gasto_id: int, confirmar: bool = False) -> dict[str, Any]:
         "Un total NEGATIVO significa que el comprobante es una NOTA DE CREDITO."
     ),
 )
-def ver_factura(numero: int) -> dict[str, Any]:
+def get_invoice(numero: int) -> dict[str, Any]:
     cli = api()
     factura = cli.get(f"/api/facturas/{int(numero)}")
     try:
@@ -1847,7 +1847,7 @@ def ver_factura(numero: int) -> dict[str, Any]:
         "de credito (3 = NC A, 8 = NC B, 13 = NC C)."
     ),
 )
-def emitir_nota_credito(
+def create_credit_note(
     cliente: str,
     motivo: str = "",
     items: list[dict[str, Any]] | None = None,
@@ -1993,7 +1993,7 @@ def emitir_nota_credito(
         "defecto la tomaria como una factura."
     ),
 )
-def emitir_nota_debito(
+def create_debit_note(
     cliente: str,
     concepto: str,
     importe_neto: float,
@@ -2072,7 +2072,7 @@ def emitir_nota_debito(
         "el certificado de AFIP, que es una tarea del administrador."
     ),
 )
-def ver_estado_afip() -> dict[str, Any]:
+def get_einvoicing_status() -> dict[str, Any]:
     datos = api().get("/api/afip/estado") or {}
     puede = bool(datos.get("habilitado")) and not datos.get("problemas")
     return {
@@ -2125,7 +2125,7 @@ def ver_estado_afip() -> dict[str, Any]:
         "cliente de la factura. Para consumidor final sin identificar: doc_tipo=99."
     ),
 )
-def solicitar_cae(
+def request_fiscal_authorization(
     numero: int,
     tipo_comprobante: int | None = None,
     punto_venta: int | None = None,
@@ -2205,7 +2205,7 @@ def solicitar_cae(
         "- limite: cuantos comprobantes recientes traer de cada tipo (por defecto 10)."
     ),
 )
-def ver_saldo_proveedor(proveedor: str, limite: int = 10) -> dict[str, Any]:
+def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
     cli = api()
     ficha = cli.resolver_proveedor(proveedor)
     cuit = ficha.get("cuit")
@@ -2277,7 +2277,7 @@ def ver_saldo_proveedor(proveedor: str, limite: int = 10) -> dict[str, Any]:
         "Parametros: proveedor (CUIT o nombre, opcional) y limite (por defecto 20)."
     ),
 )
-def ver_compras(proveedor: str | None = None, limite: int = 20) -> dict[str, Any]:
+def list_purchases(proveedor: str | None = None, limite: int = 20) -> dict[str, Any]:
     cli = api()
     compras = cli.get("/api/admin/movimientos/compra") or []
     cuit = None
@@ -2324,7 +2324,7 @@ def ver_compras(proveedor: str | None = None, limite: int = 20) -> dict[str, Any
         "hay en el deposito la operacion se rechaza informando el stock real."
     ),
 )
-def registrar_devolucion_proveedor(
+def record_vendor_return(
     proveedor: str,
     items: list[dict[str, Any]],
     fecha: str | None = None,
@@ -2405,7 +2405,7 @@ def registrar_devolucion_proveedor(
         "solo al valor anterior; si hace falta, corrijalo con la actualizacion de producto."
     ),
 )
-def anular_compra(compra_id: int, confirmar: bool = False) -> dict[str, Any]:
+def void_purchase(compra_id: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     compras = cli.get("/api/admin/movimientos/compra") or []
     ficha = next((c for c in compras if int(c.get("id") or 0) == int(compra_id)), None)
@@ -2460,7 +2460,7 @@ def _modulos_del_rol(rol: str) -> list[str]:
         "reemplazar dando de alta otro usuario o cambiandolas desde el sistema."
     ),
 )
-def ver_usuarios() -> dict[str, Any]:
+def list_users() -> dict[str, Any]:
     usuarios = api().get("/api/auth/usuarios") or []
     cache: dict[str, list[str]] = {}
     salida = []
@@ -2502,7 +2502,7 @@ def ver_usuarios() -> dict[str, Any]:
         "verificar que el rol es el correcto."
     ),
 )
-def alta_usuario(usuario: str, password: str, rol: str) -> dict[str, Any]:
+def create_user(usuario: str, password: str, rol: str) -> dict[str, Any]:
     nombre = (usuario or "").strip()
     if not nombre:
         raise ALdiaError("Falta el nombre de usuario.")
@@ -2560,7 +2560,7 @@ def alta_usuario(usuario: str, password: str, rol: str) -> dict[str, Any]:
         "confirmar=true."
     ),
 )
-def baja_usuario(user_id: int, confirmar: bool = False) -> dict[str, Any]:
+def delete_user(user_id: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
     usuarios = cli.get("/api/auth/usuarios") or []
     ficha = next((u for u in usuarios if int(u.get("id") or 0) == int(user_id)), None)
@@ -2591,7 +2591,7 @@ def baja_usuario(user_id: int, confirmar: bool = False) -> dict[str, Any]:
         "lista de roles del modulo."
     ),
 )
-def ver_modulos() -> dict[str, Any]:
+def list_modules() -> dict[str, Any]:
     modulos = api().get("/api/modulos/") or []
     return {
         "cantidad": len(modulos),
@@ -2628,7 +2628,7 @@ def ver_modulos() -> dict[str, Any]:
         "administrador siempre conserva el acceso."
     ),
 )
-def configurar_modulo(
+def configure_module(
     clave: str,
     habilitado: bool | None = None,
     roles: str | None = None,
@@ -2685,7 +2685,7 @@ def configurar_modulo(
         "Estos datos se cambian desde Administracion en el sistema, no desde el asistente."
     ),
 )
-def ver_configuracion_negocio() -> dict[str, Any]:
+def get_business_config() -> dict[str, Any]:
     config = api().get("/api/config/") or {}
     condicion = _normalizar_condicion(config.get("negocio_iva") or "responsable_inscripto")
     clases = {
@@ -2737,13 +2737,13 @@ _D_CANCELAR = (
 
 @servidor.tool(title="Ver operaciones pendientes de aclaracion",
                annotations=SOLO_LECTURA, description=_D_VER)
-def ver_operaciones_pendientes() -> dict[str, Any]:
+def list_pending_operations() -> dict[str, Any]:
     return api().get("/api/pendientes/")
 
 
 @servidor.tool(title="Confirmar una operacion pendiente",
                annotations=ESCRITURA, description=_D_CONFIRMAR)
-def confirmar_operacion_pendiente(
+def confirm_pending_operation(
     operacion_id: str,
     correcciones: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -2756,7 +2756,7 @@ def confirmar_operacion_pendiente(
 
 @servidor.tool(title="Descartar una operacion pendiente",
                annotations=ESCRITURA, description=_D_CANCELAR)
-def cancelar_operacion_pendiente(operacion_id: str) -> dict[str, Any]:
+def cancel_pending_operation(operacion_id: str) -> dict[str, Any]:
     return api().post(f"/api/pendientes/{operacion_id}/cancelar", {})
 
 

@@ -37,21 +37,21 @@ Most business software is built around forms. ALdía is built around **operation
 An agent connected to ALdía doesn't get a database. It gets a vocabulary:
 
 ```
-buscar_cliente          find a customer
-ver_saldo_cliente       what they owe, and since when
-emitir_factura          issue an invoice
-registrar_cobro         record a payment
-registrar_pago          pay a vendor
-cargar_gasto            record an expense
-buscar_producto         check inventory
-ver_chequera            checks in the portfolio
-ver_deudores            who owes money
-ver_auditoria           what happened, and who did it
+find_customer            find a customer
+get_customer_balance     what they owe, and since when
+create_invoice           issue an invoice
+record_payment           record a customer payment
+record_vendor_payment    pay a vendor
+record_expense           record an expense
+find_product             check inventory
+list_checks              checks in the portfolio
+list_debtors             who owes money, and since when
+get_audit_log            what happened, and who did it
 ```
 
-> **Note:** tool names are currently in Spanish, the language the project was
-> built in. They are business actions, not fiscal ones — `emitir_factura` means
-> the same thing in Miami as in Córdoba.
+All 48 of them are business actions, not fiscal ones: `create_invoice` means
+the same thing in Miami as in Córdoba. What changes underneath is which rules
+the server applies.
 
 Every write goes through the **same code path as the web application**: the same
 validations, the same transaction, the same audit record. There is no second

@@ -100,7 +100,7 @@ class TestElCAENoSePideDondeNoExiste:
 
         monkeypatch.setattr(srv, "api", no_deberia_llamarse)
         with pytest.raises(Exception) as e:
-            _fn(srv.solicitar_cae)(numero=1)
+            _fn(srv.request_fiscal_authorization)(numero=1)
         mensaje = str(e.value).lower()
         assert "no requieren autorizacion" in mensaje or "autorizacion previa" in mensaje
 
@@ -130,7 +130,7 @@ class TestIdentificadorNeutro:
 
         srv._reglas = _reglas("US", "Sales tax", False, [], False)
         monkeypatch.setattr(srv, "api", lambda: ApiFalsa())
-        _fn(srv.alta_cliente)(tax_id="12-3456789", nombre="Acme Plumbing LLC",
+        _fn(srv.create_customer)(tax_id="12-3456789", nombre="Acme Plumbing LLC",
                             city="Miami", region="FL", postal_code="33101")
         assert enviado["cuit"] == "12-3456789"
         assert enviado["city"] == "Miami"
@@ -140,7 +140,7 @@ class TestIdentificadorNeutro:
         srv._reglas = _reglas("US", "Sales tax", False, [], False)
         monkeypatch.setattr(srv, "api", lambda: None)
         with pytest.raises(Exception) as e:
-            _fn(srv.alta_cliente)(nombre="Sin identificador")
+            _fn(srv.create_customer)(nombre="Sin identificador")
         assert "EIN" in str(e.value)
 
 class TestNoDaConsejoArgentinoEnEEUU:
@@ -159,7 +159,7 @@ class TestNoDaConsejoArgentinoEnEEUU:
 
         srv._reglas = _reglas("US", "Sales tax", False, [], False)
         monkeypatch.setattr(srv, "api", lambda: ApiFalsa())
-        salida = _fn(srv.alta_cliente)(tax_id="12-3456789", nombre="Acme Plumbing LLC")
+        salida = _fn(srv.create_customer)(tax_id="12-3456789", nombre="Acme Plumbing LLC")
 
         assert "comprobante_que_le_corresponde" not in salida
         assert "nota" not in salida
@@ -175,6 +175,6 @@ class TestNoDaConsejoArgentinoEnEEUU:
 
         srv._reglas = _reglas("AR", "IVA", True, [21.0], True)
         monkeypatch.setattr(srv, "api", lambda: ApiFalsa())
-        salida = _fn(srv.alta_cliente)(cuit="20123456789", nombre="Cliente AR")
+        salida = _fn(srv.create_customer)(cuit="20123456789", nombre="Cliente AR")
 
         assert "Factura" in salida["comprobante_que_le_corresponde"]

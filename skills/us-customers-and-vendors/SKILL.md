@@ -5,13 +5,13 @@ description: Add and maintain customers and vendors in a US ALdia installation -
 
 # Customers and vendors (US)
 
-Run `ver_reglas_del_pais()` first if you have not already. Everything below
+Run `get_country_rules()` first if you have not already. Everything below
 assumes it reported `codigo: US`.
 
 ## Adding a customer
 
 ```
-alta_cliente(tax_id="12-3456789", nombre="Acme Plumbing LLC",
+create_customer(tax_id="12-3456789", nombre="Acme Plumbing LLC",
              city="Miami", region="FL", postal_code="33101")
 ```
 
@@ -33,7 +33,7 @@ handle them.
 ## Adding a vendor
 
 ```
-alta_proveedor(tax_id="12-3456789", nombre="Acme Supply",
+create_vendor(tax_id="12-3456789", nombre="Acme Supply",
                legal_name="Acme Supply Company LLC", dba="Acme Supply",
                city="Miami", region="FL", postal_code="33101")
 ```

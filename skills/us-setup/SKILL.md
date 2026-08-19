@@ -1,6 +1,6 @@
 ---
 name: us-setup
-description: Configure an ALdia installation to run in the United States - set the country, currency, language, the business EIN and the manual sales tax rate, and verify what the system will and will not do. Use when the user says "set up ALdia for the US", "we're in Florida", "switch to dollars", "configure sales tax", "our EIN is", "this is a US business", or when ver_reglas_del_pais() reports a country that does not match where the business actually operates.
+description: Configure an ALdia installation to run in the United States - set the country, currency, language, the business EIN and the manual sales tax rate, and verify what the system will and will not do. Use when the user says "set up ALdia for the US", "we're in Florida", "switch to dollars", "configure sales tax", "our EIN is", "this is a US business", or when get_country_rules() reports a country that does not match where the business actually operates.
 ---
 
 # US setup (ALdia)
@@ -13,7 +13,7 @@ from a tax agency.
 ## Step 0 — What is it set to now?
 
 ```
-ver_reglas_del_pais()
+get_country_rules()
 ```
 
 If `codigo` is already `US`, skip to step 3. If it says `AR`, the installation
@@ -69,7 +69,7 @@ and nothing more. Say that to the user so they double-check the number.
 ## Step 4 — Confirm what changed
 
 ```
-ver_reglas_del_pais()
+get_country_rules()
 ```
 
 Read back to the user: the tax ID name, the tax name, the currency, and **every

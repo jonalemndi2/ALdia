@@ -10,7 +10,7 @@ administrador**. Si el usuario con el que opera no lo es, las herramientas
 devuelven `PERMISO DENEGADO (403)`: dígaselo y no insista.
 
 ```
-verificar_conexion()   # con qué usuario y rol está operando
+check_connection()   # con qué usuario y rol está operando
 ```
 
 ## Los roles de ALdia
@@ -51,7 +51,7 @@ lo ve. `auditor` es el único que lee todo sin poder tocar nada.
 ### Paso 2 — Crear
 
 ```
-alta_usuario(usuario="jperez", password="<la que dio el usuario>", rol="caja")
+create_user(usuario="jperez", password="<la que dio el usuario>", rol="caja")
 ```
 
 La respuesta trae `modulos_que_ve`: **léasela al usuario**. Es la verificación de
@@ -61,7 +61,7 @@ trabajar.
 ### Paso 3 — Verificar
 
 ```
-ver_usuarios()
+list_users()
 ```
 
 Confirme que aparece con el rol esperado. Si `rol_reconocido` viene en `false`,
@@ -72,7 +72,7 @@ no ve nada. Corríjalo dando de baja y creando de nuevo con un rol válido.
 
 | Error | Qué hacer |
 | --- | --- |
-| `El nombre de usuario ya existe` | buscar el existente con `ver_usuarios`; ¿es la misma persona? |
+| `El nombre de usuario ya existe` | buscar el existente con `list_users`; ¿es la misma persona? |
 | `Rol invalido: '...'` | usar uno de los siete roles; preguntar qué tiene que poder hacer |
 | `La contrasena tiene que tener al menos 8 caracteres` | pedirle otra al usuario |
 | `El nombre de usuario no puede tener espacios` | proponer la versión con punto (`juan.perez`) |
@@ -85,9 +85,9 @@ activo de alguien que ya no trabaja es la forma más común de que se toque la
 caja sin que nadie se entere.
 
 ```
-ver_usuarios()                              # ubicar el id
-baja_usuario(user_id=<id>)                  # sin confirmar: devuelve el aviso
-baja_usuario(user_id=<id>, confirmar=true)  # sólo tras la autorización del usuario
+list_users()                              # ubicar el id
+delete_user(user_id=<id>)                  # sin confirmar: devuelve el aviso
+delete_user(user_id=<id>, confirmar=true)  # sólo tras la autorización del usuario
 ```
 
 Es **destructiva**: informe nombre y rol de quien va a borrar, espere la
@@ -106,7 +106,7 @@ sistema.
 ## Módulos: qué ve cada rol
 
 ```
-ver_modulos()
+list_modules()
 ```
 
 Devuelve los nueve módulos (`stock`, `clientes`, `ventas`, `proveedores`,
@@ -115,23 +115,23 @@ habilitados y qué roles acceden a cada uno.
 
 **"A Fulano no le aparece tal pantalla"** se diagnostica acá, en este orden:
 
-1. `verificar_conexion()` o `ver_usuarios()` → ¿qué rol tiene Fulano?
-2. `ver_modulos()` → ¿el módulo está `habilitado`? Si no, está apagado para todo
+1. `check_connection()` o `list_users()` → ¿qué rol tiene Fulano?
+2. `list_modules()` → ¿el módulo está `habilitado`? Si no, está apagado para todo
    el comercio.
 3. ¿El rol de Fulano figura en `roles_con_acceso` de ese módulo? Si no, es eso.
 
 ### Cambiar la configuración de un módulo
 
 ```
-configurar_modulo(clave="iva", habilitado=false)
-configurar_modulo(clave="caja", roles="administrador,caja,finanzas,encargado_ventas")
+configure_module(clave="iva", habilitado=false)
+configure_module(clave="caja", roles="administrador,caja,finanzas,encargado_ventas")
 ```
 
 - `habilitado=false` **apaga el módulo para toda la instalación**: desaparece
   para todos y sus operaciones devuelven error. Se usa cuando el comercio no usa
   esa parte del sistema (un kiosco que no lleva libro IVA).
 - `roles` **reemplaza** la lista completa, no agrega. Consulte primero con
-  `ver_modulos()` y mande la lista entera; si no, le saca el acceso a alguien sin
+  `list_modules()` y mande la lista entera; si no, le saca el acceso a alguien sin
   querer. El rol `administrador` se conserva siempre.
 
 Antes de ejecutar, dígale al usuario **qué cambia y a quiénes afecta**, y espere
@@ -143,15 +143,15 @@ plena jornada.
 Todo esto queda auditado. Para mostrarle al usuario qué se hizo:
 
 ```
-ver_auditoria(modulo="administracion", limite=20)
-ver_auditoria(accion="alta de usuario")
+get_audit_log(modulo="administracion", limite=20)
+get_audit_log(accion="alta de usuario")
 ```
 
 Y si alguien reporta que "no lo deja hacer algo", los intentos rechazados por
 permisos también quedan registrados:
 
 ```
-ver_auditoria(resultado="rechazado", usuario="jperez")
+get_audit_log(resultado="rechazado", usuario="jperez")
 ```
 
 Es la forma más rápida de ver si el problema es de permisos o de otra cosa.
