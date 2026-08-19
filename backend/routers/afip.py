@@ -21,6 +21,7 @@ from typing import Optional
 
 import afip as ws
 from errores import ErrorDeNegocio
+from paises import pais_configurado
 from database import get_db
 from dinero import a_pesos, aplicar_alicuota, multiplicar, porcentaje_desde_importes
 from models import Factura, StockMercaderia, Venta
@@ -412,6 +413,19 @@ def solicitar_cae(
               y el número de comprobante que asignó AFIP.
     Rechazo -> guarda resultado 'R' con el motivo y devuelve HTTP 422.
     """
+    # Este circuito solo existe donde un organismo tiene que autorizar el
+    # comprobante ANTES de que sea valido. En una instalacion estadounidense la
+    # factura vale por si misma y no hay a quien pedirle un CAE, asi que pedirlo
+    # no es un error a corregir: la operacion no aplica. Ver backend/paises/.
+    pais = pais_configurado()
+    if not pais.requiere_autorizacion_fiscal:
+        raise ErrorDeNegocio(
+            "OPERACION_NO_APLICA_EN_ESTE_PAIS",
+            f"Esta instalacion esta configurada para {pais.nombre}, donde los "
+            "comprobantes no requieren autorizacion previa de ningun organismo. "
+            "La factura ya es valida tal como fue emitida.",
+        )
+
     cfg = _config_operativa(db)
 
     factura = db.query(Factura).filter(Factura.facturanumero == factura_num).first()

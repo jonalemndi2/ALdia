@@ -22,36 +22,25 @@ import re
 # ni cuadrar contablemente.
 
 # Alicuotas de IVA vigentes en Argentina.
+from paises import pais_configurado
+
+
+# Se conserva por compatibilidad: lo importan pruebas y codigo viejo. La
+# lista real de cada pais vive en backend/paises/.
 ALICUOTAS_IVA_VALIDAS = {0.0, 2.5, 5.0, 10.5, 21.0, 27.0}
 
 
 def validar_cuit(cuit: str) -> str:
-    """Valida un CUIT/CUIL argentino: formato y digito verificador (modulo 11).
+    """Valida el identificador fiscal segun el pais de la instalacion.
 
-    Acepta con o sin guiones y lo devuelve normalizado a 11 digitos.
+    Se sigue llamando `validar_cuit` porque es el nombre que usan decenas de
+    schemas y renombrarlo no aporta nada: lo que cambio es a QUIEN le pregunta.
+    En una instalacion argentina hace exactamente lo de siempre --formato y
+    digito verificador modulo 11-- y en una estadounidense valida un EIN.
+
+    La implementacion de cada pais vive en backend/paises/.
     """
-    if cuit is None:
-        raise ValueError("El CUIT es obligatorio")
-
-    limpio = re.sub(r"[^0-9]", "", str(cuit))
-    if not limpio:
-        raise ValueError("El CUIT es obligatorio: no puede quedar vacio")
-    if len(limpio) != 11:
-        raise ValueError(f"El CUIT debe tener 11 digitos (recibido: {len(limpio)})")
-
-    # Digito verificador: modulo 11 con pesos fijos.
-    pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
-    suma = sum(int(d) * p for d, p in zip(limpio[:10], pesos))
-    resto = suma % 11
-    verificador = 11 - resto
-    if verificador == 11:
-        verificador = 0
-    elif verificador == 10:
-        verificador = 9
-
-    if verificador != int(limpio[10]):
-        raise ValueError(f"CUIT invalido: el digito verificador no corresponde ({cuit})")
-    return limpio
+    return pais_configurado().identificador.validar(cuit)
 
 
 def validar_texto_obligatorio(valor: str, campo: str) -> str:
@@ -61,10 +50,15 @@ def validar_texto_obligatorio(valor: str, campo: str) -> str:
 
 
 def validar_iva(valor: float) -> float:
-    if valor not in ALICUOTAS_IVA_VALIDAS:
-        validas = ", ".join(f"{a:g}%" for a in sorted(ALICUOTAS_IVA_VALIDAS))
-        raise ValueError(f"Alicuota de IVA invalida ({valor}). Validas: {validas}")
-    return valor
+    """Valida la tasa del impuesto sobre la venta, segun el pais.
+
+    La diferencia entre los dos paises es conceptual y no cosmetica: el IVA
+    argentino tiene un conjunto CERRADO de alicuotas legales, asi que una que no
+    esta en la lista se rechaza. El sales tax estadounidense depende de la
+    jurisdiccion y no hay lista posible, asi que solo se verifica que el numero
+    sea plausible. Ver backend/paises/base.py.
+    """
+    return pais_configurado().impuesto.validar_tasa(valor)
 
 
 # Condicion frente al IVA. La clave se guarda en la base; el id es el codigo

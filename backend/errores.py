@@ -147,6 +147,15 @@ CATALOGO: dict[str, tuple[int, str, str]] = {
         "La operacion dejaria un registro apuntando a algo que no existe, o "
         "borraria una ficha que todavia tiene movimientos."),
 
+    # ── Reglas que dependen del pais ──────────────────────────────────────
+    "PAIS_NO_SOPORTADO": (400, CORREGIR,
+        "Se pidio configurar un pais para el que no hay paquete de reglas "
+        "fiscales. GET /api/config/pais informa cual esta vigente."),
+    "OPERACION_NO_APLICA_EN_ESTE_PAIS": (409, ABORTAR,
+        "La operacion existe pero no tiene sentido con las reglas fiscales de "
+        "esta instalacion: pedir un CAE en un pais sin autorizacion previa de "
+        "comprobantes, por ejemplo. No es un error a corregir ni a reintentar."),
+
     # ── Factura electronica ───────────────────────────────────────────────
     "CAE_YA_EMITIDO": (409, ABORTAR,
         "El comprobante ya tiene CAE. Pedir otro duplicaria la declaracion ante "

@@ -47,6 +47,7 @@ hoja de ruta.
 - [Registro de auditoría](#registro-de-auditoría)
 - [Copias de seguridad](#copias-de-seguridad)
 - [Pruebas](#pruebas)
+- [Otros países](#otros-países)
 - [Licencia](#licencia)
 
 ## Arquitectura
@@ -254,6 +255,20 @@ Ver **[SECURITY.md](SECURITY.md)**. En resumen: si es explotable, usá un aviso 
 seguridad privado en vez de un issue público; y en cualquier caso, **sin datos reales**
 de ningún comercio.
 
+## Otros países
+
+ALdía tiene un **núcleo comercial común y paquetes de país**: no hay un fork por
+país. Cambiando `negocio_pais` en la configuración, la misma instalación valida
+un EIN en vez de un CUIT, aplica sales tax en vez de IVA y deja de pedir el CAE.
+
+Argentina está completa y en producción. **Estados Unidos es una rebanada
+exploratoria**: factura de punta a punta, pero su cálculo de sales tax es una
+tasa manual que no contempla nexus, sourcing ni exenciones — no sirve para
+cumplir. El propio sistema lo declara en `GET /api/config/pais`.
+
+Ver **[docs/INTERNACIONALIZACION.md](docs/INTERNACIONALIZACION.md)** para el
+estado real, lo que falta y en qué orden conviene hacerlo.
+
 ## Copias de seguridad
 
 Toda la información se guarda en **`backend/aldia.db`**: clientes, comprobantes,
@@ -324,6 +339,7 @@ backend/            API FastAPI
   dinero.py         importes en centavos enteros y redondeo comercial
   idempotencia.py   que un reintento no ejecute la operacion dos veces
   errores.py        codigos de error estables para agentes
+  paises/           lo que cambia de un pais a otro (AR / US)
   respaldo.py       copia de seguridad automatica y verificada
   tiempo.py         el instante actual, en un solo formato
   afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
@@ -347,7 +363,7 @@ certificados/       certificados de AFIP (ignorado por git)
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-**152 pruebas** que cubren la exactitud de los importes, la autenticación y los
+**169 pruebas** que cubren la exactitud de los importes, la autenticación y los
 permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
 circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
 tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).
