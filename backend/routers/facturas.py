@@ -107,6 +107,7 @@ def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
                 "STOCK_INSUFICIENTE",
                 f"Stock insuficiente de '{producto.producto}': "
                 f"se intentan facturar {cantidad} y hay {disponible}",
+                producto=producto.producto, pedido=cantidad, disponible=disponible,
             )
         db.add(Venta(
             codigo=item.codigo,

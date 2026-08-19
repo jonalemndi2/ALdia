@@ -172,12 +172,14 @@ def _verificar_acceso(user: Usuario, clave: str, metodo: str, db: Session) -> No
         raise ErrorDeNegocio(
             "SOLO_LECTURA",
             f"{user.username} tiene rol auditor, de solo consulta: no puede modificar datos",
+            usuario=user.username,
         )
 
     if rol not in _roles_del_modulo(db, clave):
         raise ErrorDeNegocio(
             "SIN_PERMISO",
             f"{user.username} ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",
+            usuario=user.username, rol=rol or "sin rol", modulo=clave,
         )
 
 

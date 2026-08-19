@@ -77,6 +77,7 @@ def delete_stock(codigo: int, db: Session = Depends(get_db)):
             "No se puede eliminar el producto porque tiene movimientos "
             f"registrados ({detalle}). Los comprobantes ya emitidos no se "
             "pueden dejar sin titular.",
+            que="el producto", detalle=detalle,
         )
 
     db.delete(item)

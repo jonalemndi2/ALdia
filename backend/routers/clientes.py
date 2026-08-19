@@ -86,6 +86,7 @@ def delete_cliente(cuit: str, db: Session = Depends(get_db)):
             "No se puede eliminar el cliente porque tiene movimientos "
             f"registrados ({detalle}). Los comprobantes ya emitidos no se "
             "pueden dejar sin titular.",
+            que="el cliente", detalle=detalle,
         )
 
     db.delete(cliente)
@@ -121,7 +122,8 @@ def corregir_identificador(
     """
     cliente = db.query(Cliente).filter(Cliente.cuit == cuit).first()
     if not cliente:
-        raise ErrorDeNegocio("CLIENTE_NO_EXISTE", f"No existe el cliente {cuit}")
+        raise ErrorDeNegocio("CLIENTE_NO_EXISTE", f"No existe el cliente {cuit}",
+                             identificador=cuit)
 
     nuevo = datos.tax_id
     if nuevo == cliente.cuit:

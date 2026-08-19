@@ -11,6 +11,7 @@ from typing import List, Dict
 from database import get_db
 from models import Configuracion, Usuario
 from errores import ErrorDeNegocio
+from idiomas import CLAVE_CONFIG_IDIOMA, idioma_configurado, olvidar_idioma
 from paises import (CLAVE_CONFIG_PAIS, PaisNoSoportado, fijar_pais,
                     pais_configurado, reglas)
 from schemas import ConfigItem
@@ -30,6 +31,9 @@ CONFIG_DEFAULT = {
     # "AR" por defecto para que toda instalacion que ya existe se comporte
     # exactamente igual que antes sin tocar nada.
     "negocio_pais": "AR",
+    # Idioma de los mensajes del servidor. Vacio = se hereda del pais, asi que
+    # una instalacion estadounidense habla ingles sin configurar nada.
+    "negocio_locale": "",
     "negocio_nombre": "Mi Negocio",
     "negocio_cuit": "",
     "negocio_direccion": "",
@@ -90,6 +94,12 @@ def actualizar_config(
     # hasta reiniciar el servidor.
     if nuevo_pais is not None:
         fijar_pais(nuevo_pais)
+        # El idioma se hereda del pais mientras nadie lo fije a mano: cambiar de
+        # pais tiene que poder cambiarlo tambien.
+        olvidar_idioma()
+
+    if CLAVE_CONFIG_IDIOMA in cambios:
+        olvidar_idioma()
 
     return {"message": "Configuración actualizada", "actualizados": len(cambios)}
 
@@ -105,6 +115,7 @@ def describir_pais() -> Dict[str, object]:
     p = pais_configurado()
     return {
         "codigo": p.codigo,
+        "idioma": idioma_configurado(),
         "nombre": p.nombre,
         "moneda": p.moneda,
         "locale": p.locale,

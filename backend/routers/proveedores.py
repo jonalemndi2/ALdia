@@ -106,7 +106,8 @@ def corregir_identificador(
     """
     proveedor = db.query(Proveedor).filter(Proveedor.cuit == cuit).first()
     if not proveedor:
-        raise ErrorDeNegocio("PROVEEDOR_NO_EXISTE", f"No existe el proveedor {cuit}")
+        raise ErrorDeNegocio("PROVEEDOR_NO_EXISTE", f"No existe el proveedor {cuit}",
+                             identificador=cuit)
 
     nuevo = datos.tax_id
     if nuevo == proveedor.cuit:

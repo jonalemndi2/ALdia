@@ -16,19 +16,42 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BACKEND = os.path.join(RAIZ, "backend")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# La base temporal se define ACA, al importar conftest, y NO adentro de la
+# fixture.
+#
+# POR QUE, que costo caro descubrirlo: `database.py` lee ALDIA_DB UNA sola vez,
+# cuando se importa, y ahi se queda con esa ruta para todo el proceso. Si
+# cualquier cosa importa `database` antes de que la fixture corra --y alcanza
+# con que un archivo de pruebas importe un modulo del backend que a su vez lo
+# importe-- el motor queda apuntando a backend/aldia.db, o sea LA BASE REAL DEL
+# COMERCIO, y la suite entera corre contra ella sin avisar.
+#
+# Paso de verdad: un test construia un objeto de error suelto, eso disparaba el
+# primer `import database` del proceso, y las pruebas empezaron a escribir en la
+# base real. Se noto solo porque el login fallaba con la contrasena verdadera
+# del administrador.
+#
+# pytest importa conftest.py ANTES que cualquier archivo de pruebas, asi que
+# poniendolo aca no hay ventana posible.
+# ─────────────────────────────────────────────────────────────────────────────
+_TMP = tempfile.mkdtemp(prefix="aldia_test_")
+RUTA_DB = os.path.join(_TMP, f"prueba_{uuid.uuid4().hex[:8]}.db")
+
+os.environ["ALDIA_DB"] = RUTA_DB
+os.environ["ALDIA_SECRET_KEY"] = "clave-solo-para-pruebas"
+os.environ["AFIP_HABILITADO"] = "no"
+# Que ninguna prueba dispare la copia de seguridad del arranque.
+os.environ["ALDIA_SIN_RESPALDO"] = "1"
+
+if BACKEND not in sys.path:
+    sys.path.insert(0, BACKEND)
+
+
 @pytest.fixture(scope="session")
 def app_cliente():
     """Cliente HTTP contra la aplicacion, con base temporal propia."""
-    tmp = tempfile.mkdtemp(prefix="aldia_test_")
-    ruta_db = os.path.join(tmp, f"prueba_{uuid.uuid4().hex[:8]}.db")
-
-    # Debe definirse ANTES de importar la aplicacion: database.py lo lee al cargar.
-    os.environ["ALDIA_DB"] = ruta_db
-    os.environ["ALDIA_SECRET_KEY"] = "clave-solo-para-pruebas"
-    os.environ["AFIP_HABILITADO"] = "no"
-
-    if BACKEND not in sys.path:
-        sys.path.insert(0, BACKEND)
+    ruta_db = RUTA_DB   # ya fijada al importar conftest (ver la nota de arriba)
 
     from fastapi.testclient import TestClient
     import main

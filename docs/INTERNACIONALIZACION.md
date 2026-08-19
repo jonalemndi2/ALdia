@@ -112,21 +112,49 @@ por los 14 destinos de FK, las 48 referencias del MCP y el frontend. La API ya
 expone `tax_id` y `tax_id_type` al lado de `cuit`, así que lo nuevo se puede
 escribir con nombres neutros y el rename es una limpieza posterior sin apuro.
 
-### 2. Todo el producto está en castellano y no hay i18n 🔴
+### 2. El producto estaba solo en castellano ✅ mecanismo resuelto
 
-- 68 mensajes `detail=` en el backend
-- Toda la interfaz web
-- Las 13 skills (libro IVA, chequera, AFIP…)
-- Cero infraestructura: ni `gettext`, ni catálogos, ni `locale`
+**Cómo quedó resuelto, y por qué no se tradujeron los 68 mensajes a mano.**
 
-Sin esto se llega a un sistema que calcula el sales tax de Florida y después le
-dice al usuario *"Stock insuficiente de…"*. En esfuerzo es comparable al motor
-de impuestos, y no estaba en ningún plan.
+Envolver cada string en una función de traducción funciona y tiene dos problemas
+que se ven recién después: cada mensaje nuevo nace sin traducir y nada lo
+detecta, y traducir texto libre bien exige entender el contexto de negocio de
+cada uno.
 
-**Hay una palanca ya construida:** los códigos de error
-(`backend/errores.py`). `codigo` y `accion` son independientes del idioma, así
-que el cliente puede localizar sin que el servidor traduzca nada. La costura ya
-existe; falta usarla.
+Ya existía una costura mejor, construida para otra cosa: **los códigos de
+error**. `STOCK_INSUFICIENTE` significa lo mismo en Villa Huidobro y en Miami.
+Así que la traducción se cuelga del código, no del texto. Los errores viajan
+ahora con `params`:
+
+```json
+{
+  "detail": "Stock insuficiente de 'Coca 2.25': se piden 12 y hay 5",
+  "codigo": "STOCK_INSUFICIENTE",
+  "accion": "corregir",
+  "params": { "producto": "Coca 2.25", "pedido": 12, "disponible": 5 }
+}
+```
+
+Con el código y los parámetros, **cualquier cliente arma el mensaje en el idioma
+que quiera sin que el servidor traduzca**. El navegador lo hace en
+`Web/js/i18n.js`; un agente ni siquiera necesita prosa. Y `detail` sigue
+viniendo siempre, en el idioma de la instalación, así que nada de lo que ya
+existía se rompe.
+
+El idioma sale de `negocio_locale`, y si está vacío **se hereda del país**: una
+instalación estadounidense habla inglés sin configurar nada. Se cambia en
+caliente, sin reiniciar.
+
+**Degradación honesta:** un código sin plantilla devuelve el texto original en
+castellano, y una plantilla a la que le falta un parámetro también — un mensaje
+útil en otro idioma es mejor que `errors.stock.insufficient` en la cara del
+cajero. `idiomas.faltantes()` lista lo que falta, y hay una prueba que lo mide:
+la deuda de traducción es visible en la suite en vez de descubrirla un usuario.
+
+**Lo que queda sin traducir, y es deliberado:** las 13 skills siguen solo en
+castellano —son instrucciones de negocio densas, y traducirlas mal es peor que
+no traducirlas— y la mayoría de los rótulos profundos de la UI. El mecanismo
+está; poblar los diccionarios es trabajo incremental que ya no requiere decisiones.
 
 ### 3. El sales tax de esta rebanada NO sirve para cumplir 🟠
 
@@ -172,7 +200,8 @@ Difiere del orden intuitivo, y por dos motivos concretos: lo de mayor radio va
 primero, y lo que determina si el país es viable se prototipa temprano.
 
 1. ~~**Identidad**: PK subrogada + `tax_id`/`tax_id_type`~~ ✅ **hecho**.
-2. **i18n**: catálogo de mensajes, aprovechando los códigos de error (punto 2).
+2. ~~**i18n**: catálogo de mensajes, aprovechando los códigos de error~~ ✅
+   **mecanismo hecho**; falta poblar diccionarios y traducir las skills.
 3. **Dirección internacional**: `address_line_1/2`, `city`, `region`,
    `postal_code`, `country_code`. Barato y no depende de nada.
 4. **Moneda explícita** en los importes que salen de la API. El núcleo de

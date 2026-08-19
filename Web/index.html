@@ -277,6 +277,9 @@
          cargados era peligroso: cualquier resto de DB.* guardaba en una base
          local que se perdia, sin dar error. Ahora falla de forma visible. -->
     <script src="js/api.js"></script>
+    <!-- i18n va justo despues de api.js porque le pide el idioma al servidor,
+         y antes que los modulos para que puedan traducir al renderizar. -->
+    <script src="js/i18n.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/modules/stock.js"></script>
     <script src="js/modules/clientes.js"></script>

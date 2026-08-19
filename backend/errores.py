@@ -222,7 +222,7 @@ class ErrorDeNegocio(HTTPException):
     pero si hace falta seguido, lo que esta mal es el catalogo.
     """
 
-    def __init__(self, codigo: str, detail: str, estado: int | None = None):
+    def __init__(self, codigo: str, detail: str, estado: int | None = None, **params):
         if codigo not in CATALOGO:
             # Un codigo fuera del catalogo es un error de programacion, no algo
             # que deba llegarle al agente: se avisa fuerte y en el acto.
@@ -231,9 +231,40 @@ class ErrorDeNegocio(HTTPException):
                 f"Agregalo a CATALOGO en backend/errores.py."
             )
         estado_catalogo, accion, _ = CATALOGO[codigo]
+        # `params` son los datos que rellenan el mensaje: el producto que falto,
+        # cuanto se pidio, cuanto habia. Van aparte del texto para que CUALQUIER
+        # cliente pueda rearmar el mensaje en su idioma sin que el servidor
+        # traduzca (ver backend/idiomas.py). El `detail` en castellano que se
+        # pasa por parametro queda como respaldo cuando no hay plantilla.
+        self.params = params
         super().__init__(status_code=estado or estado_catalogo, detail=detail)
         self.codigo = codigo
         self.accion = accion
+
+
+def _localizar(codigo: str, respaldo: str, params: dict) -> str:
+    """El mensaje en el idioma de la instalacion, o el respaldo tal cual.
+
+    OJO CON DONDE SE LLAMA. Esto lee la configuracion, o sea que toca la base de
+    datos. Por eso NO va en el constructor de ErrorDeNegocio y si al serializar
+    la respuesta: construir una excepcion tiene que ser una operacion pura.
+
+    La primera version lo hacia en el __init__ y el efecto fue bastante peor que
+    un problema de diseno. Un test que construia un ErrorDeNegocio suelto --sin
+    levantar la aplicacion-- disparaba el primer `import database` del proceso,
+    y en ese momento la variable ALDIA_DB todavia no estaba puesta: el motor
+    quedaba apuntando a backend/aldia.db, la base REAL del comercio, y toda la
+    suite seguia contra ella. Se detecto porque el login de las pruebas empezo a
+    fallar con la contrasena real del admin.
+
+    Que falle la traduccion nunca puede impedir que el error llegue, de ahi el
+    except amplio.
+    """
+    try:
+        from idiomas import traducir
+        return traducir(codigo, respaldo, **params)
+    except Exception:
+        return respaldo
 
 
 def codigo_y_accion(exc: HTTPException) -> tuple[str, str]:
@@ -258,7 +289,17 @@ def cuerpo_de_error(exc: HTTPException) -> dict:
     personas, y romperlo no aporta nada.
     """
     codigo, accion = codigo_y_accion(exc)
-    return {"detail": exc.detail, "codigo": codigo, "accion": accion}
+    params = getattr(exc, "params", None) or {}
+    cuerpo = {
+        # Traducido ACA y no al construir la excepcion: ver la nota de _localizar.
+        "detail": _localizar(codigo, exc.detail, params),
+        "codigo": codigo,
+        "accion": accion,
+    }
+    # Solo si hay algo que mandar: un `params` vacio en cada error es ruido.
+    if params:
+        cuerpo["params"] = params
+    return cuerpo
 
 
 def instalar_errores(app) -> None:
@@ -303,13 +344,14 @@ def instalar_errores(app) -> None:
         tiene que poder consultarlo antes de autenticarse, cuando justamente
         puede estar recibiendo un 401 que no sabe interpretar.
         """
+        # Las descripciones de las acciones van en el idioma de la instalacion:
+        # es lo que lee un agente para decidir. Los CODIGOS no se traducen nunca
+        # --son el contrato-- y por eso el catalogo sirve igual en cualquier idioma.
+        from idiomas import idioma_configurado, textos_de
+        textos = textos_de()
         return {
-            "acciones": {
-                REINTENTAR: "El pedido estaba bien y puede salir solo. Esperar y repetir.",
-                CORREGIR: "Falta o sobra un dato que el agente puede arreglar.",
-                PREGUNTAR: "Hace falta una decision que el agente no puede tomar.",
-                ABORTAR: "No va a funcionar por mas que se insista.",
-            },
+            "idioma": idioma_configurado(),
+            "acciones": {a: textos.get(f"accion.{a}", a) for a in ACCIONES},
             "errores": [
                 {"codigo": c, "http": e, "accion": a, "significado": d}
                 for c, (e, a, d) in sorted(CATALOGO.items())
