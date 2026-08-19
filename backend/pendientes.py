@@ -30,11 +30,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text
 
 from database import Base
+from tiempo import ahora_utc
 
 # Cuanto vive una operacion sin confirmar. Una aclaracion conversacional ocurre
 # en minutos; pasado ese rato, los datos del negocio pueden haber cambiado y
@@ -69,8 +70,8 @@ class OperacionPendiente(Base):
 
     estado = Column(String(20), default=ESTADO_PENDIENTE)
     usuario = Column(String(80), default="")   # quien la creo: solo el puede confirmarla
-    creada = Column(DateTime, default=datetime.utcnow)
-    vence = Column(DateTime, default=lambda: datetime.utcnow() + VIGENCIA)
+    creada = Column(DateTime, default=ahora_utc)
+    vence = Column(DateTime, default=lambda: ahora_utc() + VIGENCIA)
 
 
 Index("ix_pendientes_usuario", OperacionPendiente.usuario)
@@ -82,7 +83,7 @@ def nuevo_id() -> str:
 
 
 def esta_vigente(op: OperacionPendiente) -> bool:
-    return op.estado == ESTADO_PENDIENTE and datetime.utcnow() < op.vence
+    return op.estado == ESTADO_PENDIENTE and ahora_utc() < op.vence
 
 
 def a_dict(op: OperacionPendiente) -> dict:

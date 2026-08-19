@@ -89,10 +89,44 @@ def validar_condicion_iva(valor: str) -> str:
 
 
 # ==================== USUARIOS ====================
+
+# Limite duro de bcrypt: ignora todo lo que pase de 72 bytes y desde la
+# version 4 directamente lanza ValueError en vez de truncar en silencio. Una
+# passphrase pegada desde un gestor de contrasenas lo pasa sin esfuerzo, y sin
+# esta validacion el pedido moria en un 500 -- un error del servidor por un dato
+# del usuario, que ademas no explica nada. Se mide en BYTES y no en caracteres
+# porque el limite es de bytes: una enie ocupa dos, un emoji cuatro.
+MAX_BYTES_PASSWORD = 72
+
+
+def validar_largo_password(valor: str) -> str:
+    if valor is None:
+        raise ValueError("La contrasena es obligatoria")
+    largo = len(str(valor).encode("utf-8"))
+    if largo > MAX_BYTES_PASSWORD:
+        raise ValueError(
+            f"La contrasena no puede superar los {MAX_BYTES_PASSWORD} bytes "
+            f"(la enviada ocupa {largo}). Es el limite del algoritmo bcrypt, no "
+            "una eleccion del sistema. Las tildes y la enie ocupan dos bytes "
+            "cada una."
+        )
+    return valor
+
+
 class UsuarioCreate(BaseModel):
     username: str
     password: str
     rol: str
+    # Permiso para operar a nombre de otra persona (cabecera X-Actor-User-ID).
+    # Apagado salvo que el administrador lo pida: es para la cuenta de servicio
+    # de un agente. Ver security.resolver_actor().
+    puede_actuar_por: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def _password_valida(cls, v):
+        return validar_largo_password(v)
+
 
 class UsuarioResponse(BaseModel):
     id: int
@@ -101,6 +135,9 @@ class UsuarioResponse(BaseModel):
     # True mientras el usuario siga con la contrasena inicial: puede iniciar
     # sesion, pero el sistema no lo deja operar hasta que la cambie.
     debe_cambiar_password: bool = False
+    # True si esta cuenta puede declarar por quien actua. Se expone para que el
+    # administrador vea de un vistazo quien tiene la llave de impersonacion.
+    puede_actuar_por: bool = False
 
     class Config:
         from_attributes = True
@@ -109,6 +146,16 @@ class UsuarioResponse(BaseModel):
 class CambioPassword(BaseModel):
     password_actual: str
     password_nueva: str
+
+    @field_validator("password_nueva")
+    @classmethod
+    def _nueva_valida(cls, v):
+        return validar_largo_password(v)
+
+
+class CambioActuarPor(BaseModel):
+    """Alta o baja del permiso de impersonacion sobre una cuenta ya existente."""
+    habilitado: bool
 
 
 # ==================== CLIENTES ====================

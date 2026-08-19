@@ -37,9 +37,9 @@ class TestAutenticacion:
     def test_token_forjado_se_rechaza(self, app_cliente):
         """Con la clave vieja hardcodeada cualquiera se hacia administrador."""
         import jwt
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         forjado = jwt.encode(
-            {"sub": "admin", "exp": datetime.utcnow() + timedelta(hours=1)},
+            {"sub": "admin", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
             "aldia-secret-key-2024-cambiar-en-produccion", algorithm="HS256")
         r = app_cliente.get("/api/auth/usuarios",
                             headers={"Authorization": f"Bearer {forjado}"})
@@ -76,7 +76,8 @@ class TestAutorizacionPorRol:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert cambio.status_code == 200, cambio.text
-        return token
+        # El cambio cierra las sesiones anteriores: se sigue con el token nuevo.
+        return cambio.json()["access_token"]
 
     @pytest.fixture(scope="class")
     def token_caja(self, admin, app_cliente):

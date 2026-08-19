@@ -140,9 +140,10 @@ class TestValidaciones:
         tok = app_cliente.post("/api/auth/login",
                                json={"username": "otro_usuario", "password": prov},
                                headers={"Authorization": ""}).json()["access_token"]
-        app_cliente.post("/api/auth/cambiar-password",
-                         json={"password_actual": prov, "password_nueva": defi},
-                         headers={"Authorization": f"Bearer {tok}"})
+        # Cambiar la contrasena invalida los tokens anteriores: se usa el nuevo.
+        tok = app_cliente.post("/api/auth/cambiar-password",
+                               json={"password_actual": prov, "password_nueva": defi},
+                               headers={"Authorization": f"Bearer {tok}"}).json()["access_token"]
 
         # La crea "otro_usuario"...
         r = app_cliente.post("/api/pendientes/",
@@ -158,9 +159,9 @@ class TestValidaciones:
         tok3 = app_cliente.post("/api/auth/login",
                                 json={"username": "tercero", "password": prov},
                                 headers={"Authorization": ""}).json()["access_token"]
-        app_cliente.post("/api/auth/cambiar-password",
-                         json={"password_actual": prov, "password_nueva": defi},
-                         headers={"Authorization": f"Bearer {tok3}"})
+        tok3 = app_cliente.post("/api/auth/cambiar-password",
+                                json={"password_actual": prov, "password_nueva": defi},
+                                headers={"Authorization": f"Bearer {tok3}"}).json()["access_token"]
         resp = app_cliente.post(f"/api/pendientes/{pid}/confirmar",
                                 json={"correcciones": {}},
                                 headers={"Authorization": f"Bearer {tok3}"})

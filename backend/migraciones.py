@@ -31,6 +31,17 @@ COLUMNAS_NUEVAS = {
         # para todos los usuarios existentes: la proxima vez que entren van a
         # tener que definir una propia.
         ("debe_cambiar_password", "BOOLEAN NOT NULL DEFAULT 1"),
+        # Instante del ultimo cambio de contrasena. Es la linea de corte que
+        # invalida los tokens emitidos antes. Queda en NULL para los usuarios ya
+        # cargados, y NULL significa "no hay nada que invalidar": sus sesiones
+        # abiertas siguen valiendo, que es lo correcto -- no cambiaron la clave,
+        # asi que no hay ninguna que proteger.
+        ("password_cambiada_en", "TIMESTAMP"),
+        # Permiso para declarar `X-Actor-User-ID` y operar a nombre de otro.
+        # Se agrega en 0 para TODOS los usuarios existentes: es el punto del
+        # arreglo. Quien lo necesite (la cuenta de servicio del agente) lo
+        # recibe del administrador de forma explicita, uno por uno.
+        ("puede_actuar_por", "BOOLEAN NOT NULL DEFAULT 0"),
     ],
     "ncp": [
         # Importe de la nota de credito (devolucion a proveedor), en centavos.

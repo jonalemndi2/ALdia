@@ -1,7 +1,7 @@
 """
 admin.py - Router para Administración y Dashboard
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Dict, Any
@@ -15,9 +15,25 @@ from models import (
     Cliente, Proveedor, StockMercaderia, Caja, Remito, Factura, Usuario,
     Venta, Cobro, Pago, FacturaProveedor, Compra, GastoFactura
 )
-from routers.auth import require_admin
+from routers.auth import current_user_dep, require_admin
+from security import exigir_modulo, require_modulo
 
 router = APIRouter()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTROL DE ACCESO DE ESTE ROUTER
+#
+# main.py lo monta pidiendo solo estar autenticado, porque /dashboard lo
+# consulta CUALQUIER usuario al entrar. Eso dejaba sin control TODO lo demas: un
+# encargado de deposito, que no tiene acceso al modulo de cuentas corrientes, se
+# bajaba con un GET la cartera completa de deudores del comercio -- nombre,
+# CUIT, telefono y cuanto debe cada uno.
+#
+# La regla que se aplica aca es la misma que rige al resto del sistema: cada
+# ruta pide el modulo del dato que devuelve, no el de la pantalla desde la que
+# se la llama. Las rutas que ademas modifican algo o revelan el esquema siguen
+# con require_admin.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @router.get("/dashboard")
@@ -58,9 +74,15 @@ def get_db_info(_: Usuario = Depends(require_admin)):
 # NOTA: las rutas con path fijo (/morosos, /resumen) deben declararse ANTES de
 # cualquier ruta parametrica del mismo metodo, porque FastAPI resuelve por orden
 # de declaracion y el parametro las capturaria.
-@router.get("/morosos")
+@router.get("/morosos", dependencies=[Depends(require_modulo("cuentas_corrientes"))])
 def get_morosos(db: Session = Depends(get_db)):
-    """Clientes con saldo pendiente (los consume Admin.showMorosos del frontend)."""
+    """Clientes con saldo pendiente (los consume Admin.showMorosos del frontend).
+
+    Exige el modulo de cuentas corrientes, igual que /api/cobros: es el mismo
+    dato. Sin esto era la unica puerta del sistema por la que se podia sacar la
+    lista de deudores con CUIT, telefono y saldo sin tener acceso al modulo que
+    la administra.
+    """
     clientes = (
         db.query(Cliente)
         .filter(Cliente.saldo > 0)
@@ -87,7 +109,7 @@ def get_morosos(db: Session = Depends(get_db)):
 # colateral de abrir una pantalla.
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/verificar-saldos")
+@router.get("/verificar-saldos", dependencies=[Depends(require_modulo("administracion"))])
 def verificar_saldos(db: Session = Depends(get_db)):
     """Recalcula cada saldo desde los movimientos y lo compara con el guardado.
 
@@ -96,7 +118,12 @@ def verificar_saldos(db: Session = Depends(get_db)):
     cada diferencia con nombre, CUIT e importe. Ver backend/saldos.py para la
     definicion exacta del saldo y para el limite conocido del calculo.
 
-    No modifica nada. Para corregir: POST /api/admin/reparar-saldos.
+    No modifica nada, pero devuelve nombre, CUIT y saldo de cada ficha
+    descuadrada: es la misma cartera de clientes que /morosos, mirada desde otro
+    lado. Va con el modulo de administracion, el mismo que la pantalla "Estado
+    de la Base de Datos" desde la que se consulta.
+
+    Para corregir: POST /api/admin/reparar-saldos.
     """
     informe = saldos.verificar(db)
     return {
@@ -121,7 +148,7 @@ def verificar_saldos(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/verificar-integridad")
+@router.get("/verificar-integridad", dependencies=[Depends(require_modulo("administracion"))])
 def verificar_integridad(db: Session = Depends(get_db)):
     """Estado de la integridad referencial y de los numeradores de comprobantes.
 
@@ -134,7 +161,10 @@ def verificar_integridad(db: Session = Depends(get_db)):
       * si hay filas HUERFANAS, o sea que apuntan a un cliente, proveedor o
         articulo que no existe.
 
-    No modifica nada.
+    No modifica nada, pero describe el esquema de la base y lista valores reales
+    de las filas huerfanas (CUIT de clientes, codigos de articulos). Es
+    informacion de mantenimiento, no de operacion: va con el modulo de
+    administracion.
     """
     esquema = estado_claves_foraneas(engine)
     huerfanos = verificar_huerfanos(engine)
@@ -195,9 +225,14 @@ def reparar_saldos(
     }
 
 
-@router.get("/resumen")
+@router.get("/resumen", dependencies=[Depends(require_modulo("administracion"))])
 def get_resumen(fecha_desde: str = None, fecha_hasta: str = None, db: Session = Depends(get_db)):
-    """Resumen general por rango de fechas (los consume Admin.calcularResumen)."""
+    """Resumen general por rango de fechas (los consume Admin.calcularResumen).
+
+    Devuelve la facturacion, las compras, los gastos y la cobranza del comercio
+    en un rango: es el estado del negocio en seis numeros. No es un dato de
+    operacion diaria y no corresponde que lo vea cualquier usuario logueado.
+    """
 
     def _rango(query, columna):
         if fecha_desde:
@@ -250,6 +285,18 @@ def _modelo_mov(tipo: str):
     return modelo, getattr(modelo, pk)
 
 
+# A que modulo pertenece cada tipo de comprobante. Es el mismo mapeo que usa
+# main.py para los routers propios de cada uno: buscar una factura por aca no
+# puede ser mas facil que buscarla en /api/facturas/.
+_MODULO_DE_MOV = {
+    "remito": "ventas",
+    "factura": "ventas",
+    "compra": "proveedores",
+    "cobro": "cuentas_corrientes",
+    "pago": "proveedores",
+}
+
+
 # Columnas de DINERO (centavos) de cada modelo buscable, para traducirlas a
 # pesos en la respuesta de /movimientos/{tipo}.
 _COLUMNAS_DINERO = {
@@ -262,9 +309,22 @@ _COLUMNAS_DINERO = {
 
 
 @router.get("/movimientos/{tipo}")
-def buscar_movimientos(tipo: str, numero: str = None, db: Session = Depends(get_db)):
-    """Buscar movimientos por tipo y (opcionalmente) numero. Consumido por Admin.buscarMov."""
+def buscar_movimientos(
+    tipo: str,
+    request: Request,
+    numero: str = None,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(current_user_dep),
+):
+    """Buscar movimientos por tipo y (opcionalmente) numero. Consumido por Admin.buscarMov.
+
+    El modulo que se exige depende del tipo pedido, asi que el control no se
+    puede declarar en el decorador: se resuelve adentro con exigir_modulo(). Sin
+    el, esta ruta devolvia facturas, cobros y pagos completos a cualquier usuario
+    logueado, salteando por completo el permiso de los routers de cada uno.
+    """
     modelo, pk_col = _modelo_mov(tipo)
+    exigir_modulo(request, db, usuario, _MODULO_DE_MOV[tipo])
     query = db.query(modelo)
     if numero:
         try:

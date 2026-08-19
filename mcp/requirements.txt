@@ -1,2 +1,13 @@
+# Dependencias del servidor MCP (el puente entre un asistente de IA y ALdía).
+# Se instalan en su propio entorno, aparte del backend:
+#
+#     cd mcp && python -m venv .venv && .venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# mcp: implementación del Model Context Protocol; es la que expone las
+# herramientas que el asistente puede pedir.
 mcp>=1.2.0
+# httpx: cliente HTTP con el que el servidor MCP le habla a la API de ALdía.
+# El servidor MCP no toca la base ni ejecuta lógica de negocio: todo pasa por
+# los mismos endpoints, con las mismas validaciones y la misma auditoría que
+# usa el navegador.
 httpx>=0.27

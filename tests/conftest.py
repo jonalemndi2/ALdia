@@ -66,6 +66,11 @@ def token_admin(app_cliente):
             headers={"Authorization": f"Bearer {token}"},
         )
         assert cambio.status_code == 200, cambio.text
+        # Cambiar la contrasena cierra TODAS las sesiones abiertas, incluida
+        # esta: el token de arriba se emitio antes del cambio y ya no vale. El
+        # endpoint devuelve el reemplazo, que es lo mismo que tiene que hacer
+        # cualquier cliente real.
+        token = cambio.json()["access_token"]
 
     return token
 

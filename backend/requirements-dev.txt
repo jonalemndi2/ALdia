@@ -1,0 +1,18 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencias para DESARROLLAR y correr las pruebas.
+# Quien solo va a usar el sistema en su comercio no necesita nada de esto:
+# le alcanza con `instalar.bat` (que usa requirements.txt).
+#
+#     python -m pip install -r backend/requirements-dev.txt
+#     python -m pytest tests/ -q
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Todo lo que necesita el sistema para funcionar.
+-r requirements.txt
+
+# pytest: corre la suite de tests/.
+pytest>=8.0
+# httpx: lo usa el TestClient de FastAPI para pegarle a la aplicación montada
+# en memoria, sin levantar el servidor. No es una dependencia del sistema:
+# solo aparece acá y en el servidor MCP.
+httpx>=0.27

@@ -4,7 +4,6 @@ routers/pendientes.py - API de operaciones pendientes de aclaracion.
 Ver backend/pendientes.py para el porque del diseno.
 """
 import json
-from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import pendientes as P
 from database import get_db
+from tiempo import ahora_utc
 from models import Usuario
 from routers.auth import current_user_dep
 
@@ -149,7 +149,7 @@ async def confirmar(
             status_code=409,
             detail=f"La operación ya está {op.estado}: no se puede volver a confirmar",
         )
-    if datetime.utcnow() >= op.vence:
+    if ahora_utc() >= op.vence:
         op.estado = P.ESTADO_EXPIRADA
         db.commit()
         raise HTTPException(

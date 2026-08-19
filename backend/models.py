@@ -124,6 +124,19 @@ class Usuario(Base):
     # publico, asi que una instalacion que nunca la cambio queda con un acceso
     # conocido por cualquiera. Con esto, quedarse con la de fabrica es imposible.
     debe_cambiar_password = Column(Boolean, default=False, nullable=False)
+    # Cuando cambio la contrasena por ultima vez. Es la linea de corte de los
+    # tokens: todo JWT emitido ANTES de este instante deja de valer (ver
+    # get_current_user en routers/auth.py). Sin esto, cambiar la clave porque
+    # alguien la vio no servia de nada -- la sesion que ya la habia usado seguia
+    # abierta hasta ocho horas mas. NULL = nunca la cambio desde que existe esta
+    # columna, y entonces no hay nada que invalidar.
+    password_cambiada_en = Column(DateTime, default=None)
+    # Habilita a esta cuenta a declarar `X-Actor-User-ID`, o sea a ejecutar
+    # operaciones a nombre de otra persona. APAGADO por defecto y a proposito:
+    # es para la cuenta de servicio de un agente, no para una cuenta de persona.
+    # Sin este permiso cualquier empleado mandaba la cabecera desde una consola
+    # y su operacion quedaba asentada a nombre de un companero.
+    puede_actuar_por = Column(Boolean, default=False, nullable=False)
 
 
 class Secuencia(Base):

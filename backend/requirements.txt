@@ -1,3 +1,20 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements.txt — RANGO DE COMPATIBILIDAD.
+# Dice la versión MÍNIMA con la que el sistema funciona, no la que conviene
+# instalar. Sirve para quien quiera actualizar y ver si algo se rompió.
+#
+# PARA INSTALAR EN UN COMERCIO usá el lock, que fija cada versión exacta:
+#
+#     python -m pip install -r backend/requirements.lock.txt
+#
+# La diferencia importa: con estos rangos, `pip install` te trae lo último que
+# haya publicado cada proyecto el día que lo corras. Eso está bien para probar
+# y muy mal para una PC que factura — un cambio incompatible de FastAPI o
+# Pydantic te deja sin emitir comprobantes y sin nadie que lo arregle.
+#
+# Para correr las pruebas: requirements-dev.txt (incluye a este y agrega pytest).
+# ─────────────────────────────────────────────────────────────────────────────
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 sqlalchemy>=2.0.36

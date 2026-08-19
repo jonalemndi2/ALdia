@@ -1,0 +1,162 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Pruebas automáticas en cada push y cada pull request.
+#
+# Hasta ahora la suite existía pero nadie garantizaba que se corriera: se
+# confiaba en que el contribuyente se acordara. Esto lo corre siempre.
+#
+# El sistema se desarrolla e instala en Windows, pero acá corre en Linux a
+# propósito: si algo depende del sistema operativo (rutas con backslash,
+# permisos de archivo, mayúsculas en nombres), se ve acá y no en la PC del
+# comercio.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+
+# Solo lectura del repositorio: este workflow no publica ni escribe nada.
+permissions:
+  contents: read
+
+# Si se empujan dos commits seguidos a la misma rama, cancelar la corrida vieja.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. La suite, con las dependencias en su versión MÁS NUEVA (requirements.txt
+  #    declara rangos). Es a propósito: así nos enteramos acá de que una versión
+  #    nueva de FastAPI o Pydantic rompe algo, en vez de enterarnos el día que
+  #    un comercio corre `pip install`.
+  #
+  #    3.10 es el mínimo que declara el README; 3.13 es la versión moderna que
+  #    baja hoy quien instala Python por primera vez. Las dos tienen que andar.
+  # ───────────────────────────────────────────────────────────────────────────
+  pruebas:
+    name: pytest · Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          # Cachea la carpeta de descargas de pip: sin esto cada corrida vuelve
+          # a bajar lxml, cryptography y compañía.
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements-dev.txt
+
+      - name: Correr la suite
+        run: python -m pytest tests/ -q
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. La misma suite con el LOCK, o sea con las versiones exactas que se le
+  #    recomiendan a un comercio. Si este job falla, el archivo que la gente
+  #    instala en producción está roto — que es peor que el otro.
+  # ───────────────────────────────────────────────────────────────────────────
+  lock:
+    name: pytest · versiones del lock
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock.txt
+
+      - name: Instalar las versiones fijadas
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.lock.txt
+          # pytest y httpx no son dependencias del sistema, solo de las pruebas.
+          python -m pip install pytest httpx
+          # Que ninguna de las dos instalaciones haya dejado versiones incompatibles.
+          python -m pip check
+
+      - name: Correr la suite
+        run: python -m pytest tests/ -q
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. Que no se cuele ningún secreto.
+  #
+  #    Esto es un sistema de facturación fiscal: el archivo de base de datos
+  #    tiene CUIT de clientes y hashes de contraseñas, la clave de firma permite
+  #    fabricarse un token de administrador, y con el certificado de AFIP un
+  #    tercero factura en nombre del comercio. El .gitignore ya los excluye;
+  #    este job existe para que siga siendo así dentro de dos años.
+  # ───────────────────────────────────────────────────────────────────────────
+  secretos:
+    name: Sin secretos versionados
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Que no haya secretos en el repositorio
+        run: |
+          echo "Buscando archivos que nunca deberían estar versionados..."
+          encontrados=$(git ls-files -- \
+            '.aldia_secret' 'backend/.aldia_secret' \
+            'backend/.afip_ta*' '*.ta.xml' \
+            'backend/aldia.db' '*.sqlite' '*.sqlite3' '*.db' \
+            '*.pem' '*.key' '*.p12' '*.pfx' '*.crt' '*.csr' \
+            '.env')
+          if [ -n "$encontrados" ]; then
+            echo
+            echo "FALLA: hay secretos o datos del comercio versionados:"
+            echo "$encontrados" | sed 's/^/  /'
+            echo
+            echo "Sacalos del historial (no alcanza con borrarlos en un commit"
+            echo "nuevo: siguen estando) y, si eran reales, dalos por filtrados:"
+            echo "rotá la clave de sesión y volvé a tramitar el certificado de AFIP."
+            exit 1
+          fi
+          echo "  ok — ninguno."
+
+      - name: Que el .gitignore los siga excluyendo
+        run: |
+          echo "Verificando que .gitignore cubra cada caso..."
+          faltan=0
+          for ruta in \
+            backend/.aldia_secret \
+            backend/aldia.db \
+            backend/aldia.db-wal \
+            backend/.afip_ta_wsfe.json \
+            certificados/comercio.pem \
+            certificados/comercio.key \
+            certificados/comercio.p12 \
+            certificados/comercio.pfx \
+            .env
+          do
+            if git check-ignore -q "$ruta"; then
+              echo "  ok       $ruta"
+            else
+              echo "  FALLA    $ruta  ← ya no lo excluye el .gitignore"
+              faltan=1
+            fi
+          done
+          if [ "$faltan" = "1" ]; then
+            echo
+            echo "Alguien aflojó el .gitignore. Cualquiera de esos archivos que"
+            echo "llegue a GitHub es una filtración: base de datos del comercio,"
+            echo "clave de firma de sesiones o identidad fiscal ante AFIP."
+            exit 1
+          fi
+          echo "  ok — todos excluidos."
