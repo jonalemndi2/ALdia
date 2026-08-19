@@ -7,12 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
+import mimetypes
 import os
 import sys
 import uvicorn
 
-from database import engine, Base, SessionLocal, transaccion_de_escritura
-from migraciones import aplicar_migraciones, aplicar_claves_foraneas
+from database import engine, Base, SessionLocal, transaccion_de_escritura, DB_PATH
+from errores import instalar_errores
+from respaldo import respaldar_al_arrancar
+from migraciones import (aplicar_migraciones, aplicar_claves_foraneas,
+                         aplicar_identidad_subrogada)
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
     cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip,
@@ -20,6 +24,13 @@ from routers import (
 )
 from routers.auth import current_user_dep
 from security import require_modulo
+
+# Copia de seguridad del dia, ANTES de tocar nada.
+#
+# El orden no es casual: va antes de create_all y de las migraciones. Si una
+# migracion sale mal, la copia que se necesita es la de ANTES de esa migracion;
+# una copia posterior conserva el problema. Nunca aborta el arranque.
+respaldar_al_arrancar(DB_PATH)
 
 # Crear todas las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
@@ -35,6 +46,13 @@ aplicar_migraciones(engine)
 # si una tabla tiene datos que violarian las reglas nuevas, la deja como estaba y
 # lo informa por consola y en /api/admin/verificar-integridad.
 aplicar_claves_foraneas(engine)
+
+# Clave primaria propia para clientes y proveedores, en vez del identificador
+# fiscal. Es lo que permite CORREGIR un CUIT o un EIN mal cargado: hasta ahora
+# un cliente ya facturado quedaba con el numero equivocado para siempre.
+# Va despues de las claves foraneas porque necesita que esten declaradas para
+# recrearlas con ON UPDATE CASCADE. Tampoco aborta el arranque.
+aplicar_identidad_subrogada(engine)
 
 
 def inicializar_datos():
@@ -132,6 +150,81 @@ class TransaccionDeEscrituraMiddleware:
 app.add_middleware(TransaccionDeEscrituraMiddleware)
 
 
+# ─────────────────────────────────────────────────────────────
+# Content-Security-Policy
+#
+# Es la unica cabecera que realmente CONTIENE un XSS: aunque un dato del
+# comercio con HTML adentro llegue a la pantalla, el navegador se niega a
+# ejecutarlo. Antes no se podia poner estricta porque Bootstrap venia de
+# cdn.jsdelivr.net; ahora se sirve desde Web/vendor/, asi que todo lo que la
+# pagina necesita sale de este mismo origen y la politica sale gratis.
+#
+# El porque de cada directiva -- sobre todo el de las excepciones, que son las
+# que alguien va a querer sacar y no puede:
+#
+#   default-src 'self'        Piso de todo: nada se carga de un origen ajeno.
+#   script-src 'self' 'unsafe-inline'
+#                             FALLBACK para navegadores que no entienden
+#                             script-src-elem/-attr. Los que si las entienden
+#                             ignoran esta linea para scripts y aplican las dos
+#                             de abajo; los que no, quedan como estaban antes de
+#                             existir la CSP (ninguna proteccion perdida, pero
+#                             tampoco los handlers rotos).
+#   script-src-elem 'self'    Ningun <script> escrito dentro del HTML corre.
+#                             Este es el vector que importa: es lo que un
+#                             atacante inyecta en el nombre de un producto o en
+#                             una descripcion. Por eso los placeholders
+#                             defensivos de index.html se mudaron a
+#                             Web/js/placeholders.js.
+#   script-src-attr 'unsafe-inline'
+#                             Sobreviven dos handlers en atributo:
+#                             Web/js/utils.js (onclick del boton "Cancelar" del
+#                             inputBox) y Web/js/modules/admin.js (onchange del
+#                             selector de tipo de movimiento). Mientras existan,
+#                             sacar esto rompe esas dos pantallas. Se aprieta a
+#                             'none' el dia que se pasen a addEventListener.
+#   style-src 'self' 'unsafe-inline'
+#                             Los modulos arman su HTML con style="..." (mas de
+#                             70 casos, casi todos en las vistas de impresion de
+#                             remitos, facturas, recibos y pagos, que se
+#                             escriben con document.write en la ventana nueva).
+#                             Un atributo de estilo no ejecuta codigo: el riesgo
+#                             real que queda es cosmetico.
+#   style-src-elem 'self'     Lo que si se bloquea es un <style> inyectado, que
+#                             sirve para tapar la pantalla o disfrazar un boton.
+#                             Hoy no hay ninguno en el proyecto.
+#   img-src 'self' data:      Una imagen data: es inerte y evita romper el dia
+#                             que se embeba un logo o un QR; ningun origen externo.
+#   font-src 'self'           Las tipografias de bootstrap-icons son locales.
+#   connect-src 'self'        La API es este mismo origen (API_BASE = "/api" en
+#                             Web/js/api.js). Si un XSS igual lograra correr, no
+#                             tiene a donde mandarse los datos.
+#   object-src 'none'         No hay Flash ni applets: no hay nada que permitir.
+#   base-uri 'self'           Un <base href="http://malo/"> inyectado redirigiria
+#                             TODAS las rutas relativas -- incluidas las de js/ --
+#                             a otro servidor.
+#   form-action 'self'        Un formulario inyectado no puede postear afuera.
+#   frame-ancestors 'none'    Anti-clickjacking. Es la version moderna de
+#                             X-Frame-Options, que se sigue mandando abajo para
+#                             los navegadores que solo entienden aquella.
+# ─────────────────────────────────────────────────────────────
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "script-src-elem 'self'",
+    "script-src-attr 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "style-src-elem 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
 @app.middleware("http")
 async def cabeceras_de_seguridad(request, call_next):
     """Cabeceras defensivas para cuando el sistema se publica a internet."""
@@ -139,6 +232,7 @@ async def cabeceras_de_seguridad(request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"  # evita clickjacking
     response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
     return response
 
 # ─────────────────────────────────────────────────────────────
@@ -282,6 +376,21 @@ from auditoria import instalar_auditoria  # noqa: E402
 
 instalar_auditoria(app)
 
+# Codigos de error de maquina. Va DESPUES de todos los include_router para que
+# el manejador cubra a la aplicacion entera, incluidas las rutas de auditoria.
+# Sin esto, un agente tiene que adivinar leyendo castellano si un error se
+# reintenta, se corrige o se abandona (ver backend/errores.py).
+instalar_errores(app)
+
+
+# Los tipos MIME de las tipografias no vienen en la tabla de Python (y en
+# Windows, ademas, la tabla se completa con lo que diga el registro, que varia de
+# PC en PC). Sin esto, StaticFiles sirve los .woff/.woff2 de Web/vendor/ como
+# "text/plain" y los iconos quedan a merced de que el navegador de turno sea
+# tolerante. Se declaran a mano para que la instalacion se comporte igual en
+# cualquier maquina del comercio.
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/woff2", ".woff2")
 
 # Servir archivos estáticos (frontend) usando ruta absoluta al directorio Web.
 # IMPORTANTE: el mount en "/" debe declararse al final, después de todas las

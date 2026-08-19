@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# requirements.lock.txt — VERSIONES EXACTAS, VERIFICADAS.  Esta es la ruta
+# recomendada para instalar en un comercio.
+#
+#     python -m pip install -r backend/requirements.lock.txt
+#
+# POR QUE EXISTE ESTE ARCHIVO
+# ===========================
+# `requirements.txt` declara rangos (`fastapi>=0.115.0`). Eso está bien para
+# quien quiera actualizar, pero es peligroso para una instalación productiva:
+# el mismo `pip install` que hoy anda, corrido dentro de seis meses, puede
+# traer una versión nueva de FastAPI o Pydantic con un cambio incompatible y
+# dejar al comercio sin poder facturar un lunes a la mañana. Nadie va a estar
+# ahí para depurarlo.
+#
+# Este archivo fija cada versión —incluidas las dependencias indirectas, que
+# son las que rompen sin avisar— al conjunto exacto con el que se corrió la
+# suite de pruebas completa: en Windows (el entorno real de instalación) y en
+# Linux con Python 3.10 y 3.13.
+#
+# COMO ACTUALIZARLO
+# =================
+# No se edita a mano una línea suelta. Se actualiza el entorno, se corre la
+# suite completa, y recién si pasa se regenera:
+#
+#     python -m pip install -U -r backend/requirements.txt
+#     python -m pytest tests/ -q          # tiene que pasar TODO
+#     python -m pip freeze                # y de ahí salen las versiones
+#
+# Los marcadores de entorno (`; sys_platform ...`) NO son adorno: uvicorn trae
+# dependencias distintas según el sistema operativo y la versión de Python, y
+# sin ellos el archivo solo serviría en la máquina donde se generó.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Núcleo del servidor ──────────────────────────────────────────────────────
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn==0.52.3
+pydantic==2.13.4
+pydantic_core==2.46.4
+SQLAlchemy==2.0.52
+greenlet==3.5.5
+bcrypt==5.0.0
+PyJWT==2.13.0
+python-multipart==0.0.32
+
+# ── Factura electrónica AFIP (backend/afip.py) ───────────────────────────────
+zeep==4.3.3
+cryptography==50.0.0
+segno==1.6.6
+
+# ── Dependencias indirectas ──────────────────────────────────────────────────
+# No se instalan a mano: las arrastran las de arriba. Van fijadas igual, porque
+# una actualización silenciosa de cualquiera de estas rompe el sistema lo mismo
+# que una de FastAPI.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+attrs==26.1.0
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+click==8.4.2
+h11==0.16.0
+httptools==0.8.0
+idna==3.19
+isodate==0.7.2
+lxml==6.1.1
+platformdirs==4.11.3
+pycparser==3.0
+python-dotenv==1.2.3
+PyYAML==6.0.3
+requests==2.34.2
+requests-file==3.0.1
+requests-toolbelt==1.0.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.7.0
+watchfiles==1.2.0
+
+# ── Dependencias que cambian según la plataforma ─────────────────────────────
+# colorama: la usa click para los colores de consola, solo en Windows.
+colorama==0.4.6 ; sys_platform == "win32"
+# uvloop: acelerador del bucle de eventos de uvicorn. No existe para Windows.
+uvloop==0.22.1 ; sys_platform != "win32"
+# exceptiongroup: en 3.11+ está en la biblioteca estándar; antes hace falta.
+exceptiongroup==1.3.1 ; python_version < "3.11"
+# websockets: la 17 abandonó Python 3.10.
+websockets==17.0.1 ; python_version >= "3.11"
+websockets==16.1.1 ; python_version < "3.11"

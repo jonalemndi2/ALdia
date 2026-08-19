@@ -652,11 +652,24 @@ class AuditoriaMiddleware:
     def __init__(self, app):
         self.app = app
 
-    async def _resolver_idempotencia(self, cabeceras, metodo, ruta, cuerpo, send):
-        """Devuelve (operacion_id, ya_contestado).
+    async def _reservar_idempotencia(self, cabeceras, metodo, ruta, cuerpo, usuario, send):
+        """Reserva el identificador de operacion ANTES de ejecutar la ruta.
 
-        Si la operacion ya se ejecuto, contesta con la respuesta original y
-        devuelve ya_contestado=True para que no se ejecute de nuevo.
+        Devuelve (operacion_id, ya_contestado). Reservar primero y ejecutar
+        despues es lo unico que impide que dos reintentos casi simultaneos
+        ejecuten los dos: el arbitro es el INSERT de la reserva, no una consulta
+        previa. El porque completo esta en el encabezado de idempotencia.py.
+
+        Contesta aca mismo, sin dejar correr la ruta, en los tres casos en que
+        la reserva no se pudo tomar: la operacion ya termino (se repite su
+        respuesta), se esta ejecutando en este instante (409 OPERACION_EN_CURSO)
+        o el identificador se reuso con otros datos (409 OPERACION_CONFLICTIVA).
+
+        Un fallo INESPERADO de la tabla de idempotencia no tumba la operacion:
+        se deja constancia y se sigue sin proteccion, que es exactamente lo que
+        el sistema hace cuando quien llama no manda identificador. Negarle la
+        venta al comercio porque una tabla auxiliar no responde seria peor que
+        el problema que se esta cuidando.
         """
         import idempotencia
 
@@ -668,26 +681,45 @@ class AuditoriaMiddleware:
 
         huella = idempotencia.huella_de(metodo, ruta, cuerpo)
         try:
-            previa = idempotencia.buscar(operacion_id, huella)
+            veredicto, previa = idempotencia.reservar(
+                operacion_id, metodo, ruta, huella, usuario
+            )
         except idempotencia.OperacionConflictiva as exc:
             await self._contestar(send, 409, idempotencia.cuerpo_de_conflicto(exc),
                                   repetida=False)
             return operacion_id, True
+        except Exception as exc:  # pragma: no cover - defensivo
+            print(f"[idempotencia] no se pudo reservar {operacion_id}: {exc}",
+                  file=sys.stderr)
+            return "", False
 
-        if previa is not None:
+        if veredicto == idempotencia.RESERVA_COMPLETADA:
             await self._contestar(send, previa.estado_http,
                                   (previa.respuesta or "").encode(), repetida=True)
+            return operacion_id, True
+
+        if veredicto == idempotencia.RESERVA_EN_CURSO:
+            # No se puede devolver una respuesta que todavia no existe, y
+            # ejecutar seria duplicar. Se avisa con un codigo de maquina y con
+            # `Retry-After`, para que el agente sepa que hacer sin adivinar.
+            await self._contestar(
+                send, 409, idempotencia.cuerpo_de_en_curso(operacion_id),
+                repetida=False,
+                extra=[(b"retry-after",
+                        str(idempotencia.ESPERA_SUGERIDA_SEGUNDOS).encode())],
+            )
             return operacion_id, True
 
         return operacion_id, False
 
     @staticmethod
-    async def _contestar(send, estado: int, cuerpo: bytes, repetida: bool):
+    async def _contestar(send, estado: int, cuerpo: bytes, repetida: bool, extra=()):
         cabeceras = [
             (b"content-type", b"application/json"),
             # Le dice a quien llama que esto es la respuesta guardada de un
             # pedido anterior, no una ejecucion nueva.
             (b"x-operacion-repetida", b"1" if repetida else b"0"),
+            *extra,
         ]
         await send({"type": "http.response.start", "status": estado, "headers": cabeceras})
         await send({"type": "http.response.body", "body": cuerpo})
@@ -725,16 +757,25 @@ class AuditoriaMiddleware:
             entregado = True
             return {"type": "http.request", "body": cuerpo, "more_body": False}
 
+        # Cuerpo enviado, ya enmascarado. NUNCA se guarda tal cual.
+        payload = self._payload(cuerpo)
+
+        # Quien. En el login todavia no hay token: el usuario sale del cuerpo.
+        username = _usuario_del_token(cabeceras)
+        if not username and isinstance(payload, dict) and payload.get("username"):
+            username = str(payload["username"])[:80]
+
         # ── Idempotencia ──────────────────────────────────────────
-        # Si quien llama declaro un identificador de operacion y esa operacion
-        # ya se ejecuto, se devuelve la MISMA respuesta sin volver a ejecutar.
-        # Va aca, en el mismo punto por el que ya pasa toda escritura, para que
-        # ninguna ruta pueda quedar afuera por olvido.
-        operacion_id, respuesta_previa = await self._resolver_idempotencia(
-            cabeceras, metodo, ruta, cuerpo, send
+        # Si quien llama declaro un identificador de operacion, se RESERVA antes
+        # de dejar correr la ruta; si esa operacion ya se ejecuto se devuelve la
+        # MISMA respuesta sin volver a ejecutar. Va aca, en el mismo punto por el
+        # que ya pasa toda escritura, para que ninguna ruta pueda quedar afuera
+        # por olvido.
+        operacion_id, ya_contestado = await self._reservar_idempotencia(
+            cabeceras, metodo, ruta, cuerpo, username, send
         )
-        if respuesta_previa is True:
-            return  # ya se contesto (repeticion o conflicto)
+        if ya_contestado is True:
+            return  # ya se contesto (repeticion, en curso o conflicto)
 
         # ── Respuesta: estado, motivo del fallo y cuerpo si hay que repetirlo ──
         estado = 500
@@ -753,13 +794,6 @@ class AuditoriaMiddleware:
                     cuerpo_completo += trozo
             await send(mensaje)
 
-        # Cuerpo enviado, ya enmascarado. NUNCA se guarda tal cual.
-        payload = self._payload(cuerpo)
-
-        # Quien. En el login todavia no hay token: el usuario sale del cuerpo.
-        username = _usuario_del_token(cabeceras)
-        if not username and isinstance(payload, dict) and payload.get("username"):
-            username = str(payload["username"])[:80]
         identidad = _identidad(username)
 
         ctx = {"cambios": []}
@@ -777,20 +811,24 @@ class AuditoriaMiddleware:
             except Exception as exc:  # pragma: no cover - defensivo
                 print(f"[auditoria] fallo al anotar {metodo} {ruta}: {exc}", file=sys.stderr)
 
-            # Recordar la respuesta para que un reintento no vuelva a ejecutar.
-            # Solo si salio bien: un error puede ser transitorio y quien llama
-            # tiene derecho a reintentarlo de verdad.
-            if operacion_id and estado < 400:
+            # Cierre de la reserva que se tomo antes de ejecutar.
+            #   - Si salio bien, se completa con la respuesta, para que un
+            #     reintento la reciba en vez de volver a ejecutar.
+            #   - Si salio mal, se LIBERA: un error puede ser transitorio y
+            #     quien llama tiene derecho a reintentarlo de verdad. Vale
+            #     tambien cuando la ruta lanzo una excepcion, porque el estado
+            #     quedo en 500 y este bloque corre igual.
+            # Si esto fallara, la fila queda en curso y la destraba el umbral de
+            # abandono: el peor caso es poder reintentar, nunca duplicar.
+            if operacion_id:
                 try:
                     import idempotencia
-                    idempotencia.registrar(
-                        operacion_id, metodo, ruta,
-                        idempotencia.huella_de(metodo, ruta, cuerpo),
-                        estado, cuerpo_completo,
-                        identidad.get("usuario", ""),
-                    )
+                    if estado < 400:
+                        idempotencia.completar(operacion_id, estado, cuerpo_completo)
+                    else:
+                        idempotencia.liberar(operacion_id)
                 except Exception as exc:  # pragma: no cover - defensivo
-                    print(f"[idempotencia] no se pudo registrar {operacion_id}: {exc}",
+                    print(f"[idempotencia] no se pudo cerrar {operacion_id}: {exc}",
                           file=sys.stderr)
 
     def _payload(self, cuerpo: bytes):

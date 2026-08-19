@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -195,14 +195,14 @@ class ALdiaClient:
         datos = respuesta.json()
         self._token = datos.get("access_token")
         self._usuario_info = datos.get("user")
-        self._token_vence = datetime.utcnow() + DURACION_TOKEN
+        self._token_vence = datetime.now(timezone.utc) + DURACION_TOKEN
 
     def _asegurar_token(self) -> str:
         with self._lock:
             vencido = (
                 self._token is None
                 or self._token_vence is None
-                or datetime.utcnow() >= self._token_vence - MARGEN_RENOVACION
+                or datetime.now(timezone.utc) >= self._token_vence - MARGEN_RENOVACION
             )
             if vencido:
                 self._login()

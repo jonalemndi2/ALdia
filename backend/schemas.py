@@ -22,36 +22,25 @@ import re
 # ni cuadrar contablemente.
 
 # Alicuotas de IVA vigentes en Argentina.
+from paises import pais_configurado
+
+
+# Se conserva por compatibilidad: lo importan pruebas y codigo viejo. La
+# lista real de cada pais vive en backend/paises/.
 ALICUOTAS_IVA_VALIDAS = {0.0, 2.5, 5.0, 10.5, 21.0, 27.0}
 
 
 def validar_cuit(cuit: str) -> str:
-    """Valida un CUIT/CUIL argentino: formato y digito verificador (modulo 11).
+    """Valida el identificador fiscal segun el pais de la instalacion.
 
-    Acepta con o sin guiones y lo devuelve normalizado a 11 digitos.
+    Se sigue llamando `validar_cuit` porque es el nombre que usan decenas de
+    schemas y renombrarlo no aporta nada: lo que cambio es a QUIEN le pregunta.
+    En una instalacion argentina hace exactamente lo de siempre --formato y
+    digito verificador modulo 11-- y en una estadounidense valida un EIN.
+
+    La implementacion de cada pais vive en backend/paises/.
     """
-    if cuit is None:
-        raise ValueError("El CUIT es obligatorio")
-
-    limpio = re.sub(r"[^0-9]", "", str(cuit))
-    if not limpio:
-        raise ValueError("El CUIT es obligatorio: no puede quedar vacio")
-    if len(limpio) != 11:
-        raise ValueError(f"El CUIT debe tener 11 digitos (recibido: {len(limpio)})")
-
-    # Digito verificador: modulo 11 con pesos fijos.
-    pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
-    suma = sum(int(d) * p for d, p in zip(limpio[:10], pesos))
-    resto = suma % 11
-    verificador = 11 - resto
-    if verificador == 11:
-        verificador = 0
-    elif verificador == 10:
-        verificador = 9
-
-    if verificador != int(limpio[10]):
-        raise ValueError(f"CUIT invalido: el digito verificador no corresponde ({cuit})")
-    return limpio
+    return pais_configurado().identificador.validar(cuit)
 
 
 def validar_texto_obligatorio(valor: str, campo: str) -> str:
@@ -61,10 +50,15 @@ def validar_texto_obligatorio(valor: str, campo: str) -> str:
 
 
 def validar_iva(valor: float) -> float:
-    if valor not in ALICUOTAS_IVA_VALIDAS:
-        validas = ", ".join(f"{a:g}%" for a in sorted(ALICUOTAS_IVA_VALIDAS))
-        raise ValueError(f"Alicuota de IVA invalida ({valor}). Validas: {validas}")
-    return valor
+    """Valida la tasa del impuesto sobre la venta, segun el pais.
+
+    La diferencia entre los dos paises es conceptual y no cosmetica: el IVA
+    argentino tiene un conjunto CERRADO de alicuotas legales, asi que una que no
+    esta en la lista se rechaza. El sales tax estadounidense depende de la
+    jurisdiccion y no hay lista posible, asi que solo se verifica que el numero
+    sea plausible. Ver backend/paises/base.py.
+    """
+    return pais_configurado().impuesto.validar_tasa(valor)
 
 
 # Condicion frente al IVA. La clave se guarda en la base; el id es el codigo
@@ -89,10 +83,44 @@ def validar_condicion_iva(valor: str) -> str:
 
 
 # ==================== USUARIOS ====================
+
+# Limite duro de bcrypt: ignora todo lo que pase de 72 bytes y desde la
+# version 4 directamente lanza ValueError en vez de truncar en silencio. Una
+# passphrase pegada desde un gestor de contrasenas lo pasa sin esfuerzo, y sin
+# esta validacion el pedido moria en un 500 -- un error del servidor por un dato
+# del usuario, que ademas no explica nada. Se mide en BYTES y no en caracteres
+# porque el limite es de bytes: una enie ocupa dos, un emoji cuatro.
+MAX_BYTES_PASSWORD = 72
+
+
+def validar_largo_password(valor: str) -> str:
+    if valor is None:
+        raise ValueError("La contrasena es obligatoria")
+    largo = len(str(valor).encode("utf-8"))
+    if largo > MAX_BYTES_PASSWORD:
+        raise ValueError(
+            f"La contrasena no puede superar los {MAX_BYTES_PASSWORD} bytes "
+            f"(la enviada ocupa {largo}). Es el limite del algoritmo bcrypt, no "
+            "una eleccion del sistema. Las tildes y la enie ocupan dos bytes "
+            "cada una."
+        )
+    return valor
+
+
 class UsuarioCreate(BaseModel):
     username: str
     password: str
     rol: str
+    # Permiso para operar a nombre de otra persona (cabecera X-Actor-User-ID).
+    # Apagado salvo que el administrador lo pida: es para la cuenta de servicio
+    # de un agente. Ver security.resolver_actor().
+    puede_actuar_por: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def _password_valida(cls, v):
+        return validar_largo_password(v)
+
 
 class UsuarioResponse(BaseModel):
     id: int
@@ -101,6 +129,9 @@ class UsuarioResponse(BaseModel):
     # True mientras el usuario siga con la contrasena inicial: puede iniciar
     # sesion, pero el sistema no lo deja operar hasta que la cambie.
     debe_cambiar_password: bool = False
+    # True si esta cuenta puede declarar por quien actua. Se expone para que el
+    # administrador vea de un vistazo quien tiene la llave de impersonacion.
+    puede_actuar_por: bool = False
 
     class Config:
         from_attributes = True
@@ -109,6 +140,16 @@ class UsuarioResponse(BaseModel):
 class CambioPassword(BaseModel):
     password_actual: str
     password_nueva: str
+
+    @field_validator("password_nueva")
+    @classmethod
+    def _nueva_valida(cls, v):
+        return validar_largo_password(v)
+
+
+class CambioActuarPor(BaseModel):
+    """Alta o baja del permiso de impersonacion sobre una cuenta ya existente."""
+    habilitado: bool
 
 
 # ==================== CLIENTES ====================
@@ -122,6 +163,14 @@ class ClienteCreate(BaseModel):
     telefono: str = ""
     mail: str = ""
     condicion_iva: str = "consumidor_final"
+    # Direccion internacional. Opcionales: si no vienen, se completan desde las
+    # columnas de siempre (ver backend/direcciones.py).
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     @field_validator("cuit")
     @classmethod
@@ -138,6 +187,25 @@ class ClienteCreate(BaseModel):
     def _cond(cls, v):
         return validar_condicion_iva(v)
 
+class CorreccionIdentificador(BaseModel):
+    """Corregir el identificador fiscal de una ficha que ya tiene movimientos.
+
+    Va en su propio schema y en su propio endpoint, separado de la edicion
+    comun, porque NO es lo mismo que corregir un telefono: cambia un dato fiscal
+    que ya figura en comprobantes emitidos. Por eso exige repetir el valor nuevo
+    y deja asentado el motivo.
+    """
+
+    tax_id: str
+    confirmar: str = ""
+    motivo: str = ""
+
+    @field_validator("tax_id")
+    @classmethod
+    def _id(cls, v):
+        return validar_cuit(v)
+
+
 class ClienteUpdate(BaseModel):
     nombre: Optional[str] = None
     domicilio: Optional[str] = None
@@ -147,6 +215,14 @@ class ClienteUpdate(BaseModel):
     telefono: Optional[str] = None
     mail: Optional[str] = None
     condicion_iva: Optional[str] = None
+    # Direccion internacional. Opcionales: si no vienen, se completan desde las
+    # columnas de siempre (ver backend/direcciones.py).
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     @field_validator("condicion_iva")
     @classmethod
@@ -154,7 +230,12 @@ class ClienteUpdate(BaseModel):
         return v if v is None else validar_condicion_iva(v)
 
 class ClienteResponse(BaseModel):
-    cuit: str
+    # Identidad propia, independiente del identificador fiscal: es lo que
+    # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
+    id: Optional[int] = None
+    cuit: str                       # compatibilidad: el nombre de siempre
+    tax_id: Optional[str] = None    # el mismo valor, con nombre neutro
+    tax_id_type: Optional[str] = None   # CUIT / EIN
     nombre: str
     domicilio: str
     localidad: str
@@ -164,6 +245,12 @@ class ClienteResponse(BaseModel):
     mail: str
     saldo: DineroSalida
     condicion_iva: Optional[str] = "consumidor_final"
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
 
     class Config:
         from_attributes = True
@@ -179,6 +266,19 @@ class ProveedorCreate(BaseModel):
     cp: str = ""
     telefono: str = ""
     mail: str = ""
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
+    # Datos que el IRS pide de un proveedor estadounidense. Modelo preparado;
+    # NO se genera ningun 1099 (ver la nota en models.py).
+    legal_name: Optional[str] = ""
+    dba: Optional[str] = ""
+    w9_recibido: Optional[bool] = False
+    w9_fecha: Optional[str] = ""
+    elegible_1099: Optional[bool] = False
 
     @field_validator("cuit")
     @classmethod
@@ -198,9 +298,25 @@ class ProveedorUpdate(BaseModel):
     cp: Optional[str] = None
     telefono: Optional[str] = None
     mail: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    postal_code: Optional[str] = None
+    country_code: Optional[str] = None
+    legal_name: Optional[str] = None
+    dba: Optional[str] = None
+    w9_recibido: Optional[bool] = None
+    w9_fecha: Optional[str] = None
+    elegible_1099: Optional[bool] = None
 
 class ProveedorResponse(BaseModel):
-    cuit: str
+    # Identidad propia, independiente del identificador fiscal: es lo que
+    # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
+    id: Optional[int] = None
+    cuit: str                       # compatibilidad: el nombre de siempre
+    tax_id: Optional[str] = None    # el mismo valor, con nombre neutro
+    tax_id_type: Optional[str] = None   # CUIT / EIN
     nombre: str
     domicilio: str
     localidad: str
@@ -208,6 +324,17 @@ class ProveedorResponse(BaseModel):
     cp: str
     telefono: str
     mail: str
+    address_line_1: Optional[str] = ""
+    address_line_2: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country_code: Optional[str] = ""
+    legal_name: Optional[str] = ""
+    dba: Optional[str] = ""
+    w9_recibido: Optional[bool] = False
+    w9_fecha: Optional[str] = ""
+    elegible_1099: Optional[bool] = False
     saldo: DineroSalida
 
     class Config:

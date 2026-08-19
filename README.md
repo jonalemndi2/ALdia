@@ -47,6 +47,7 @@ hoja de ruta.
 - [Registro de auditoría](#registro-de-auditoría)
 - [Copias de seguridad](#copias-de-seguridad)
 - [Pruebas](#pruebas)
+- [Otros países](#otros-países)
 - [Licencia](#licencia)
 
 ## Arquitectura
@@ -83,6 +84,8 @@ En la PC que va a actuar como servidor:
 1. Instalar **Python 3.10 o superior** desde <https://www.python.org/downloads/>
    (marcar *"Add Python to PATH"*).
 2. Ejecutar **`instalar.bat`** (solo la primera vez): crea el entorno e instala las dependencias.
+   Para una instalación productiva conviene fijar las versiones exactas ya verificadas:
+   `.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt`.
 3. Ejecutar **`iniciar_web.bat`** para arrancar el sistema.
 
 El script muestra la dirección para conectarse desde otras PCs:
@@ -170,14 +173,61 @@ consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del 
 
 Ver **[mcp/README.md](mcp/README.md)** para instalarlo y conectarlo.
 
+### Errores que un agente puede interpretar
+
+Cada error trae, además del mensaje para la persona, un **código estable** y una
+**acción sugerida**, para que el agente no tenga que deducir del texto si conviene
+reintentar:
+
+```json
+{
+  "detail": "Stock insuficiente de 'Coca 2.25': se intentan facturar 12 y hay 5",
+  "codigo": "STOCK_INSUFICIENTE",
+  "accion": "corregir"
+}
+```
+
+`accion` es uno de cuatro: **`reintentar`** (era transitorio, sale solo),
+**`corregir`** (falta un dato que el agente puede arreglar), **`preguntar`** (hace
+falta una decisión que no le corresponde tomar) o **`abortar`** (insistir no va a
+cambiar nada). Es lo que evita los dos errores caros: reintentar para siempre algo
+que nunca va a andar, o darse por vencido con algo que iba a entrar.
+
+El catálogo completo está en **`GET /api/errores`** y se puede consultar sin
+autenticarse — un agente que recibe un `401` tiene que poder averiguar qué significa.
+
 > Un asistente conectado puede **crear comprobantes y mover dinero real**. Creá un
 > usuario con rol acotado (por ejemplo `caja`) en vez de darle las credenciales de `admin`.
+
+Si el agente atiende a varias personas, puede declarar por cuál está actuando con la
+cabecera `X-Actor-User-Id`, y la operación queda atribuida a esa persona en la auditoría.
+Los permisos efectivos son la **intersección**: la operación tiene que estar permitida
+para la cuenta del agente **y** para la persona declarada.
+
+Ese permiso **no viene de fábrica**: la impersonación tiene que ser una decisión de
+alguien. Se otorga cuenta por cuenta, y solo el administrador puede hacerlo:
+
+```
+POST /api/auth/usuarios/{id}/actuar-por     {"habilitado": true}
+```
+
+> **Si ya tenías un agente andando**, después de actualizar tenés que otorgarle este
+> permiso: hasta que lo hagas, sus llamadas con `X-Actor-User-Id` reciben `403`. Sin la
+> cabecera sigue funcionando como siempre, atribuyendo todo a la cuenta del agente.
 
 ## Seguridad
 
 El sistema aplica autenticación en toda la API, autorización por rol, límite de intentos
-de login, validación fiscal y una clave de firma única por instalación (se genera sola en
-el primer arranque; no hay claves por defecto en el código).
+de login (por IP **y por usuario**), validación fiscal y una clave de firma única por
+instalación (se genera sola en el primer arranque; no hay claves por defecto en el código).
+
+Cambiar la contraseña **cierra todas las sesiones abiertas** con esa cuenta: el motivo
+más común para cambiarla es que alguien la vio, así que un token viejo que siguiera
+sirviendo ocho horas más haría inútil el cambio. La respuesta del cambio trae un token
+nuevo, así que quien la cambia no se queda afuera.
+
+La interfaz web **no depende de internet**: Bootstrap y sus iconos se sirven desde el
+propio servidor (`Web/vendor/`). Un comercio sin conexión sigue facturando.
 
 ### Antes de exponerlo a internet
 
@@ -191,21 +241,67 @@ Además:
 - Cambiá la contraseña de `admin`.
 - Definí una clave de sesión propia: `set ALDIA_SECRET_KEY=una-clave-larga-y-secreta`
   (si no, se genera una aleatoria por instalación, que también es segura).
+- **Declará tu proxy inverso**: `set ALDIA_PROXIES=127.0.0.1`. Sin esto, el servidor ve
+  todas las peticiones como si vinieran del proxy: el límite de intentos deja de
+  distinguir atacantes y ocho fallos bastan para bloquear a todo el comercio. Solo se
+  confía en `X-Forwarded-For` si la conexión llega desde una IP de esta lista.
 - Restringí orígenes si servís el frontend aparte: `ALDIA_ORIGINS=https://tudominio`.
 - La documentación interactiva de la API está deshabilitada; se habilita con `ALDIA_DOCS=1`
   solo si la necesitás.
 
 ### Reportar una vulnerabilidad
 
-Abrí un *issue* describiendo el problema **sin incluir datos reales** de ningún comercio.
+Ver **[SECURITY.md](SECURITY.md)**. En resumen: si es explotable, usá un aviso de
+seguridad privado en vez de un issue público; y en cualquier caso, **sin datos reales**
+de ningún comercio.
+
+## Otros países
+
+ALdía tiene un **núcleo comercial común y paquetes de país**: no hay un fork por
+país. Cambiando `negocio_pais` en la configuración, la misma instalación valida
+un EIN en vez de un CUIT, aplica sales tax en vez de IVA y deja de pedir el CAE.
+
+Argentina está completa y en producción. **Estados Unidos es una rebanada
+exploratoria**: factura de punta a punta, pero su cálculo de sales tax es una
+tasa manual que no contempla nexus, sourcing ni exenciones — no sirve para
+cumplir. El propio sistema lo declara en `GET /api/config/pais`.
+
+Ver **[docs/INTERNACIONALIZACION.md](docs/INTERNACIONALIZACION.md)** para el
+estado real, lo que falta y en qué orden conviene hacerlo.
 
 ## Copias de seguridad
 
-Toda la información se guarda en **`backend/aldia.db`**. Para respaldar, copiá ese
-archivo (preferentemente con el servidor detenido). Para restaurar, reemplazalo.
+Toda la información se guarda en **`backend/aldia.db`**: clientes, comprobantes,
+cuentas corrientes y el registro de auditoría.
 
-Automatizar esta copia es responsabilidad de quien instala el sistema: una tarea
-programada que copie el archivo a otro disco o a la nube.
+**El sistema se hace la copia solo.** Al arrancar, una vez por día, deja un archivo
+fechado en `backend/copias/` y conserva los últimos 7. No hay que configurar nada.
+
+| | |
+|---|---|
+| Dónde | `backend/copias/aldia-AAAA-MM-DD.db` (cambiable con `ALDIA_BACKUP_DIR`) |
+| Cuándo | Al arrancar, si no se hizo ya la de hoy |
+| Cuántas | 7 días (cambiable con `ALDIA_COPIAS`) |
+| Apagarlo | `ALDIA_SIN_RESPALDO=1` |
+
+**Para restaurar:** parar el servidor, copiar el archivo del día que quieras sobre
+`backend/aldia.db`, borrar `aldia.db-wal` y `aldia.db-shm` si están, y arrancar.
+
+Dos detalles que hacen que esto sea un respaldo de verdad y no una copia que parece
+existir:
+
+- Se usa la **API de respaldo de SQLite**, no un copiar y pegar. La base corre en modo
+  WAL, así que las operaciones más recientes viven en `aldia.db-wal` y **no** dentro de
+  `aldia.db`: copiar el archivo con el servidor andando produce un respaldo sin las
+  últimas ventas del día. La copia que hace el sistema es coherente aunque se esté
+  facturando en ese momento, y queda en un archivo único que se restaura solo.
+- Cada copia se verifica con `PRAGMA integrity_check` apenas se hace. Un respaldo que
+  nadie comprobó es una suposición, y el día que hace falta es tarde para averiguarlo.
+
+> **Esto no te salva del disco que se rompe.** La copia queda en la misma máquina:
+> protege contra un borrado accidental o una base corrupta, no contra un incendio ni
+> contra ransomware. Sincronizá `backend/copias/` a un pendrive o a la nube — ahora es
+> una sola carpeta, y el sistema te lo recuerda por consola en cada arranque.
 
 ## Registro de auditoría
 
@@ -241,6 +337,15 @@ backend/            API FastAPI
   security.py       clave de sesión, permisos por rol, anti fuerza bruta
   auditoria.py      registro inmutable de operaciones
   dinero.py         importes en centavos enteros y redondeo comercial
+  idempotencia.py   que un reintento no ejecute la operacion dos veces
+  errores.py        codigos de error estables para agentes
+  paises/           lo que cambia de un pais a otro (AR / US)
+  idiomas.py        mensajes por codigo de error, no por texto
+  direcciones.py    direccion internacional, compatible con la vieja
+  medios_de_pago.py efectivo, cheque, transferencia, ACH, tarjetas
+  impuestos.py      calculo local + enchufe para un proveedor externo
+  respaldo.py       copia de seguridad automatica y verificada
+  tiempo.py         el instante actual, en un solo formato
   afip.py           factura electrónica (WSAA + WSFEv1) y QR fiscal
   models.py         tablas (SQLAlchemy)
   schemas.py        validación (Pydantic): CUIT, IVA, importes
@@ -248,6 +353,7 @@ backend/            API FastAPI
 Web/                frontend (SPA)
   js/api.js         cliente HTTP de la API
   js/modules/       un archivo por módulo de la interfaz
+  vendor/           Bootstrap e iconos servidos localmente (sin CDN)
 mcp/                servidor MCP para asistentes de IA
 skills/             skills de tareas comerciales
 docs/               documentación (AFIP, etc.)
@@ -257,18 +363,22 @@ certificados/       certificados de AFIP (ignorado por git)
 ## Pruebas
 
 ```bash
-.venv\Scripts\python.exe -m pip install pytest httpx
+.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
 .venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-**78 pruebas** que cubren la exactitud de los importes, la autenticación y los
-permisos por rol, la validación fiscal, y el circuito comercial completo con sus
-anulaciones. No hace falta levantar el servidor ni tocan los datos del comercio:
-usan una base temporal. Ver [tests/README.md](tests/README.md).
+**236 pruebas** que cubren la exactitud de los importes, la autenticación y los
+permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
+circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
+tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).
+
+Corren solas en cada push y cada *pull request* (Linux, Python 3.10 y 3.13), y además
+una vez con las versiones exactas de `backend/requirements.lock.txt`.
 
 ## Contribuir
 
-Las contribuciones son bienvenidas. Al enviar un *pull request*:
+Las contribuciones son bienvenidas. Ver **[CONTRIBUTING.md](CONTRIBUTING.md)** para
+levantar el entorno y correr las pruebas. Las tres reglas que no se negocian:
 
 - No incluyas datos reales de ningún comercio (CUIT, clientes, facturación).
 - Si tocás lógica de dinero o stock, explicá cómo lo verificaste.

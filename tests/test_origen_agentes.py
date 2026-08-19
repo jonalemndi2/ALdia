@@ -81,10 +81,12 @@ class TestLasCabecerasNoAutorizan:
                              json={"username": "bot_consulta", "password": provisoria},
                              headers={"Authorization": ""})
         token = r.json()["access_token"]
-        app_cliente.post("/api/auth/cambiar-password",
-                         json={"password_actual": provisoria, "password_nueva": definitiva},
-                         headers={"Authorization": f"Bearer {token}"})
-        return token
+        cambio = app_cliente.post(
+            "/api/auth/cambiar-password",
+            json={"password_actual": provisoria, "password_nueva": definitiva},
+            headers={"Authorization": f"Bearer {token}"})
+        # Cambiar la contrasena invalida los tokens anteriores: se usa el nuevo.
+        return cambio.json()["access_token"]
 
     def test_el_canal_de_consulta_lee(self, app_cliente, token_consulta):
         r = app_cliente.get("/api/caja/",

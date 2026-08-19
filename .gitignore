@@ -21,6 +21,13 @@ certs/
 *.pfx
 *.csr
 
+# Copias de seguridad automaticas: son la base ENTERA del comercio, con los
+# mismos datos y los mismos hashes. Que se generen solas (ver respaldo.py) las
+# hace mas faciles de subir por accidente que la base original.
+backend/copias/
+copias/
+aldia-????-??-??.db
+
 # Base de datos: contiene clientes, CUIT, facturacion y hashes de contrasenas.
 backend/aldia.db
 backend/aldia.db-journal

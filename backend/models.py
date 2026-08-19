@@ -63,7 +63,25 @@ from database import Base
 class Cliente(Base):
     __tablename__ = "clientes"
 
-    cuit = Column(String(20), primary_key=True)
+    # IDENTIDAD SUBROGADA. Antes la clave primaria era el CUIT, y eso tenia una
+    # consecuencia que se comia el comercio: un cliente cargado con el numero
+    # mal tipeado que YA tenia facturas quedaba con ese numero para siempre. No
+    # se podia editar (la identidad no se edita) ni borrar (tiene movimientos).
+    #
+    # Con un id propio, el identificador fiscal pasa a ser un ATRIBUTO --unico,
+    # obligatorio y corregible-- en vez de ser quien es el cliente.
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Sigue llamandose `cuit` porque es el nombre que usan la API, el frontend y
+    # las 44 herramientas del MCP; renombrar la columna es mecanico y se hara
+    # aparte. Conceptualmente ya NO es "el CUIT": es el identificador fiscal que
+    # corresponda al pais de la instalacion (CUIT en Argentina, EIN en Estados
+    # Unidos). Ver backend/paises/ y `tax_id_type`.
+    cuit = Column(String(20), unique=True, nullable=False)
+
+    # De que tipo es el numero de arriba. Sin esto, una base no sabe decir si
+    # "123456789" es un EIN o un CUIT a medio cargar.
+    tax_id_type = Column(String(10), default="CUIT", nullable=False)
     nombre = Column(String(200), nullable=False)
     domicilio = Column(String(300), default="")
     localidad = Column(String(100), default="")
@@ -71,6 +89,22 @@ class Cliente(Base):
     cp = Column(String(10), default="")
     telefono = Column(String(30), default="")
     mail = Column(String(100), default="")
+
+    # ── Direccion internacional ──────────────────────────────────────────
+    # El modelo viejo (domicilio / localidad / provincia / cp) asume Argentina:
+    # "provincia" no existe en Estados Unidos, donde la division es el estado, y
+    # "codigo postal" y "ZIP code" no tienen el mismo formato.
+    #
+    # Las columnas viejas NO se borran: las usa el frontend, las usan los
+    # comprobantes ya impresos y las usa el MCP. Se pueblan las dos en paralelo
+    # (ver `sincronizar_direccion`), y el rename es una limpieza posterior.
+    address_line_1 = Column(String(300), default="")
+    address_line_2 = Column(String(300), default="")
+    city = Column(String(120), default="")
+    region = Column(String(80), default="")        # provincia / state
+    postal_code = Column(String(20), default="")
+    country_code = Column(String(2), default="")   # ISO 3166-1 alfa-2
+
     # DATO DERIVADO. Es la suma de facturas menos cobros. Se guarda aparte
     # porque listar deudores recalculando cliente por cliente no escala, pero
     # por eso mismo puede desviarse: NO se escribe a mano desde los routers,
@@ -83,11 +117,40 @@ class Cliente(Base):
     # Valores validos en schemas.CONDICIONES_IVA.
     condicion_iva = Column(String(30), default="consumidor_final")
 
+    @property
+    def tax_id(self) -> str:
+        """El identificador fiscal, con un nombre que sirve en cualquier pais.
+
+        La columna se sigue llamando `cuit` por compatibilidad con el frontend y
+        las herramientas del MCP. Hacia afuera la API expone las dos: `cuit`
+        para lo que ya existe y `tax_id` para lo que se escriba de ahora en mas.
+        """
+        return self.cuit
+
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
 
-    cuit = Column(String(20), primary_key=True)
+    # Ver la nota de identidad subrogada en Cliente: vale igual aca.
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cuit = Column(String(20), unique=True, nullable=False)
+    tax_id_type = Column(String(10), default="CUIT", nullable=False)
+
+    # ── Datos que Estados Unidos necesita de un proveedor ────────────────
+    # El IRS distingue la razon social de la que el proveedor usa comercialmente
+    # (DBA, "doing business as"), y para las declaraciones informativas hay que
+    # tener el nombre legal exacto junto con su numero. Se toman del formulario
+    # W-9, que es lo que se le pide al proveedor cuando corresponde.
+    #
+    # DELIBERADAMENTE NO se genera ningun 1099 todavia: eso tiene reglas de
+    # umbral, de tipo de proveedor y de plazos que cambian todos los anios, y
+    # emitir una declaracion mal es peor que no emitirla. Lo que hay aca es el
+    # MODELO PREPARADO para cuando se decida hacerlo bien.
+    legal_name = Column(String(200), default="")   # razon social exacta
+    dba = Column(String(200), default="")          # nombre de fantasia
+    w9_recibido = Column(Boolean, default=False)
+    w9_fecha = Column(String(10), default="")
+    elegible_1099 = Column(Boolean, default=False)
     nombre = Column(String(200), nullable=False)
     domicilio = Column(String(300), default="")
     localidad = Column(String(100), default="")
@@ -95,9 +158,29 @@ class Proveedor(Base):
     cp = Column(String(10), default="")
     telefono = Column(String(30), default="")
     mail = Column(String(100), default="")
+
+    # ── Direccion internacional ──────────────────────────────────────────
+    # El modelo viejo (domicilio / localidad / provincia / cp) asume Argentina:
+    # "provincia" no existe en Estados Unidos, donde la division es el estado, y
+    # "codigo postal" y "ZIP code" no tienen el mismo formato.
+    #
+    # Las columnas viejas NO se borran: las usa el frontend, las usan los
+    # comprobantes ya impresos y las usa el MCP. Se pueblan las dos en paralelo
+    # (ver `sincronizar_direccion`), y el rename es una limpieza posterior.
+    address_line_1 = Column(String(300), default="")
+    address_line_2 = Column(String(300), default="")
+    city = Column(String(120), default="")
+    region = Column(String(80), default="")        # provincia / state
+    postal_code = Column(String(20), default="")
+    country_code = Column(String(2), default="")   # ISO 3166-1 alfa-2
+
     # DATO DERIVADO, igual que clientes.saldo. Ver backend/saldos.py.
     saldo = Column(Integer, default=0)  # centavos. Positivo = se le DEBE al proveedor
 
+    @property
+    def tax_id(self) -> str:
+        """Ver Cliente.tax_id."""
+        return self.cuit
 
 class StockMercaderia(Base):
     __tablename__ = "stockmercaderia"
@@ -124,6 +207,19 @@ class Usuario(Base):
     # publico, asi que una instalacion que nunca la cambio queda con un acceso
     # conocido por cualquiera. Con esto, quedarse con la de fabrica es imposible.
     debe_cambiar_password = Column(Boolean, default=False, nullable=False)
+    # Cuando cambio la contrasena por ultima vez. Es la linea de corte de los
+    # tokens: todo JWT emitido ANTES de este instante deja de valer (ver
+    # get_current_user en routers/auth.py). Sin esto, cambiar la clave porque
+    # alguien la vio no servia de nada -- la sesion que ya la habia usado seguia
+    # abierta hasta ocho horas mas. NULL = nunca la cambio desde que existe esta
+    # columna, y entonces no hay nada que invalidar.
+    password_cambiada_en = Column(DateTime, default=None)
+    # Habilita a esta cuenta a declarar `X-Actor-User-ID`, o sea a ejecutar
+    # operaciones a nombre de otra persona. APAGADO por defecto y a proposito:
+    # es para la cuenta de servicio de un agente, no para una cuenta de persona.
+    # Sin este permiso cualquier empleado mandaba la cabecera desde una consola
+    # y su operacion quedaba asentada a nombre de un companero.
+    puede_actuar_por = Column(Boolean, default=False, nullable=False)
 
 
 class Secuencia(Base):
@@ -170,7 +266,7 @@ class Remito(Base):
 
     id = Column(Integer, primary_key=True)
     # RESTRICT: un cliente con remitos no se borra.
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     total = Column(Integer, default=0)  # centavos
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA liquidado, no la alicuota
@@ -190,7 +286,7 @@ class Venta(Base):
     nmov = Column(Integer)
     # SIN FK a proposito: 0 = "todavia no facturado". Ver encabezado del archivo.
     idfactura = Column(Integer, default=0)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
 
 
@@ -220,7 +316,7 @@ class Factura(Base):
     facturanumero = Column(Integer, primary_key=True)
     # RESTRICT: este es el caso del enunciado -- un cliente con facturas NO se
     # puede borrar. Su historico es la cuenta corriente y el libro de IVA.
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos. Neto gravado
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA, no la alicuota
@@ -243,7 +339,7 @@ class FacturaProveedor(Base):
     __tablename__ = "factprov"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA
@@ -267,7 +363,7 @@ class GastoFactura(Base):
     __tablename__ = "gastosfacturas"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     numfactura = Column(String(50), default="")
     fecha = Column(String(10))
     subtotal = Column(Integer, default=0)  # centavos
@@ -311,7 +407,7 @@ class NNCV(Base):
     __tablename__ = "nncv"
 
     id = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     descripcion = Column(String(500))
     fecha = Column(String(10))
 
@@ -320,7 +416,7 @@ class NNDV(Base):
     __tablename__ = "nndv"
 
     id = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     descripcion = Column(String(500))
     fecha = Column(String(10))
 
@@ -329,7 +425,7 @@ class NFAN(Base):
     __tablename__ = "nfan"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer, default=0)  # centavos
     fecha = Column(String(10))
     referencia = Column(String(100), default="")
@@ -340,7 +436,7 @@ class NDProv(Base):
     __tablename__ = "ndprov"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer, default=0)  # centavos
     fecha = Column(String(10))
     referencia = Column(String(100), default="")
@@ -352,7 +448,7 @@ class NCP(Base):
     __tablename__ = "ncp"
 
     id = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     descripcion = Column(String(500), default="")
     # Columna NUEVA. Antes una devolucion RESTABA del saldo del proveedor pero
@@ -367,7 +463,7 @@ class Cobro(Base):
     __tablename__ = "cobros"
 
     ordcobro = Column(Integer, primary_key=True)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer)  # centavos
     fecha = Column(String(10))
     tipo = Column(String(50))
@@ -378,7 +474,7 @@ class Pago(Base):
     __tablename__ = "pagos"
 
     ordpago = Column(Integer, primary_key=True)
-    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT"))
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     monto = Column(Integer)  # centavos
     fecha = Column(String(10))
     tipo = Column(String(50))
@@ -394,6 +490,15 @@ class Caja(Base):
     debe = Column(Integer, default=0)  # centavos. Ingreso
     haber = Column(Integer, default=0)  # centavos. Egreso
     descripcion = Column(String(500), default="")
+
+    # DONDE esta ese dinero. Hasta ahora habia una sola cuenta implicita y todo
+    # caia en ella: una transferencia recibida sumaba al mismo total que el
+    # efectivo, asi que el numero que el duenio lee como "cuanta plata hay en el
+    # cajon" incluia plata que estaba en el banco.
+    #
+    # Las filas que ya existen quedan en "efectivo", que es exactamente como se
+    # venian tratando: la migracion no reinterpreta el pasado.
+    cuenta = Column(String(20), default="efectivo", nullable=False)
 
 
 class Chequera(Base):
@@ -420,7 +525,7 @@ class FacNoRem(Base):
     codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"))
     producto = Column(String(200))
     cantnoretirada = Column(Float, default=0.0)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     nmov = Column(Integer)  # SIN FK: centinela 0. Ver encabezado del archivo.
 
@@ -432,7 +537,7 @@ class RemNoFac(Base):
     codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"))
     producto = Column(String(200))
     cantidad = Column(Float)
-    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT"))
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"))
     fecha = Column(String(10))
     idfactura = Column(Integer, default=0)  # SIN FK: centinela 0.
     nmov = Column(Integer)                  # SIN FK: centinela 0.

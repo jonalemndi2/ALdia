@@ -15,6 +15,11 @@ const App = {
                 statusEl.classList.remove('text-warning');
                 statusEl.classList.add('text-success');
             }
+            // El idioma lo fija la instalacion (ver js/i18n.js). Va antes de
+            // renderizar nada para que la primera pantalla ya salga traducida.
+            if (window.I18N) {
+                await I18N.iniciar();
+            }
             if (window.Auth) {
                 Auth.init();
             } else {

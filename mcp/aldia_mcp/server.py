@@ -62,7 +62,13 @@ SOLO_LECTURA = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWor
 ESCRITURA = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)
 DESTRUCTIVA = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True)
 
+# Alicuotas argentinas. Se conserva SOLO como respaldo para cuando no se puede
+# preguntar (ver `_reglas_del_pais`), y NO como la fuente de verdad: quien decide
+# que tasa es valida es el servidor, que sabe en que pais esta instalado.
 ALICUOTAS_IVA = (0.0, 2.5, 5.0, 10.5, 21.0, 27.0)
+
+# Reglas fiscales de la instalacion, cacheadas. Se piden una vez por sesion.
+_reglas: dict[str, Any] | None = None
 
 
 def api() -> ALdiaClient:
@@ -97,11 +103,63 @@ def _redondear(valor: float) -> float:
     return round(float(valor or 0.0) + 0.0, 2)
 
 
+def _reglas_del_pais() -> dict[str, Any]:
+    """Las reglas fiscales de la instalacion, preguntadas al servidor.
+
+    POR QUE SE PREGUNTAN Y NO SE SABEN
+    ----------------------------------
+    Este archivo tenia las seis alicuotas de IVA argentinas escritas a mano y
+    validaba contra esa lista antes de llamar a la API. En una instalacion
+    argentina daba el mismo resultado que el servidor, asi que parecia inofensivo.
+
+    En una instalacion estadounidense NO: el sales tax de Florida es 7 %, el
+    servidor lo acepta sin problema, y el MCP lo rechazaba antes de que la
+    peticion saliera. La regla de negocio estaba duplicada aca, que es
+    exactamente lo que docs/AGENTES.md dice que no puede pasar.
+
+    Ahora la unica fuente de verdad es el servidor.
+    """
+    global _reglas
+    if _reglas is None:
+        try:
+            _reglas = api().get("/api/config/pais") or {}
+        except ALdiaError:
+            _reglas = {}
+    return _reglas
+
+
 def _validar_iva(valor: float) -> float:
-    if float(valor) not in ALICUOTAS_IVA:
-        validas = ", ".join(f"{a:g}%" for a in ALICUOTAS_IVA)
-        raise ALdiaError(f"Alicuota de IVA invalida ({valor}). Validas en ALdia: {validas}.")
-    return float(valor)
+    """Valida la tasa del impuesto contra las reglas del pais de la instalacion.
+
+    Si no se pueden averiguar, NO se valida: se deja pasar y decide el servidor.
+    Es preferible un viaje de ida y vuelta a rechazar aca una tasa perfectamente
+    legitima del otro lado del mundo.
+    """
+    tasa = float(valor)
+    impuesto = _reglas_del_pais().get("impuesto") or {}
+    if not impuesto:
+        return tasa
+
+    if impuesto.get("lista_cerrada"):
+        validas = tuple(float(a) for a in impuesto.get("tasas_sugeridas") or ())
+        if validas and tasa not in validas:
+            nombre = impuesto.get("nombre", "impuesto")
+            texto = ", ".join(f"{a:g}%" for a in validas)
+            raise ALdiaError(
+                f"Alicuota de {nombre} invalida ({tasa:g}). Validas en esta "
+                f"instalacion: {texto}."
+            )
+        return tasa
+
+    # Lista abierta (sales tax): no hay conjunto legal que verificar, solo que
+    # el numero sea plausible. El servidor vuelve a controlarlo igual.
+    if tasa < 0 or tasa > 15:
+        nombre = impuesto.get("nombre", "impuesto")
+        raise ALdiaError(
+            f"Tasa de {nombre} improbable ({tasa:g}%). Verifique si cargo la "
+            "tasa o el importe."
+        )
+    return tasa
 
 
 def _exigir_confirmacion(confirmar: bool, que: str) -> None:
@@ -235,6 +293,32 @@ def _tipo_comprobante(clase: str, naturaleza: str) -> int:
 # ═════════════════════════════════════════════════════════════
 # 1. CONSULTA
 # ═════════════════════════════════════════════════════════════
+
+
+@servidor.tool(
+    title="Ver las reglas fiscales de esta instalacion",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Dice en que pais esta instalado ALdia y con que reglas opera: como se llama "
+        "y como se valida el identificador fiscal (CUIT en Argentina, EIN en Estados "
+        "Unidos), que impuesto se aplica sobre la venta y si sus tasas son una lista "
+        "cerrada, en que moneda habla el sistema, que medios de pago existen, y si los "
+        "comprobantes necesitan que un organismo los autorice antes de ser validos.\n\n"
+        "Llamelo AL EMPEZAR, antes de dar de alta un cliente o emitir un comprobante. "
+        "Evita el error de asumir reglas argentinas en una instalacion estadounidense "
+        "o al reves. Tambien devuelve `advertencias`: limites conocidos del calculo "
+        "que conviene decirle al usuario en vez de callarlos."
+    ),
+)
+def ver_reglas_del_pais() -> dict[str, Any]:
+    global _reglas
+    _reglas = None          # siempre fresco: es una consulta explicita
+    reglas = _reglas_del_pais()
+    if not reglas:
+        raise ALdiaError(
+            "No se pudieron leer las reglas del pais. Verifique la conexion con ALdia."
+        )
+    return reglas
 
 
 @servidor.tool(
@@ -866,8 +950,8 @@ def actualizar_producto(
     ),
 )
 def alta_cliente(
-    cuit: str,
-    nombre: str,
+    cuit: str = "",
+    nombre: str = "",
     condicion_iva: str = "consumidor_final",
     domicilio: str = "",
     localidad: str = "",
@@ -875,12 +959,35 @@ def alta_cliente(
     cp: str = "",
     telefono: str = "",
     mail: str = "",
+    tax_id: str = "",
+    city: str = "",
+    region: str = "",
+    postal_code: str = "",
 ) -> dict[str, Any]:
+    """El identificador va en `cuit` o en `tax_id`: es el mismo dato.
+
+    En una instalacion argentina es un CUIT y en una estadounidense un EIN. El
+    agente no tiene por que saber cual: manda el numero que le dieron y el
+    servidor lo valida con las reglas del pais. Lo mismo con la ciudad y la
+    region, que aca se llamaban `localidad` y `provincia`.
+    """
+    identificador = (tax_id or cuit or "").strip()
+    if not identificador:
+        reglas = _reglas_del_pais().get("identificador") or {}
+        nombre_id = reglas.get("nombre", "identificador fiscal")
+        ejemplo = reglas.get("ejemplo", "")
+        raise ALdiaError(
+            f"Falta el {nombre_id} del cliente"
+            + (f" (por ejemplo {ejemplo})." if ejemplo else ".")
+        )
     condicion = _normalizar_condicion(condicion_iva)
     creado = api().post(
         "/api/clientes/",
         {
-            "cuit": cuit,
+            "cuit": identificador,
+            "city": city or localidad,
+            "region": region or provincia,
+            "postal_code": postal_code or cp,
             "nombre": nombre,
             "condicion_iva": condicion,
             "domicilio": domicilio,
@@ -891,18 +998,25 @@ def alta_cliente(
             "mail": mail,
         },
     )
-    clase = _clase_comprobante(_condicion_del_negocio(), condicion)
-    return {
-        "creado": True,
-        "cliente": creado,
-        "condicion_iva": condicion,
-        "condicion_iva_nombre": CONDICIONES_IVA.get(condicion),
-        "comprobante_que_le_corresponde": f"Factura {clase}",
-        "nota": (
-            f"A este cliente se le emite FACTURA {clase} por su condicion frente al IVA "
-            f"({CONDICIONES_IVA.get(condicion)}) y la del negocio."
-        ),
-    }
+    salida: dict[str, Any] = {"creado": True, "cliente": creado}
+
+    # La clase de comprobante (A / B / C) sale de las condiciones frente al IVA
+    # y solo existe donde hay un organismo que autoriza comprobantes. En una
+    # instalacion estadounidense esto le contestaba "Factura B" al agente, que
+    # es una respuesta argentina a una pregunta que ahi no se hace.
+    reglas = _reglas_del_pais()
+    if reglas.get("requiere_autorizacion_fiscal", True):
+        clase = _clase_comprobante(_condicion_del_negocio(), condicion)
+        salida.update({
+            "condicion_iva": condicion,
+            "condicion_iva_nombre": CONDICIONES_IVA.get(condicion),
+            "comprobante_que_le_corresponde": f"Factura {clase}",
+            "nota": (
+                f"A este cliente se le emite FACTURA {clase} por su condicion frente "
+                f"al IVA ({CONDICIONES_IVA.get(condicion)}) y la del negocio."
+            ),
+        })
+    return salida
 
 
 @servidor.tool(
@@ -914,19 +1028,40 @@ def alta_cliente(
     ),
 )
 def alta_proveedor(
-    cuit: str,
-    nombre: str,
+    cuit: str = "",
+    nombre: str = "",
     domicilio: str = "",
     localidad: str = "",
     provincia: str = "",
     cp: str = "",
     telefono: str = "",
     mail: str = "",
+    tax_id: str = "",
+    city: str = "",
+    region: str = "",
+    postal_code: str = "",
+    legal_name: str = "",
+    dba: str = "",
+    w9_recibido: bool = False,
+    elegible_1099: bool = False,
 ) -> dict[str, Any]:
+    """El identificador va en `cuit` o en `tax_id`: es el mismo dato.
+
+    Los cuatro ultimos parametros solo tienen sentido en Estados Unidos:
+    `legal_name` es la razon social exacta que pide el IRS, `dba` el nombre de
+    fantasia, y las dos banderas registran si se recibio el W-9 y si el
+    proveedor entra en la planilla 1099. NO marque `elegible_1099` sin tener el
+    W-9: seria inventarle una declaracion a alguien.
+    """
+    identificador = (tax_id or cuit or "").strip()
+    if not identificador:
+        reglas = _reglas_del_pais().get("identificador") or {}
+        nombre_id = reglas.get("nombre", "identificador fiscal")
+        raise ALdiaError(f"Falta el {nombre_id} del proveedor.")
     creado = api().post(
         "/api/proveedores/",
         {
-            "cuit": cuit,
+            "cuit": identificador,
             "nombre": nombre,
             "domicilio": domicilio,
             "localidad": localidad,
@@ -934,6 +1069,13 @@ def alta_proveedor(
             "cp": cp,
             "telefono": telefono,
             "mail": mail,
+            "city": city or localidad,
+            "region": region or provincia,
+            "postal_code": postal_code or cp,
+            "legal_name": legal_name,
+            "dba": dba,
+            "w9_recibido": w9_recibido,
+            "elegible_1099": elegible_1099,
         },
     )
     return {"creado": True, "proveedor": creado}
@@ -1991,6 +2133,16 @@ def solicitar_cae(
     doc_tipo: int | None = None,
     doc_nro: str | None = None,
 ) -> dict[str, Any]:
+    # En un pais sin autorizacion previa de comprobantes no hay CAE que pedir.
+    # Se corta aca en vez de mandar la peticion para que el agente reciba una
+    # explicacion y no un error del otro lado.
+    reglas = _reglas_del_pais()
+    if reglas and not reglas.get("requiere_autorizacion_fiscal", True):
+        raise ALdiaError(
+            f"Esta instalacion opera en {reglas.get('nombre', 'este pais')}, donde los "
+            "comprobantes no requieren autorizacion previa de ningun organismo. "
+            "La factura ya es valida tal como fue emitida: no hay CAE que pedir."
+        )
     cli = api()
     factura = cli.get(f"/api/facturas/{int(numero)}")
     if factura.get("cae"):

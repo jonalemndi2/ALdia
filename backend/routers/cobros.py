@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 import saldos
+import medios_de_pago
 from database import get_db
 from models import Cobro, Cliente, Caja, Chequera
 from schemas import CobroCreate, CobroResponse
@@ -14,8 +15,11 @@ from secuencias import siguiente_numero
 router = APIRouter()
 
 
-def _es_cheque(tipo: str) -> bool:
-    return "cheque" in (tipo or "").strip().lower()
+# La regla de que hacer con cada medio de pago vive en backend/medios_de_pago.py.
+# Antes era esta misma funcion de dos lineas, duplicada aca y en el otro router:
+# cualquier medio nuevo habia que acordarse de contemplarlo en los dos lados, y
+# todo lo que no dijera "cheque" caia en la rama del efectivo por descarte.
+_es_cheque = medios_de_pago.es_cheque
 
 
 @router.get("/", response_model=List[CobroResponse])
@@ -76,6 +80,9 @@ def create_cobro(cobro_data: CobroCreate, db: Session = Depends(get_db)):
         db.add(Caja(
             referencia=f"COBRO {new_ord}",
             fecha=cobro_data.fecha,
+            # Una transferencia o una tarjeta caen en la cuenta de banco: la
+            # plata entro, pero no esta en el cajon y no aparece al cerrar caja.
+            cuenta=medios_de_pago.cuenta_de(cobro_data.tipo),
             debe=cobro_data.monto,
             haber=0,
             descripcion=f"Cobro a {cliente.nombre or cliente.cuit}",

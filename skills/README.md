@@ -8,13 +8,32 @@ usar en cada caso, y las reglas que valen **siempre**, sin excepción.
 
 ## Qué es ALdia
 
-Un sistema de gestión comercial para comercios, kioscos y supermercados
-pequeños de Argentina. El asistente lo opera a través del **servidor MCP**
-(`aldia`), que traduce cada herramienta en llamadas a la API del sistema.
+Un sistema de gestión comercial para comercios chicos. El asistente lo opera a
+través del **servidor MCP** (`aldia`), que traduce cada herramienta en llamadas
+a la API del sistema.
+
+**No asuma que la instalación es argentina.** El mismo motor corre con reglas
+fiscales de distintos países: en una instalación estadounidense el identificador
+es un EIN y no un CUIT, se aplica sales tax y no IVA, y **no existe el CAE**.
+Antes de dar de alta a nadie o emitir un comprobante:
+
+```
+ver_reglas_del_pais()
+```
+
+Le dice el país, el nombre del identificador fiscal, qué impuesto se aplica y si
+sus tasas son una lista cerrada, la moneda, los medios de pago disponibles y si
+los comprobantes necesitan autorización de un organismo. También devuelve
+`advertencias` con los límites conocidos del cálculo: **díganselos al usuario en
+vez de callarlos.**
+
+Para una instalación estadounidense, las skills que aplican son `us-setup`,
+`us-customers-and-vendors` y `us-sales-tax-and-1099`; las de AFIP, libro IVA y
+chequera argentina no corresponden.
 
 Lo que hay del otro lado es el negocio real de una persona: su stock, sus
-clientes, su caja y su facturación ante AFIP. **Cada operación de escritura
-tiene consecuencias en dinero y en obligaciones fiscales.**
+clientes, su caja y sus comprobantes. **Cada operación de escritura tiene
+consecuencias en dinero y en obligaciones fiscales.**
 
 ### Empiece por acá
 
@@ -31,6 +50,13 @@ de intentarlo y chocar con un rechazo.
 ---
 
 ## Catálogo de skills
+
+> Las skills de abajo asumen una instalación **argentina**. Para una
+> estadounidense, use `us-setup`, `us-customers-and-vendors` y
+> `us-sales-tax-and-1099`, y descarte las de AFIP, libro IVA y chequera.
+> Si no sabe en cuál está, `ver_reglas_del_pais()` se lo dice.
+
+### Argentina
 
 | Skill | Cuándo |
 |---|---|
@@ -54,6 +80,17 @@ pagué" es **carga-de-comprobantes**; "cerrá la caja" puede terminar en
 
 ---
 
+
+### Estados Unidos
+
+| Skill | Cuándo |
+|---|---|
+| **us-setup** | Configurar el país, la moneda, el EIN del negocio y la tasa de sales tax |
+| **us-customers-and-vendors** | Altas con EIN, razón social vs. DBA, W-9, elegibilidad 1099, corregir un identificador |
+| **us-sales-tax-and-1099** | Qué cubre y qué no el sales tax; planilla de fin de año por proveedor |
+
+Las de stock, cobranzas, caja y control interno sirven igual en los dos países:
+no tienen nada fiscal adentro.
 ## Reglas que valen siempre
 
 ### 1. Nunca dé por guardado lo que el servidor no confirmó

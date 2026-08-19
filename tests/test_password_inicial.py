@@ -109,8 +109,13 @@ class TestCambio:
                              headers=cab)
         assert r.status_code == 200
 
-        # Mismo token, ahora operativo.
-        assert app_cliente.get("/api/caja/", headers=cab).status_code == 200
+        # El token viejo YA NO SIRVE: cambiar la contraseña cierra todas las
+        # sesiones abiertas, que es el motivo por el que uno la cambia.
+        assert app_cliente.get("/api/caja/", headers=cab).status_code == 401
+
+        # El que devuelve el cambio sí, y ya operativo.
+        cab_nueva = {"Authorization": f"Bearer {r.json()['access_token']}"}
+        assert app_cliente.get("/api/caja/", headers=cab_nueva).status_code == 200
 
         # La clave vieja ya no sirve; la nueva sí, y sin exigir otro cambio.
         assert app_cliente.post("/api/auth/login",

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 import saldos
+from errores import ErrorDeNegocio
 from database import get_db
 from models import Factura, Venta, Cliente, StockMercaderia
 from schemas import FacturaCreate, FacturaResponse, VentaResponse
@@ -102,12 +103,11 @@ def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
         cantidad = item.cantidad or 0.0
         disponible = producto.cantidad or 0.0
         if cantidad > disponible:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Stock insuficiente de '{producto.producto}': "
-                    f"se intentan facturar {cantidad} y hay {disponible}"
-                ),
+            raise ErrorDeNegocio(
+                "STOCK_INSUFICIENTE",
+                f"Stock insuficiente de '{producto.producto}': "
+                f"se intentan facturar {cantidad} y hay {disponible}",
+                producto=producto.producto, pedido=cantidad, disponible=disponible,
             )
         db.add(Venta(
             codigo=item.codigo,
