@@ -122,7 +122,7 @@ detecta, y traducir texto libre bien exige entender el contexto de negocio de
 cada uno.
 
 Ya existía una costura mejor, construida para otra cosa: **los códigos de
-error**. `STOCK_INSUFICIENTE` significa lo mismo en Villa Huidobro y en Miami.
+error**. `STOCK_INSUFICIENTE` significa lo mismo en Del Campillo y en Miami.
 Así que la traducción se cuelga del código, no del texto. Los errores viajan
 ahora con `params`:
 

@@ -401,7 +401,7 @@ Si construís algo con esto, me interesa saberlo.
 **Jonathan Alemandi** ([@jonalemndi2](https://github.com/jonalemndi2)).
 
 Empezó como reemplazo de un sistema en VB6 + Access que corría un comercio real
-en Villa Huidobro, Córdoba, y terminó siendo un intento de responder algo más
+en Del Campillo, Córdoba, y terminó siendo un intento de responder algo más
 difícil: qué necesita un sistema de gestión antes de que sea seguro dejar que un
 agente de IA lo opere con plata de verdad.
 

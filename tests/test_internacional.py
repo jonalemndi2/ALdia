@@ -22,11 +22,11 @@ class TestDireccionInternacional:
         c = cuit()
         r = admin.post("/api/clientes/", json={
             "cuit": c, "nombre": "De Siempre",
-            "domicilio": "San Martín 123", "localidad": "Villa Huidobro",
+            "domicilio": "San Martín 123", "localidad": "Del Campillo",
             "provincia": "Córdoba", "cp": "6270"})
         d = r.json()
         assert d["address_line_1"] == "San Martín 123"
-        assert d["city"] == "Villa Huidobro"
+        assert d["city"] == "Del Campillo"
         assert d["region"] == "Córdoba"
         assert d["postal_code"] == "6270"
         # El país se toma de la instalación: no existía en el modelo viejo.
@@ -58,18 +58,18 @@ class TestDireccionInternacional:
         class Otra:
             address_line_1 = "San Martín 123"
             address_line_2 = ""
-            city = "Villa Huidobro"
+            city = "Del Campillo"
             region = "Córdoba"
             postal_code = "6270"
             country_code = "AR"
 
         assert direcciones.una_linea(Ficha()) == "742 Evergreen Ter, Miami, FL 33101"
-        assert direcciones.una_linea(Otra()) == "San Martín 123, Villa Huidobro, Córdoba 6270"
+        assert direcciones.una_linea(Otra()) == "San Martín 123, Del Campillo, Córdoba 6270"
 
     def test_la_actualizacion_no_deja_las_dos_mitades_en_desacuerdo(self, admin, cuit):
         c = cuit()
         admin.post("/api/clientes/", json={
-            "cuit": c, "nombre": "Se muda", "localidad": "Villa Huidobro"})
+            "cuit": c, "nombre": "Se muda", "localidad": "Del Campillo"})
         admin.put(f"/api/clientes/{c}", json={"city": "Río Cuarto"})
         d = admin.get(f"/api/clientes/{c}").json()
         assert d["city"] == "Río Cuarto"

@@ -14,7 +14,7 @@ que se ven recien despues:
 
 Aca ya existia una costura mejor, construida para otra cosa: los CODIGOS DE
 ERROR (ver backend/errores.py). `codigo` y `accion` no dependen del idioma —
-`STOCK_INSUFICIENTE` significa lo mismo en Villa Huidobro y en Miami. Asi que la
+`STOCK_INSUFICIENTE` significa lo mismo en Del Campillo y en Miami. Asi que la
 traduccion se cuelga del codigo, no del texto.
 
 COMO FUNCIONA

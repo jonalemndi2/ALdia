@@ -18,7 +18,7 @@ El que usa cualquier sistema internacional, y que sirve igual para los dos:
 
     address_line_1 / address_line_2 / city / region / postal_code / country_code
 
-    Villa Huidobro, Cordoba, AR      ->  city=Villa Huidobro region=Cordoba
+    Del Campillo, Cordoba, AR      ->  city=Del Campillo region=Cordoba
     Miami, FL, US                    ->  city=Miami          region=FL
 
 POR QUE CONVIVEN LOS DOS

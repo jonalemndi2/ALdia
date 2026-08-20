@@ -256,7 +256,7 @@ If you build something with it, I'd genuinely like to hear about it.
 Built by **Jonathan Alemandi** ([@jonalemndi2](https://github.com/jonalemndi2)).
 
 It started as a replacement for a VB6 + Access system running a real shop in
-Villa Huidobro, Córdoba, and turned into an attempt to answer a harder question:
+Del Campillo, Córdoba, and turned into an attempt to answer a harder question:
 what does a business system need before it is safe to let an AI agent operate it
 with real money?
 
