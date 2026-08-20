@@ -186,7 +186,7 @@ Dos reglas que la implementación tiene que respetar, y están probadas:
 No hay ninguna integración concreta con un proveedor: escribirla sin una cuenta
 real contra la cual probarla sería escribir código que nadie ejecutó nunca.
 
-> **Tensión a decidir antes de enchufarlo.** ALdía es AGPL, corre en la PC del
+> **Tensión a decidir antes de enchufarlo.** ALdía corre en la PC del
 > comercio y funciona sin internet — tanto que en este mismo repo se le sacó la
 > dependencia del CDN para lograrlo. Un proveedor de cálculo fiscal es un
 > servicio pago y en línea. La salida sana es que sea **opcional**, con la tasa
@@ -200,7 +200,7 @@ clave/valor. Así que país, moneda, locale y zona horaria son **claves nuevas e
 una tabla que ya existe**. Casi gratis.
 
 No construir una entidad `Empresa` salvo que se quiera SaaS multiinquilino de
-verdad — lo cual pelea de frente con AGPL + un archivo por comercio, que hoy es
+verdad — lo cual pelea de frente con Apache 2.0 + un archivo por comercio, que hoy es
 buena parte del atractivo del proyecto.
 
 ---

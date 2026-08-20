@@ -97,5 +97,6 @@ comprobaste las dos cosas.
 
 ## Licencia
 
-Al contribuir aceptás que tu aporte se publique bajo la
-**GNU Affero General Public License v3.0**, igual que el resto del proyecto.
+Al contribuir aceptás que tu aporte se publique bajo la **Apache License 2.0**,
+igual que el resto del proyecto. No hace falta firmar nada: enviar un pull
+request ya lo implica (Apache 2.0 §5).

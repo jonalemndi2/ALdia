@@ -388,15 +388,21 @@ levantar el entorno y correr las pruebas. Las tres reglas que no se negocian:
 
 ## Licencia
 
-**GNU Affero General Public License v3.0** — ver [LICENSE](LICENSE).
+**Apache License 2.0** — ver [LICENSE](LICENSE).
 
-En términos prácticos:
+Podés usarlo, forkearlo, construir un producto encima y venderlo. No hay
+obligación de publicar tus cambios. La licencia incluye una concesión de
+patentes explícita, que importa en software que calcula impuestos.
 
-- ✅ Podés **usarlo gratis**, incluso para tu comercio.
-- ✅ Podés **modificarlo** y adaptarlo a tus necesidades.
-- ✅ Podés **cobrar** por instalarlo, soportarlo o adaptarlo.
-- ⚠️ Si lo modificás y lo ofrecés **como servicio a terceros** (por ejemplo, un SaaS de
-  gestión), estás **obligado a publicar el código** de tu versión bajo la misma licencia.
+Si construís algo con esto, me interesa saberlo.
 
-Es decir: el sistema es libre y siempre va a seguir siéndolo. Nadie puede tomar este
-código, cerrarlo y venderlo como producto propietario.
+## Quién lo hizo
+
+**Jonathan Alemandi** ([@jonalemndi2](https://github.com/jonalemndi2)).
+
+Empezó como reemplazo de un sistema en VB6 + Access que corría un comercio real
+en Villa Huidobro, Córdoba, y terminó siendo un intento de responder algo más
+difícil: qué necesita un sistema de gestión antes de que sea seguro dejar que un
+agente de IA lo opere con plata de verdad.
+
+Issues y pull requests bienvenidos.

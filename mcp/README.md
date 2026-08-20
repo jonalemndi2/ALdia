@@ -270,4 +270,4 @@ datos de los necesarios:
 
 ## Licencia
 
-AGPL-3.0, igual que el resto del proyecto ALdia.
+Apache-2.0, igual que el resto del proyecto ALdia.

@@ -243,33 +243,28 @@ infrastructure — it's a plugin.
 
 ## License
 
-**GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+**Apache License 2.0** — see [LICENSE](LICENSE).
 
-Free to use, including commercially. Free to modify. You may charge for
-installing, supporting or adapting it. **If you modify it and offer it as a
-service to others, you must publish your source** under the same license.
+Use it, fork it, build a product on it, ship it commercially. No copyleft
+obligation: you are not required to publish your changes. The license includes
+an explicit patent grant, which matters for software that computes taxes.
 
-The system is free software and will stay that way. Nobody can take this code,
-close it, and sell it as a proprietary product.
+If you build something with it, I'd genuinely like to hear about it.
 
----
+## Who made this
 
-## Want to build on this?
+Built by **Jonathan Alemandi** ([@jonalemndi2](https://github.com/jonalemndi2)).
 
-The next direction is letting an agent sell *to a customer* — discovery,
-stock reservation, order, payment, invoice, shipping — end to end, in natural
-language. **None of it is built.** The design is open, and so are three
-decisions that shape it:
+It started as a replacement for a VB6 + Access system running a real shop in
+Villa Huidobro, Córdoba, and turned into an attempt to answer a harder question:
+what does a business system need before it is safe to let an AI agent operate it
+with real money?
 
-[`docs/CONVERSATIONAL-COMMERCE.md`](docs/CONVERSATIONAL-COMMERCE.md) explains
-what already exists to build on, where the real risk is (it's the stock
-model, not the order), and a sequence of small pull requests. Weighing in on
-the open questions costs nothing and is the most useful thing right now.
+Most of the interesting decisions here are defensive, and the reasoning behind
+them is written into the code rather than lost in a commit message — see
+[`backend/dinero.py`](backend/dinero.py) on why money is never a float,
+[`backend/database.py`](backend/database.py) on why writes take the lock up
+front, or [`backend/idempotencia.py`](backend/idempotencia.py) on why checking
+before writing leaves a hole big enough to bill someone twice.
 
----
-
-**The assistant understands. ALdía validates. ALdía executes. You stay in control.**
-
-ALdía isn't trying to make AI your accountant. It's the transactional
-infrastructure that lets an agent operate a real business without becoming the
-business logic.
+Issues and pull requests welcome.
