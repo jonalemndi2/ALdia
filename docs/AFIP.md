@@ -27,8 +27,11 @@ que no puede hacer un programador por usted: el **certificado digital** de su CU
 
 ## 2. Generar la clave privada y el pedido de certificado (CSR)
 
-En la PC del comercio, con OpenSSL (viene con Git para Windows, en
-`C:\Program Files\Git\usr\bin\openssl.exe`):
+En la PC del comercio, con OpenSSL:
+
+- **Linux y macOS:** ya viene instalado (`openssl version` lo confirma).
+- **Windows:** viene con Git para Windows, en
+  `C:\Program Files\Git\usr\bin\openssl.exe`.
 
 ```bash
 # 1) Clave privada (NO se comparte con nadie, ni con AFIP)
@@ -75,7 +78,29 @@ Si prefiere otra ubicación, use las variables `AFIP_CERT` y `AFIP_CLAVE`.
 
 Dos formas, la variable de entorno tiene prioridad sobre la base de datos.
 
-**a) Variables de entorno** (editar `iniciar_web.bat` y agregar antes de arrancar):
+**a) Variables de entorno**, definidas antes de arrancar el servidor.
+
+**Linux y macOS** — lo más cómodo es un archivo `arrancar_afip.sh` al lado de
+`iniciar_web.sh` (y agregarlo al `.gitignore`, porque lleva el CUIT del
+comercio):
+
+```bash
+#!/usr/bin/env bash
+export AFIP_HABILITADO=si
+export AFIP_ENTORNO=homologacion
+export AFIP_CUIT=20111111112
+export AFIP_PUNTO_VENTA=1
+export AFIP_TIPO_COMPROBANTE=1
+# opcional, si los archivos no están en certificados/afip.crt y .key
+# export AFIP_CERT=/ruta/a/afip.crt
+# export AFIP_CLAVE=/ruta/a/afip.key
+exec ./iniciar_web.sh
+```
+
+`chmod +x arrancar_afip.sh` y de ahí en más se arranca con `./arrancar_afip.sh`.
+Si el sistema corre como servicio de systemd, lo mismo va en `Environment=`.
+
+**Windows** — editar `iniciar_web.bat` y agregar antes de arrancar:
 
 ```bat
 set AFIP_HABILITADO=si

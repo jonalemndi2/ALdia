@@ -167,14 +167,33 @@ document never causes its number to be reused.
 
 ## Quick start
 
-Requires **Python 3.10+**. On the machine that will act as the server:
+Requires **Python 3.10+**. Runs on **Windows, Linux and macOS** — the server is
+plain Python and SQLite, with no platform-specific dependencies.
+
+On the machine that will act as the server:
 
 ```bash
 git clone https://github.com/jonalemndi2/ALdia.git
 cd ALdia
-instalar.bat        # Windows — creates the venv and installs dependencies
-iniciar_web.bat     # starts the server
 ```
+
+**Linux / macOS**
+
+```bash
+./instalar.sh        # creates the venv and installs dependencies
+./iniciar_web.sh     # starts the server
+```
+
+**Windows**
+
+```bat
+instalar.bat
+iniciar_web.bat
+```
+
+For a production install, pin the exact verified versions instead of the
+compatibility ranges: `./instalar.sh --lock` (or, on Windows,
+`.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt`).
 
 Then open `http://localhost:8000`. First login is `admin` / `admin123`, and the
 system **refuses to let you operate until you change it** — that password is

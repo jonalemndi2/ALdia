@@ -41,11 +41,11 @@ if errorlevel 1 (
 )
 
 REM Verificar las dependencias e informar EXACTAMENTE cual falta
-"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, pydantic, bcrypt, jwt" 2>nul
+"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, pydantic, bcrypt, jwt, httpx" 2>nul
 if errorlevel 1 (
     echo  [!] Faltan dependencias del sistema. Detalle:
     echo.
-    "%PYTHON%" -c "import importlib,sys; [print('     falta:', m) for m in ['fastapi','uvicorn','sqlalchemy','pydantic','bcrypt','jwt'] if not importlib.util.find_spec(m)]"
+    "%PYTHON%" -c "import importlib,sys; [print('     falta:', m) for m in ['fastapi','uvicorn','sqlalchemy','pydantic','bcrypt','jwt','httpx'] if not importlib.util.find_spec(m)]"
     echo.
     echo  Ejecute  instalar.bat  para instalarlas.
     echo.

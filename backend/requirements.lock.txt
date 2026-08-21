@@ -15,8 +15,8 @@
 #
 # Este archivo fija cada versión —incluidas las dependencias indirectas, que
 # son las que rompen sin avisar— al conjunto exacto con el que se corrió la
-# suite de pruebas completa: en Windows (el entorno real de instalación) y en
-# Linux con Python 3.10 y 3.13.
+# suite de pruebas completa, en los tres sistemas donde se instala: Windows,
+# Linux (Python 3.10 y 3.13) y macOS.
 #
 # COMO ACTUALIZARLO
 # =================
@@ -43,6 +43,7 @@ greenlet==3.5.5
 bcrypt==5.0.0
 PyJWT==2.13.0
 python-multipart==0.0.32
+httpx==0.28.1
 
 # ── Factura electrónica AFIP (backend/afip.py) ───────────────────────────────
 zeep==4.3.3
@@ -62,6 +63,7 @@ cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.4.2
 h11==0.16.0
+httpcore==1.0.9
 httptools==0.8.0
 idna==3.19
 isodate==0.7.2

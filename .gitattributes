@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Finales de línea. Existe porque ALdia se instala en los tres sistemas y cada
+# uno rompe los scripts del otro si git "normaliza" a lo que le parece.
+#
+# El caso concreto que evita: un clon hecho en Windows con autocrlf=true les
+# mete CRLF a los .sh; después esa carpeta se copia a la PC Linux del comercio
+# y bash falla con `/usr/bin/env bash^M: no such file or directory`, un error
+# que no menciona ni al script ni a los finales de línea.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Detección automática para todo lo demás; en el repositorio siempre LF.
+* text=auto eol=lf
+
+# Los scripts de Unix van SIEMPRE con LF, se clonen donde se clonen.
+*.sh text eol=lf
+
+# Y los de Windows SIEMPRE con CRLF: cmd.exe se confunde con los saltos de
+# línea sueltos en los bloques `if (...)` de varias líneas, que es justo como
+# están escritos instalar.bat e iniciar_web.bat.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: que git no toque un solo byte.
+*.woff  binary
+*.woff2 binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.pdf   binary

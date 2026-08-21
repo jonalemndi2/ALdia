@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependencias para DESARROLLAR y correr las pruebas.
-# Quien solo va a usar el sistema en su comercio no necesita nada de esto:
-# le alcanza con `instalar.bat` (que usa requirements.txt).
+# Quien solo va a usar el sistema en su comercio no necesita nada de esto: le
+# alcanza con `./instalar.sh` (Linux y macOS) o `instalar.bat` (Windows), que
+# usan requirements.txt.
 #
 #     python -m pip install -r backend/requirements-dev.txt
 #     python -m pytest tests/ -q
@@ -12,10 +13,10 @@
 
 # pytest: corre la suite de tests/.
 pytest>=8.0
-# httpx: lo usa el TestClient de FastAPI para pegarle a la aplicación montada
-# en memoria, sin levantar el servidor. No es una dependencia del sistema:
-# solo aparece acá y en el servidor MCP.
-httpx>=0.27
+# httpx ya viene por requirements.txt (lo necesita
+# backend/routers/pendientes.py en producción). Acá lo usa además el TestClient
+# de FastAPI para pegarle a la aplicación montada en memoria, sin levantar el
+# servidor.
 
 # mcp: el SDK del servidor MCP. Hace falta para poder PROBAR mcp/aldia_mcp/,
 # que hasta ahora no tenia ninguna prueba pese a ser la puerta por la que entran

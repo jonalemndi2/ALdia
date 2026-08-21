@@ -53,24 +53,28 @@ Recomendaciones:
 ## Requisitos
 
 - Python 3.10 o superior.
-- El backend de ALdia corriendo y accesible (`iniciar_web.bat` o
-  `python backend/main.py`).
+- El backend de ALdia corriendo y accesible (`./iniciar_web.sh` en Linux y macOS,
+  `iniciar_web.bat` en Windows, o `python backend/main.py`).
 - Un usuario y contraseña válidos de ALdia.
 
 ## Instalación
 
-```bat
-cd "ruta\a\ALdia\mcp"
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-```
+El servidor MCP vive en su propio entorno, aparte del backend.
 
-En Linux / macOS:
+**Linux y macOS**
 
 ```bash
 cd "/ruta/a/ALdia/mcp"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+```
+
+**Windows**
+
+```bat
+cd "ruta\a\ALdia\mcp"
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
 ```
 
 ## Variables de entorno
@@ -87,6 +91,17 @@ automáticamente** antes de que venza (el token de ALdia dura 8 horas). Si el
 backend invalida el token, reintenta el login una vez de forma transparente.
 
 ## Probar desde la consola
+
+**Linux y macOS**
+
+```bash
+export ALDIA_URL=http://127.0.0.1:8000
+export ALDIA_USER=caja
+export ALDIA_PASSWORD=****
+.venv/bin/python -m aldia_mcp
+```
+
+**Windows**
 
 ```bat
 set ALDIA_URL=http://127.0.0.1:8000
@@ -105,9 +120,35 @@ aparece recién en la primera herramienta que se ejecute, con un mensaje claro.
 
 ### Claude Desktop
 
-Editar `claude_desktop_config.json`
-(Windows: `%APPDATA%\Claude\claude_desktop_config.json`;
-macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+Editar `claude_desktop_config.json`:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+**Linux y macOS** — `command` y `cwd` van con la ruta absoluta real; el `~` no se
+expande dentro del JSON, hay que escribir `/home/usuario/...` o
+`/Users/usuario/...`:
+
+```json
+{
+  "mcpServers": {
+    "aldia": {
+      "command": "/ruta/a/ALdia/mcp/.venv/bin/python",
+      "args": ["-m", "aldia_mcp"],
+      "cwd": "/ruta/a/ALdia/mcp",
+      "env": {
+        "ALDIA_URL": "http://127.0.0.1:8000",
+        "ALDIA_USER": "caja",
+        "ALDIA_PASSWORD": "la-contrasena-del-usuario-caja"
+      }
+    }
+  }
+}
+```
+
+**Windows** — las barras invertidas van dobles, porque el JSON las usa como
+carácter de escape:
 
 ```json
 {

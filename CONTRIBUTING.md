@@ -41,29 +41,37 @@ llamar a algo, probablemente vaya en el lugar equivocado.
 
 ## Levantar el entorno
 
-En Windows, que es donde se instala el sistema:
+El sistema se instala en Windows, Linux y macOS, y se desarrolla igual en los
+tres. El instalador ya deja listo el entorno de desarrollo con `--dev`, que
+agrega pytest y el SDK de MCP:
+
+**Linux y macOS**
+
+```bash
+./instalar.sh --dev
+```
+
+**Windows**
 
 ```
 instalar.bat
-```
-
-Crea el entorno en `.venv` e instala las dependencias. Para desarrollar hacen
-falta además pytest y httpx:
-
-```
 .venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
 ```
 
-Para arrancar el servidor: `iniciar_web.bat` (o `.venv\Scripts\python.exe
-backend\main.py`). La base se crea sola en el primer arranque, vacía, y el
-usuario `admin` te obliga a cambiar la contraseña antes de dejarte operar.
+Crea el entorno en `.venv` e instala las dependencias. Para arrancar el
+servidor: `./iniciar_web.sh` (o `iniciar_web.bat`). La base se crea sola en el
+primer arranque, vacía, y el usuario `admin` te obliga a cambiar la contraseña
+antes de dejarte operar.
+
+De acá en adelante, donde diga `.venv/bin/python` (Linux y macOS) en Windows va
+`.venv\Scripts\python.exe`. Es la única diferencia.
 
 ## Correr las pruebas
 
-```
-.venv\Scripts\python.exe -m pytest tests/ -q      # todas
-.venv\Scripts\python.exe -m pytest tests/ -v      # con el nombre de cada una
-.venv\Scripts\python.exe -m pytest tests/test_negocio.py::TestFactura -v
+```bash
+.venv/bin/python -m pytest tests/ -q      # todas
+.venv/bin/python -m pytest tests/ -v      # con el nombre de cada una
+.venv/bin/python -m pytest tests/test_negocio.py::TestFactura -v
 ```
 
 **No hace falta levantar el servidor.** Las pruebas montan la aplicación en
@@ -71,11 +79,19 @@ memoria y usan una base temporal que se borra al terminar: nunca tocan
 `backend/aldia.db`. Ver [tests/README.md](tests/README.md) para qué cubre cada
 archivo.
 
-Las mismas pruebas corren en CI (Linux, Python 3.10 y 3.13) en cada push y cada
-pull request, y además una vez con las versiones exactas de
+Las mismas pruebas corren en CI en cada push y cada pull request, en **Linux,
+macOS y Windows**, y además una vez con las versiones exactas de
 `backend/requirements.lock.txt`, que son las que se le recomiendan a un comercio.
-Si tu cambio anda en Windows pero rompe en CI, casi siempre es una ruta con
-backslash o un permiso de archivo.
+Si tu cambio anda en tu máquina pero rompe en el CI de otro sistema, casi siempre
+es una ruta armada a mano con `/` o `\` en vez de `os.path.join`, un permiso de
+archivo, o mayúsculas en un nombre (Linux distingue, Windows y macOS no).
+
+Hay un cuarto job que corre `instalar.sh` e `iniciar_web.sh` tal cual los corre
+un comercio y después le pega al servidor por HTTP. **Si agregás un `import` de
+una biblioteca externa en `backend/`, tiene que estar en
+`backend/requirements.txt`** — no alcanza con `requirements-dev.txt`, que es lo
+que tenés instalado vos. Ese job existe justamente porque esa falla no la ve
+ninguna prueba: la suite pasa entera y el servidor recién instalado no arranca.
 
 ## Sobre los comentarios
 
@@ -87,7 +103,9 @@ que parafrasea la línea de abajo no aporta; uno que explica por qué esa línea
 puede ser de otra manera evita que alguien la "simplifique" dentro de dos años.
 
 Los comentarios del backend van sin tildes (compatibilidad con consolas viejas
-de Windows); el texto que ve el usuario, con tildes normales.
+de Windows); el texto que ve el usuario, con tildes normales. Lo mismo vale para
+los scripts: los comentarios de `instalar.sh` e `iniciar_web.sh` van sin tildes,
+y los mensajes que se imprimen en pantalla con tildes.
 
 ## Al abrir el pull request
 

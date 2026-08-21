@@ -50,7 +50,7 @@ if errorlevel 1 (
 REM Comprobar que el sistema realmente arranca, en vez de dar por buena la
 REM instalacion solo porque pip no devolvio error.
 echo  [4/4] Verificando la instalacion...
-".venv\Scripts\python.exe" -c "import fastapi, uvicorn, sqlalchemy, pydantic, bcrypt, jwt" 2>nul
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, sqlalchemy, pydantic, bcrypt, jwt, httpx" 2>nul
 if errorlevel 1 (
     echo  [ERROR] Las dependencias se instalaron pero no se pueden importar.
     pause
