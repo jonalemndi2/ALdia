@@ -420,6 +420,16 @@ tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](test
 Corren solas en cada push y cada *pull request* (Linux, Python 3.10 y 3.13), y además
 una vez con las versiones exactas de `backend/requirements.lock.txt`.
 
+## Construido con
+
+ALdía fue diseñado y escrito con asistentes de programación con IA, entre ellos
+Claude Code, OpenAI Codex, Google Gemini y DeepSeek.
+
+**Actualización de soporte para Linux y macOS** — implementada con
+[OpenClaw](https://github.com/openclaw) usando OpenAI **GPT-5.6-sol**. Esta
+actualización incorporó los scripts nativos `instalar.sh` e `iniciar_web.sh` y la
+matriz de CI automatizada que verifica ALdía en Linux, macOS y Windows.
+
 ## Contribuir
 
 Las contribuciones son bienvenidas. Ver **[CONTRIBUTING.md](CONTRIBUTING.md)** para
