@@ -252,6 +252,11 @@ operated by them. Both halves of that sentence are the point.
 **Written with** — [Claude Code](https://claude.com/claude-code), OpenAI Codex,
 Google Gemini, DeepSeek, in [Visual Studio Code](https://code.visualstudio.com/).
 
+**Linux and macOS support update** — implemented with
+[OpenClaw](https://github.com/openclaw) using OpenAI **GPT-5.6-sol**. This update
+added the native `instalar.sh` and `iniciar_web.sh` scripts and the automated CI
+matrix that verifies ALdía on Linux, macOS and Windows.
+
 **Built to be driven by** — any [MCP](https://modelcontextprotocol.io/) client.
 [OpenClaw](https://github.com/openclaw) is the assistant this engine was shaped
 around, but nothing here depends on it: the 48 tools are plain MCP, and the
