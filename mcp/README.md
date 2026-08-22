@@ -201,6 +201,41 @@ o, equivalente, en `.mcp.json` del proyecto:
 > Si prefiere no escribir la contraseña en el archivo de configuración, expórtela
 > en el entorno del sistema y omita esa clave: el servidor la lee igual.
 
+### OpenClaw
+
+OpenClaw 2026.6.11 o posterior puede registrar este servidor MCP directamente.
+Use rutas absolutas: así funciona igual si ALdia está dentro de una carpeta con
+espacios y no depende del directorio desde el que arrancó el Gateway.
+
+```bash
+openclaw mcp add aldia \
+  --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
+  --arg -m --arg aldia_mcp \
+  --cwd "/ruta/a/ALdia/mcp" \
+  --env ALDIA_URL=http://127.0.0.1:8000 \
+  --env ALDIA_USER=caja \
+  --env ALDIA_PASSWORD='la-contrasena-del-usuario-caja' \
+  --env ALDIA_CANAL=openclaw
+```
+
+En macOS la primera ruta normalmente empieza con `/Users/usuario/`; en Linux,
+con `/home/usuario/`. Luego valide la definición y la conexión real:
+
+```bash
+openclaw mcp doctor aldia --probe
+openclaw mcp tools aldia
+openclaw gateway restart
+```
+
+El backend debe estar corriendo antes del `--probe`. Si OpenClaw se ejecuta como
+servicio, no confíe en variables definidas solamente en `.zshrc` o `.bashrc`:
+los servicios de macOS y Linux normalmente no las heredan. Las variables
+guardadas con `openclaw mcp add --env` pertenecen a la configuración local de
+OpenClaw y no deben versionarse ni copiarse al repositorio.
+
+En Windows, cambie `command` por la ruta absoluta a
+`mcp\\.venv\\Scripts\\python.exe`; el resto de los argumentos es igual.
+
 ### Skills
 
 En `skills/` (raíz del proyecto) hay cuatro skills que enseñan al asistente a
