@@ -81,21 +81,57 @@ cualquier comprobante revierte sus efectos.
 
 ## Instalación
 
+ALdia corre en **Windows, Linux y macOS**. El servidor es Python y SQLite, sin
+nada atado a un sistema operativo en particular; sólo cambian los scripts que lo
+arrancan.
+
 En la PC que va a actuar como servidor:
+
+### Windows
 
 1. Instalar **Python 3.10 o superior** desde <https://www.python.org/downloads/>
    (marcar *"Add Python to PATH"*).
-2. Ejecutar **`instalar.bat`** (solo la primera vez): crea el entorno e instala las dependencias.
-   Para una instalación productiva conviene fijar las versiones exactas ya verificadas:
-   `.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt`.
+2. Ejecutar **`instalar.bat`** (sólo la primera vez): crea el entorno e instala las dependencias.
 3. Ejecutar **`iniciar_web.bat`** para arrancar el sistema.
+
+### Linux y macOS
+
+1. Tener **Python 3.10 o superior**. Casi siempre ya está; si no:
+   - Debian / Ubuntu: `sudo apt install python3 python3-venv python3-pip`
+   - Fedora: `sudo dnf install python3 python3-pip`
+   - macOS: `brew install python@3.12` (o descargarlo de python.org)
+2. Ejecutar **`./instalar.sh`** (sólo la primera vez).
+3. Ejecutar **`./iniciar_web.sh`** para arrancar el sistema.
+
+> Si al descargar el proyecto los scripts perdieron el permiso de ejecución
+> (`Permission denied`), se lo devolvés con:
+> `chmod +x instalar.sh iniciar_web.sh`
+
+### Para una instalación productiva
+
+Conviene fijar las versiones exactas ya verificadas en vez de las últimas que
+haya publicado cada proyecto ese día:
+
+```bash
+./instalar.sh --lock                                                    # Linux y macOS
+.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt   # Windows
+```
 
 El script muestra la dirección para conectarse desde otras PCs:
 
 ```
-En esta PC (servidor):   http://localhost:8000
-Desde otras PCs:         http://192.168.0.10:8000
+En esta computadora:     http://localhost:8000
+Desde otras terminales:  http://192.168.0.10:8000
 ```
+
+`iniciar_web.sh` reconoce además estas variables, todas opcionales:
+
+| Variable | Para qué sirve |
+|---|---|
+| `ALDIA_PORT` | Usar otro puerto: `ALDIA_PORT=8080 ./iniciar_web.sh` |
+| `ALDIA_HOST` | Escuchar sólo local: `ALDIA_HOST=127.0.0.1 ./iniciar_web.sh` |
+| `ALDIA_SIN_NAVEGADOR` | `=1` para no abrir el navegador (servidor sin pantalla) |
+| `ALDIA_PYTHON` | Forzar un intérprete si hay varios instalados |
 
 ### Primer ingreso
 
@@ -136,7 +172,14 @@ Primeros pasos recomendados:
 ### Otras terminales
 
 En cualquier PC de la misma red, abrir el navegador en la dirección del servidor.
-No hay que instalar nada. Si no conecta, permitir el puerto 8000 en el Firewall de Windows.
+No hay que instalar nada. Si no conecta, hay que permitir el puerto 8000 en el
+firewall del servidor:
+
+- **Windows:** Firewall de Windows → regla de entrada para el puerto 8000.
+- **Linux (ufw):** `sudo ufw allow 8000/tcp`
+- **Linux (firewalld):** `sudo firewall-cmd --add-port=8000/tcp --permanent && sudo firewall-cmd --reload`
+- **macOS:** la primera vez que arranca, el sistema pregunta si permite conexiones
+  entrantes para Python — hay que responder **Permitir**.
 
 ## Roles y módulos
 

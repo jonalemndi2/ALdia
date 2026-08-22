@@ -45,8 +45,9 @@ def _cargar_o_crear_secret() -> str:
       3. Se genera una clave aleatoria nueva y se guarda en ese archivo.
 
     El paso 3 existe para que el sistema se pueda arrancar con doble clic en
-    iniciar_web.bat sin configurar nada, pero SIN caer en una clave por defecto
-    conocida: cada instalacion termina con una clave distinta e impredecible.
+    iniciar_web.bat (o con ./iniciar_web.sh) sin configurar nada, pero SIN caer
+    en una clave por defecto conocida: cada instalacion termina con una clave
+    distinta e impredecible.
     """
     desde_entorno = os.getenv("ALDIA_SECRET_KEY")
     if desde_entorno and desde_entorno.strip():
@@ -63,9 +64,24 @@ def _cargar_o_crear_secret() -> str:
 
     nueva = secrets.token_urlsafe(64)
     try:
-        with open(_SECRET_FILE, "w", encoding="utf-8") as fh:
+        # Se crea con os.open y el modo YA restringido, no con open() y un chmod
+        # despues. La diferencia importa en Linux y macOS, donde el servidor puede
+        # estar en una maquina con varios usuarios: con chmod posterior el archivo
+        # nace con lo que diga el umask (0644 en la mayoria de las distribuciones)
+        # y queda legible para todo el mundo durante esas dos lineas. Quien lea
+        # esta clave puede firmarse un token de administrador.
+        #
+        # En Windows el modo se ignora y manda la ACL heredada de la carpeta; ahi
+        # esto no suma ni resta.
+        descriptor = os.open(
+            _SECRET_FILE,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as fh:
             fh.write(nueva)
-        # Restringir el archivo al usuario actual en la medida en que el SO lo permita.
+        # Por si el archivo ya existia con permisos mas laxos: O_CREAT no cambia
+        # el modo de un archivo que ya esta.
         try:
             os.chmod(_SECRET_FILE, stat.S_IRUSR | stat.S_IWUSR)
         except OSError:

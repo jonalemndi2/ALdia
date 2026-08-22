@@ -53,24 +53,28 @@ Recomendaciones:
 ## Requisitos
 
 - Python 3.10 o superior.
-- El backend de ALdia corriendo y accesible (`iniciar_web.bat` o
-  `python backend/main.py`).
+- El backend de ALdia corriendo y accesible (`./iniciar_web.sh` en Linux y macOS,
+  `iniciar_web.bat` en Windows, o `python backend/main.py`).
 - Un usuario y contraseña válidos de ALdia.
 
 ## Instalación
 
-```bat
-cd "ruta\a\ALdia\mcp"
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-```
+El servidor MCP vive en su propio entorno, aparte del backend.
 
-En Linux / macOS:
+**Linux y macOS**
 
 ```bash
 cd "/ruta/a/ALdia/mcp"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+```
+
+**Windows**
+
+```bat
+cd "ruta\a\ALdia\mcp"
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
 ```
 
 ## Variables de entorno
@@ -87,6 +91,17 @@ automáticamente** antes de que venza (el token de ALdia dura 8 horas). Si el
 backend invalida el token, reintenta el login una vez de forma transparente.
 
 ## Probar desde la consola
+
+**Linux y macOS**
+
+```bash
+export ALDIA_URL=http://127.0.0.1:8000
+export ALDIA_USER=caja
+export ALDIA_PASSWORD=****
+.venv/bin/python -m aldia_mcp
+```
+
+**Windows**
 
 ```bat
 set ALDIA_URL=http://127.0.0.1:8000
@@ -105,9 +120,35 @@ aparece recién en la primera herramienta que se ejecute, con un mensaje claro.
 
 ### Claude Desktop
 
-Editar `claude_desktop_config.json`
-(Windows: `%APPDATA%\Claude\claude_desktop_config.json`;
-macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+Editar `claude_desktop_config.json`:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+
+**Linux y macOS** — `command` y `cwd` van con la ruta absoluta real; el `~` no se
+expande dentro del JSON, hay que escribir `/home/usuario/...` o
+`/Users/usuario/...`:
+
+```json
+{
+  "mcpServers": {
+    "aldia": {
+      "command": "/ruta/a/ALdia/mcp/.venv/bin/python",
+      "args": ["-m", "aldia_mcp"],
+      "cwd": "/ruta/a/ALdia/mcp",
+      "env": {
+        "ALDIA_URL": "http://127.0.0.1:8000",
+        "ALDIA_USER": "caja",
+        "ALDIA_PASSWORD": "la-contrasena-del-usuario-caja"
+      }
+    }
+  }
+}
+```
+
+**Windows** — las barras invertidas van dobles, porque el JSON las usa como
+carácter de escape:
 
 ```json
 {
@@ -159,6 +200,41 @@ o, equivalente, en `.mcp.json` del proyecto:
 
 > Si prefiere no escribir la contraseña en el archivo de configuración, expórtela
 > en el entorno del sistema y omita esa clave: el servidor la lee igual.
+
+### OpenClaw
+
+OpenClaw 2026.6.11 o posterior puede registrar este servidor MCP directamente.
+Use rutas absolutas: así funciona igual si ALdia está dentro de una carpeta con
+espacios y no depende del directorio desde el que arrancó el Gateway.
+
+```bash
+openclaw mcp add aldia \
+  --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
+  --arg -m --arg aldia_mcp \
+  --cwd "/ruta/a/ALdia/mcp" \
+  --env ALDIA_URL=http://127.0.0.1:8000 \
+  --env ALDIA_USER=caja \
+  --env ALDIA_PASSWORD='la-contrasena-del-usuario-caja' \
+  --env ALDIA_CANAL=openclaw
+```
+
+En macOS la primera ruta normalmente empieza con `/Users/usuario/`; en Linux,
+con `/home/usuario/`. Luego valide la definición y la conexión real:
+
+```bash
+openclaw mcp doctor aldia --probe
+openclaw mcp tools aldia
+openclaw gateway restart
+```
+
+El backend debe estar corriendo antes del `--probe`. Si OpenClaw se ejecuta como
+servicio, no confíe en variables definidas solamente en `.zshrc` o `.bashrc`:
+los servicios de macOS y Linux normalmente no las heredan. Las variables
+guardadas con `openclaw mcp add --env` pertenecen a la configuración local de
+OpenClaw y no deben versionarse ni copiarse al repositorio.
+
+En Windows, cambie `command` por la ruta absoluta a
+`mcp\\.venv\\Scripts\\python.exe`; el resto de los argumentos es igual.
 
 ### Skills
 

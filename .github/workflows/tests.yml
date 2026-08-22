@@ -4,10 +4,10 @@
 # Hasta ahora la suite existía pero nadie garantizaba que se corriera: se
 # confiaba en que el contribuyente se acordara. Esto lo corre siempre.
 #
-# El sistema se desarrolla e instala en Windows, pero acá corre en Linux a
-# propósito: si algo depende del sistema operativo (rutas con backslash,
-# permisos de archivo, mayúsculas en nombres), se ve acá y no en la PC del
-# comercio.
+# El sistema se instala en Windows, Linux y macOS, así que la suite corre en los
+# tres: si algo depende del sistema operativo (rutas con backslash, permisos de
+# archivo, mayúsculas en nombres, finales de línea), se ve acá y no en la PC del
+# comercio. Que ande en la máquina de quien programa no prueba nada.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Pruebas
 
@@ -33,14 +33,24 @@ jobs:
   #
   #    3.10 es el mínimo que declara el README; 3.13 es la versión moderna que
   #    baja hoy quien instala Python por primera vez. Las dos tienen que andar.
+  #
+  #    Las combinaciones no son el producto cruzado completo, y eso es a
+  #    propósito: en Linux se prueban las dos puntas del rango de Python porque
+  #    es donde más barato sale, y en macOS y Windows alcanza con una versión
+  #    para detectar lo que ahí se rompe, que son diferencias del SISTEMA (rutas,
+  #    permisos, finales de línea), no de la versión de Python.
   # ───────────────────────────────────────────────────────────────────────────
   pruebas:
-    name: pytest · Python ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    name: pytest · ${{ matrix.so }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.so }}
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.13']
+        include:
+          - { so: ubuntu-latest,  python: '3.10' }
+          - { so: ubuntu-latest,  python: '3.13' }
+          - { so: macos-latest,   python: '3.13' }
+          - { so: windows-latest, python: '3.13' }
 
     steps:
       - uses: actions/checkout@v5
@@ -90,8 +100,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.lock.txt
-          # pytest y httpx no son dependencias del sistema, solo de las pruebas.
-          python -m pip install pytest httpx
+          # pytest no es dependencia del sistema, solo de las pruebas. httpx sí
+          # lo es (backend/routers/pendientes.py) y viene en el lock.
+          python -m pip install pytest
           # Que ninguna de las dos instalaciones haya dejado versiones incompatibles.
           python -m pip check
 
@@ -99,7 +110,77 @@ jobs:
         run: python -m pytest tests/ -ra --tb=short
 
   # ───────────────────────────────────────────────────────────────────────────
-  # 3. Que no se cuele ningún secreto.
+  # 3. Que los instaladores de Unix funcionen DE VERDAD.
+  #
+  #    La suite prueba la lógica del sistema, no la instalación. Este job corre
+  #    `instalar.sh` y `iniciar_web.sh` tal cual los va a correr un comercio, y
+  #    después le pega al servidor por HTTP: es la única forma de enterarse acá
+  #    —y no en la PC del cliente— de que falta una dependencia en
+  #    requirements.txt o de que el servidor no llega a levantar.
+  #
+  #    Justamente así apareció que httpx no estaba declarado: la suite pasaba
+  #    entera (el entorno de desarrollo lo tenía por requirements-dev.txt) y el
+  #    servidor recién instalado moría en el import de los routers.
+  # ───────────────────────────────────────────────────────────────────────────
+  instaladores:
+    name: instalar.sh + iniciar_web.sh · ${{ matrix.so }}
+    runs-on: ${{ matrix.so }}
+    strategy:
+      fail-fast: false
+      matrix:
+        so: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Que sean ejecutables y que bash los entienda
+        run: |
+          test -x instalar.sh    || { echo "instalar.sh no tiene permiso de ejecución"; exit 1; }
+          test -x iniciar_web.sh || { echo "iniciar_web.sh no tiene permiso de ejecución"; exit 1; }
+          bash -n instalar.sh
+          bash -n iniciar_web.sh
+
+      - name: Sin CRLF (rompe el shebang en Unix)
+        run: |
+          python - <<'FIN'
+          import sys
+          for archivo in ("instalar.sh", "iniciar_web.sh"):
+              if b"\r" in open(archivo, "rb").read():
+                  sys.exit(f"{archivo} tiene finales de linea CRLF: "
+                           "bash no va a encontrar el interprete.")
+          print("ok - los dos con LF.")
+          FIN
+
+      - name: Instalar como lo hace un comercio
+        run: ./instalar.sh
+
+      - name: Levantar el servidor y comprobar que responde
+        run: |
+          ALDIA_SIN_NAVEGADOR=1 ALDIA_PORT=8000 ./iniciar_web.sh > servidor.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+              echo "El servidor respondió a los $i intentos."
+              curl -fsS http://127.0.0.1:8000/api/health; echo
+              # Que sirva también el frontend, no solo la API.
+              curl -fsS -o /dev/null -w 'index.html -> HTTP %{http_code}\n' http://127.0.0.1:8000/
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "El servidor no respondió en 60 segundos. Salida:"
+          cat servidor.log
+          exit 1
+
+      - name: Qué dijo el servidor
+        if: always()
+        run: cat servidor.log || true
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 4. Que no se cuele ningún secreto.
   #
   #    Esto es un sistema de facturación fiscal: el archivo de base de datos
   #    tiene CUIT de clientes y hashes de contraseñas, la clave de firma permite
