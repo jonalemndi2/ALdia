@@ -17,11 +17,33 @@ def _xlsx(cambio=None):
     data = io.BytesIO(); wb.save(data); return data.getvalue()
 
 
+def _xlsx_eikon_v2():
+    """Las etiquetas reales controladas de Lista de precios Eikon v2."""
+    wb = Workbook(); ws = wb.active; ws.title = "LISTA DE PRECIOS"
+    ws.append([]); ws.append([]); ws.append([]); ws.append([])
+    ws.append(["Código", "Artículo", "Final Regular", "Final Especial", "Categoría", "Sub Categoría", "% IVA", "stock"])
+    for i in range(494):
+        ws.append([f"EK-{i:04d}", f"Artículo {i}", "10.00", "9.50", "PC", "Partes", 21, 3])
+    data = io.BytesIO(); wb.save(data); return data.getvalue()
+
+
 def test_lista_eikon_alfanumerica_y_conversion_half_up():
     filas, errores = leer_lista(_xlsx(), "especial", __import__("decimal").Decimal("1000.005"))
     assert len(filas) == 494 and not errores
     assert filas[0]["sku"] == "EK-0000"
     assert filas[0]["precio_ars_centavos"] == 950005  # Decimal + HALF_UP
+
+
+def test_lista_eikon_acepta_solo_las_etiquetas_reales_v2():
+    filas, errores = leer_lista(_xlsx_eikon_v2(), "regular", __import__("decimal").Decimal("1"))
+    assert len(filas) == 494 and not errores
+
+
+def test_lista_eikon_no_acepta_alias_parcial_o_no_controlado():
+    def alterar(ws):
+        ws.cell(5, 3).value = "Precio regular"  # no es alias Eikon aprobado
+    with pytest.raises(ArchivoEikonInvalido, match="Cabecera"):
+        leer_lista(_xlsx(alterar), "especial", __import__("decimal").Decimal("1"))
 
 
 @pytest.mark.parametrize("cambio", [
@@ -47,6 +69,7 @@ def test_preview_no_escribe_y_confirmacion_solo_deposito(app_cliente):
     from routers.auth import hash_password
     db = SessionLocal()
     try:
+        stock_inicial = db.query(StockMercaderia).count()
         db.add(Usuario(username="deposito-test", password_hash=hash_password("clave-segura-123"),
                        rol="encargado_deposito", debe_cambiar_password=False))
         db.commit()
@@ -59,12 +82,16 @@ def test_preview_no_escribe_y_confirmacion_solo_deposito(app_cliente):
         files={"archivo": ("lista.xlsx", _xlsx(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert r.status_code == 200, r.text
     preview = r.json(); db = SessionLocal()
-    try: assert db.query(StockMercaderia).count() == 0
+    try: assert db.query(StockMercaderia).count() == stock_inicial
     finally: db.close()
     r = app_cliente.post(f"/api/stock/importaciones/{preview['id']}/confirmar", headers={**headers, "X-Operation-Id": "eikon-test-1"}, json={"confirmar": True, "preview_hash": preview["preview_hash"]})
     assert r.status_code == 200, r.text
     db = SessionLocal()
     try:
         producto = db.query(StockMercaderia).filter_by(sku_proveedor="EK-0000").one()
+        assert db.query(StockMercaderia).count() == stock_inicial + 494
         assert producto.cantidad == 0 and producto.stock_proveedor == 3
+        assert producto.categoria_proveedor == "PC"
+        assert producto.subcategoria_proveedor == "Partes"
+        assert producto.precio_proveedor_usd == "9.50"
     finally: db.close()
