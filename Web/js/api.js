@@ -125,7 +125,23 @@ const API = {
         getById(codigo) { return API.get(`/stock/${codigo}`); },
         create(data) { return API.post('/stock/', data); },
         update(codigo, data) { return API.put(`/stock/${codigo}`, data); },
-        delete(codigo) { return API.delete(`/stock/${codigo}`); }
+        delete(codigo) { return API.delete(`/stock/${codigo}`); },
+        async previewImportacion(formData) {
+            const r = await fetch('/api/stock/importaciones/preview', {
+                method: 'POST', headers: API.headers(false), body: formData
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+            return r.json();
+        },
+        importacion(id) { return API.get(`/stock/importaciones/${id}`); },
+        async confirmarImportacion(id, preview_hash) {
+            const h = API.headers(true); h['X-Operation-Id'] = crypto.randomUUID();
+            const r = await fetch(`/api/stock/importaciones/${id}/confirmar`, {
+                method: 'POST', headers: h, body: JSON.stringify({ confirmar: true, preview_hash })
+            });
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+            return r.json();
+        }
     },
 
     // ==================== REMITOS ====================

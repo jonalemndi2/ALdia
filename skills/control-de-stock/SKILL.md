@@ -115,6 +115,14 @@ create_product(codigo=..., producto="...", cantidad=0, unidad="UN",
 
 ## Limitaciones a tener presentes
 
+## Importación de lista Eikon
+
+Una lista Eikon es disponibilidad y precios del proveedor, **no una entrada de
+mercadería propia**. Usar siempre el circuito API `preview → revisión humana →
+confirmar`; nunca leer un path local desde MCP ni convertir `stock proveedor`
+en `cantidad` propia. La confirmación requiere el hash de la vista previa y un
+`X-Operation-Id`. Diseño y restricciones: `docs/IMPORTADOR_EIKON_CATALOGO_DISENO.md`.
+
 - No hay punto de pedido por artículo: el umbral lo define el usuario en cada
   consulta.
 - No hay endpoint de rotación ni de unidades vendidas por artículo.

@@ -49,6 +49,7 @@ httpx==0.28.1
 zeep==4.3.3
 cryptography==50.0.0
 segno==1.6.6
+openpyxl==3.1.5
 
 # ── Dependencias indirectas ──────────────────────────────────────────────────
 # No se instalan a mano: las arrastran las de arriba. Van fijadas igual, porque
@@ -62,6 +63,7 @@ certifi==2026.7.22
 cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.4.2
+et_xmlfile==2.0.0
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.8.0

@@ -25,6 +25,14 @@ from sqlalchemy import inspect, text
 
 # tabla -> [(columna, tipo SQL, comentario)]
 COLUMNAS_NUEVAS = {
+    "stockmercaderia": [
+        ("sku_proveedor", "VARCHAR(80)"),
+        ("categoria_proveedor", "VARCHAR(120) DEFAULT ''"),
+        ("subcategoria_proveedor", "VARCHAR(120) DEFAULT ''"),
+        ("precio_proveedor_usd", "VARCHAR(32) DEFAULT ''"),
+        ("stock_proveedor", "FLOAT DEFAULT 0"),
+        ("fuente_actualizada_en", "TIMESTAMP"),
+    ],
     "usuarios": [
         # Una instalacion que ya venia funcionando puede tener el admin con la
         # contrasena de fabrica, que esta publicada en el README. Se marca en 1
@@ -228,6 +236,16 @@ def aplicar_migraciones(engine) -> list:
 
     if aplicadas:
         print(f"[migraciones] Columnas agregadas: {', '.join(aplicadas)}")
+
+    # SQLite permite varios NULL bajo un índice UNIQUE; por eso este índice
+    # deja intacto el catálogo histórico que todavía no tenga SKU proveedor y
+    # hace única cualquier identidad Eikon incorporada de ahora en adelante.
+    if "stockmercaderia" in tablas:
+        with engine.begin() as conexion:
+            conexion.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_sku_proveedor "
+                "ON stockmercaderia(sku_proveedor) WHERE sku_proveedor IS NOT NULL"
+            ))
 
     # Los importes pasan de pesos (Float) a centavos (Integer). Se hace una sola
     # vez por base y queda registrado.
