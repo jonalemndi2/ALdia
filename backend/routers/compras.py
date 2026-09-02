@@ -25,6 +25,35 @@ router = APIRouter()
 router_devoluciones = APIRouter()
 
 
+def _compra_salida(cabecera: FacturaProveedor) -> dict:
+    return {
+        "id": cabecera.id, "proveedor": cabecera.proveedor,
+        "num_factura": cabecera.num_factura, "fecha": cabecera.fecha,
+        "subtotal": a_pesos(cabecera.subtotal), "iva": a_pesos(cabecera.iva),
+        "total": a_pesos(cabecera.total), "estado": cabecera.estado,
+    }
+
+
+@router.get("/")
+def listar_compras(proveedor: str = None, limite: int = 20, db: Session = Depends(get_db)):
+    if limite < 1 or limite > 500:
+        raise HTTPException(422, "limite debe estar entre 1 y 500")
+    q = db.query(FacturaProveedor)
+    if proveedor:
+        q = q.filter(FacturaProveedor.proveedor == proveedor)
+    return [_compra_salida(c) for c in q.order_by(FacturaProveedor.id.desc()).limit(limite).all()]
+
+
+@router.get("/{factura_id}")
+def detalle_compra(factura_id: int, db: Session = Depends(get_db)):
+    cabecera = db.query(FacturaProveedor).filter(FacturaProveedor.id == factura_id).first()
+    if not cabecera:
+        raise HTTPException(404, "Factura de compra no encontrada")
+    salida = _compra_salida(cabecera)
+    salida["renglones"] = renglones_compra(factura_id, db)
+    return salida
+
+
 def _fingerprint_payload(data: CompraCreate) -> str:
     items = sorted((i.codigo, format(i.cantidad, ".12g"), int(i.precio)) for i in data.items)
     canonico = {

@@ -293,12 +293,19 @@ class ALdiaClient:
     def get(self, ruta: str, **params: Any) -> Any:
         return self.request("GET", ruta, params=params)
 
-    def post(self, ruta: str, cuerpo: Any = None, **params: Any) -> Any:
+    def post(
+        self,
+        ruta: str,
+        cuerpo: Any = None,
+        *,
+        operation_id: str | None = None,
+        **params: Any,
+    ) -> Any:
         # Toda escritura lleva un identificador de operacion: si la respuesta se
         # pierde y esto se reintenta, ALdia devuelve el resultado original en vez
         # de ejecutar otra vez. Es lo que evita un cobro o una factura duplicada.
         import uuid
-        self._operacion_id = f"mcp_{uuid.uuid4().hex}"
+        self._operacion_id = (operation_id or f"mcp_{uuid.uuid4().hex}").strip()
         try:
             return self.request("POST", ruta, params=params, json=cuerpo)
         finally:

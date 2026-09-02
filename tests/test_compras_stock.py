@@ -56,6 +56,18 @@ def test_borrador_no_impacta_hasta_confirmar_y_reintento_es_idempotente(admin, c
     assert admin.get(f"/api/stock/{codigo}").json()["cantidad"] == 15
 
 
+def test_listado_y_detalle_publicos_de_compras(admin, cuit):
+    proveedor, codigo = _preparar(admin, cuit)
+    creada = _compra(admin, proveedor, codigo, "LIST-1", "borrador").json()
+    listado = admin.get("/api/compras/", params={"proveedor": proveedor, "limite": 5})
+    assert listado.status_code == 200
+    assert any(x["id"] == creada["id"] and x["estado"] == "borrador" for x in listado.json())
+    detalle = admin.get(f"/api/compras/{creada['id']}")
+    assert detalle.status_code == 200
+    assert detalle.json()["num_factura"] == "LIST-1"
+    assert detalle.json()["renglones"][0]["codigo"] == codigo
+
+
 def test_operation_id_rechaza_payload_distinto(admin, cuit):
     proveedor, codigo = _preparar(admin, cuit)
     op = {"X-Operation-Id": "compra-stock-fingerprint-1"}

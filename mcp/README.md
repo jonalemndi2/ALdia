@@ -263,6 +263,11 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `get_vat_book`      | IVA débito, crédito y saldo del período (acepta `mes` en formato YYYY-MM).      |
 | `get_business_summary`          | Ventas, compras, gastos, cobros y pagos de un rango, más el estado actual.      |
 | `list_uninvoiced_delivery_notes` | Líneas de mercadería entregada pendientes de facturación.                       |
+| `list_purchases` / `get_purchase` | Compras vigentes, estado y renglones de origen.                                |
+| `get_vendor_balance` / `list_vendor_accounts` | Mayor y cuentas corrientes consolidadas de proveedores.             |
+| `list_treasury_accounts` / `get_treasury_balances` | Cuentas concretas y sus saldos.                               |
+| `list_treasury_movements` | Subledger auditable, opcionalmente por cuenta.                                     |
+| `list_received_checks` | Cheques recibidos, con filtro de disponibles.                                         |
 
 ### Operación (crean comprobantes / mueven dinero)
 
@@ -277,8 +282,13 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `record_payment`           | Cobro de cliente: baja el saldo y entra a caja (o a la chequera si es cheque). |
 | `record_vendor_payment`            | Pago a proveedor: baja la deuda y sale de caja (o emite/endosa cheque).      |
 | `record_cash_movement` | Ingreso o egreso manual de caja (fondo fijo, retiro, ajuste de arqueo).      |
-| `record_expense`              | Factura de gasto con conceptos; suma deuda al proveedor y egresa de caja.    |
-| `record_purchase`          | Compra a proveedor: ingresa mercadería al stock y suma la deuda.             |
+| `record_expense`              | Devenga una factura de gasto; el dinero sale sólo al pagarla.                |
+| `record_purchase`          | Guarda borrador o confirma una compra; sólo confirmada mueve stock/deuda.     |
+| `confirm_purchase` | Confirma un borrador y recién entonces mueve stock y deuda.                              |
+| `record_vendor_return` | Devolución física referenciada a factura y renglón de compra.                         |
+| `record_vendor_credit_note` | Nota de crédito financiera sin movimiento de stock.                                |
+| `create_treasury_account` | Alta de caja chica o cuenta bancaria concreta.                                      |
+| `deposit_received_check` / `mark_own_check_debited` | Depósito y conciliación bancaria de cheques.              |
 
 ### Anulaciones (destructivas — exigen `confirmar=true`)
 
@@ -289,9 +299,12 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `void_vendor_payment`            | Borra el pago, devuelve la deuda y libera el cheque endosado.            |
 | `void_expense`           | Borra el gasto, revierte la deuda y el egreso de caja.                   |
 | `delete_cash_movement` | Borra un movimiento manual de caja.                                      |
+| `void_purchase` | Anula conservando cabecera y renglones, con reversas auditables de stock/deuda. |
 
-Estas cinco devuelven un error si se las llama sin `confirmar=true`, con un
-texto que le indica al asistente que primero debe pedir autorización al usuario.
+Las operaciones destructivas y las financieras nuevas o actualizadas devuelven
+un error si se las llama sin `confirmar=true`. Cobros, pagos, compras,
+devoluciones y notas de crédito aceptan además `operation_id`: reutilizarlo en
+un reintento permite que el backend aplique su contrato idempotente.
 
 ---
 
@@ -309,7 +322,7 @@ que pueda corregir en vez de reintentar a ciegas:
 
 ---
 
-## Endpoints que faltan en la API
+## Límites actuales de la API
 
 Estos son los huecos detectados al construir la integración. Ninguno impide
 operar, pero limitan lo que el asistente puede hacer o lo obligan a traer más
@@ -321,9 +334,8 @@ datos de los necesarios:
    llamadas.
 2. **Paginación y límites.** Ningún listado acepta `limit`/`offset`; con muchos
    registros el asistente recibe todo el histórico.
-3. **Historial de cuenta corriente unificado.** No hay
-   `/api/clientes/{cuit}/cuenta-corriente`: hay que cruzar facturas y cobros del
-   lado del cliente HTTP para reconstruir el saldo en el tiempo.
+3. **Historial de cuenta corriente de clientes.** No hay un mayor equivalente
+   al consolidado ya disponible para proveedores.
 4. **Fecha de última operación por cliente.** `/api/admin/morosos` no devuelve
    antigüedad de la deuda; calcularla exige una consulta por deudor.
 5. **Stock mínimo por artículo.** El modelo de stock no tiene punto de pedido;
@@ -335,12 +347,8 @@ datos de los necesarios:
    por lista o rubro: una remarcación general se hace artículo por artículo.
 8. **Alta de proveedor desde el gasto.** `/api/gastos/` exige un proveedor ya
    existente; no hay alta en una sola operación.
-9. **Anulación de compras.** `/api/compras/` no tiene `DELETE` propio; sólo se
-   puede revertir desde `/api/admin/movimientos/compra/{id}`, que exige rol
-   administrador.
-10. **Facturación electrónica AFIP.** En desarrollo por otro equipo. Cuando
-    exista (CAE, tipo de comprobante, punto de venta), habrá que ampliar
-    `create_invoice` para exponer esos datos.
+9. **Idempotencia no uniforme.** El MCP envía `X-Operation-Id`, pero cada
+   operación sólo es idempotente si su endpoint backend implementa ese contrato.
 
 ---
 

@@ -170,6 +170,14 @@ def _exigir_confirmacion(confirmar: bool, que: str) -> None:
         )
 
 
+def _exigir_confirmacion_financiera(confirmar: bool, que: str) -> None:
+    if not confirmar:
+        raise ALdiaError(
+            f"Operacion NO ejecutada. {que} mueve dinero, stock o deuda real: confirme "
+            "importe, fecha y contraparte con el usuario y vuelva a llamar con confirmar=true."
+        )
+
+
 def _resumen_producto(p: dict[str, Any]) -> dict[str, Any]:
     return {
         "codigo": p.get("codigo"),
@@ -1339,11 +1347,15 @@ def record_payment(
     referencia: str = "",
     banco: str = "",
     vencimiento: str | None = None,
+    cuenta_tesoreria_id: int | None = None,
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     if float(monto) <= 0:
         raise ALdiaError("El monto del cobro debe ser mayor a 0.")
     ficha = cli.resolver_cliente(cliente)
+    _exigir_confirmacion_financiera(confirmar, f"Registrar cobro de {monto} a {ficha.get('nombre')}")
     saldo_antes = float(ficha.get("saldo") or 0)
 
     cobro = cli.post(
@@ -1356,7 +1368,9 @@ def record_payment(
             "referencia": referencia,
             "banco": banco,
             "vencimiento": _fecha(vencimiento) if vencimiento else "",
+            "cuenta_tesoreria_id": cuenta_tesoreria_id,
         },
+        operation_id=operation_id,
     )
     es_cheque = "cheque" in (tipo or "").lower()
     return {
@@ -1404,11 +1418,15 @@ def record_vendor_payment(
     banco: str = "",
     vencimiento: str | None = None,
     cheque_id: int | None = None,
+    cuenta_tesoreria_id: int | None = None,
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     if float(monto) <= 0:
         raise ALdiaError("El monto del pago debe ser mayor a 0.")
     ficha = cli.resolver_proveedor(proveedor)
+    _exigir_confirmacion_financiera(confirmar, f"Registrar pago de {monto} a {ficha.get('nombre')}")
     saldo_antes = float(ficha.get("saldo") or 0)
 
     cuerpo: dict[str, Any] = {
@@ -1419,11 +1437,12 @@ def record_vendor_payment(
         "referencia": referencia,
         "banco": banco,
         "vencimiento": _fecha(vencimiento) if vencimiento else "",
+        "cuenta_tesoreria_id": cuenta_tesoreria_id,
     }
     if cheque_id is not None:
         cuerpo["cheque_id"] = int(cheque_id)
 
-    pago = cli.post("/api/pagos/", cuerpo)
+    pago = cli.post("/api/pagos/", cuerpo, operation_id=operation_id)
     es_cheque = "cheque" in (tipo or "").lower() or cheque_id is not None
     return {
         "registrado": True,
@@ -1464,6 +1483,8 @@ def record_cash_movement(
     egreso: float = 0.0,
     fecha: str | None = None,
     referencia: str = "",
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     ingreso = float(ingreso or 0)
@@ -1476,6 +1497,9 @@ def record_cash_movement(
         raise ALdiaError("Un movimiento no puede ser ingreso y egreso a la vez.")
     if not (concepto or "").strip():
         raise ALdiaError("Falta el concepto del movimiento de caja.")
+    _exigir_confirmacion_financiera(
+        confirmar, f"Registrar movimiento manual de caja por {ingreso or egreso}"
+    )
 
     mov = cli.post(
         "/api/caja/",
@@ -1486,6 +1510,7 @@ def record_cash_movement(
             "haber": egreso,
             "descripcion": concepto,
         },
+        operation_id=operation_id,
     )
     saldo = (cli.get("/api/caja/saldo") or {}).get("saldo")
     return {
@@ -1526,11 +1551,14 @@ def record_expense(
     numero_factura: str = "",
     fecha: str | None = None,
     descripcion: str = "",
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     if not conceptos:
         raise ALdiaError("El gasto no tiene conceptos: indique al menos uno {descripcion, monto}.")
     ficha = cli.resolver_proveedor(proveedor)
+    _exigir_confirmacion_financiera(confirmar, f"Devengar gasto a {ficha.get('nombre')}")
 
     items: list[dict[str, Any]] = []
     subtotal = 0.0
@@ -1562,6 +1590,7 @@ def record_expense(
             "descripcion": descripcion,
             "items": items,
         },
+        operation_id=operation_id,
     )
     return {
         "cargado": True,
@@ -1573,7 +1602,7 @@ def record_expense(
         "iva": iva_total,
         "total": total,
         "conceptos": items,
-        "nota": "Se genero el egreso de caja y se sumo la deuda con el proveedor.",
+        "nota": "Se devengo la deuda con el proveedor. No salio dinero: el pago se registra aparte.",
     }
 
 
@@ -1581,12 +1610,10 @@ def record_expense(
     title="Registrar compra a proveedor (ingreso de mercaderia)",
     annotations=ESCRITURA,
     description=(
-        "[OPERACION DE DINERO] Registra una compra de mercaderia a un proveedor. Efectos "
-        "automaticos:\n"
-        "- SUMA la cantidad comprada al stock de cada articulo y actualiza su precio de "
-        "compra;\n"
-        "- suma el total (neto + IVA segun la alicuota de cada articulo) a la deuda con el "
-        "proveedor.\n"
+        "Registra una compra de mercaderia a un proveedor. Por defecto guarda un BORRADOR "
+        "que no mueve stock ni deuda. Con estado='confirmada' y confirmar=true:\n"
+        "- suma la cantidad comprada al stock y actualiza el costo promedio;\n"
+        "- suma el total a la deuda con el proveedor.\n"
         "No genera egreso de caja: el pago se registra aparte con la herramienta de pago.\n\n"
         "Parametros:\n"
         "- proveedor: CUIT o nombre.\n"
@@ -1594,7 +1621,7 @@ def record_expense(
         "NETO sin IVA. Los articulos deben existir en el stock (si es un producto nuevo, "
         "dele de alta primero).\n"
         "- numero_factura: comprobante del proveedor.\n"
-        "- fecha: YYYY-MM-DD, por defecto hoy."
+        "- fecha: YYYY-MM-DD, por defecto hoy; estado: borrador o confirmada."
     ),
 )
 def record_purchase(
@@ -1602,11 +1629,18 @@ def record_purchase(
     items: list[dict[str, Any]],
     numero_factura: str = "",
     fecha: str | None = None,
+    estado: str = "borrador",
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     if not items:
         raise ALdiaError("La compra no tiene items: indique al menos un articulo.")
     ficha = cli.resolver_proveedor(proveedor)
+    if estado not in {"borrador", "confirmada"}:
+        raise ALdiaError("estado debe ser 'borrador' o 'confirmada'.")
+    if estado == "confirmada":
+        _exigir_confirmacion_financiera(confirmar, f"Confirmar compra a {ficha.get('nombre')}")
 
     lineas: list[dict[str, Any]] = []
     for it in items:
@@ -1632,8 +1666,10 @@ def record_purchase(
             "proveedor_cuit": ficha.get("cuit"),
             "fecha": _fecha(fecha),
             "num_factura": numero_factura,
+            "estado": estado,
             "items": lineas,
         },
+        operation_id=operation_id,
     )
     return {
         "registrada": True,
@@ -1645,8 +1681,12 @@ def record_purchase(
         "iva": compra.get("iva"),
         "total": compra.get("total"),
         "items": lineas,
-        "nota": "Stock actualizado y deuda con el proveedor incrementada. El pago se registra "
-                "aparte.",
+        "estado": compra.get("estado"),
+        "nota": (
+            "Compra confirmada: stock y deuda actualizados; el pago se registra aparte."
+            if compra.get("estado") == "confirmada"
+            else "Borrador guardado: todavía no modifica stock ni deuda."
+        ),
     }
 
 
@@ -2211,21 +2251,7 @@ def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
     cuit = ficha.get("cuit")
     limite = max(1, int(limite or 10))
 
-    pagos = cli.get("/api/pagos/", proveedor=cuit) or []
-
-    try:
-        compras = [
-            c for c in (cli.get("/api/admin/movimientos/compra") or [])
-            if c.get("proveedor") == cuit
-        ]
-    except ALdiaError:
-        compras = []
-
-    # /api/gastos/ no filtra por proveedor: se filtra aca.
-    try:
-        gastos = [g for g in (cli.get("/api/gastos/") or []) if g.get("proveedor") == cuit]
-    except ALdiaError:
-        gastos = []
+    mayor = cli.get(f"/api/proveedores/{cuit}/cuenta-corriente", page_size=limite) or {}
 
     saldo = float(ficha.get("saldo") or 0)
     return {
@@ -2234,35 +2260,8 @@ def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
         "telefono": ficha.get("telefono"),
         "saldo_a_pagar": saldo,
         "estado": "AL DIA" if saldo <= 0 else "CON DEUDA",
-        "compras_recientes": [
-            {
-                "compra_id": c.get("id"),
-                "fecha": c.get("fecha"),
-                "subtotal": c.get("subtotal"),
-                "iva": c.get("iva"),
-                "total": c.get("total"),
-            }
-            for c in compras[:limite]
-        ],
-        "gastos_recientes": [
-            {
-                "gasto_id": g.get("id"),
-                "fecha": g.get("fecha"),
-                "numero_factura": g.get("numfactura"),
-                "total": g.get("total"),
-            }
-            for g in gastos[:limite]
-        ],
-        "pagos_recientes": [
-            {
-                "orden": p.get("ordpago"),
-                "fecha": p.get("fecha"),
-                "monto": p.get("monto"),
-                "tipo": p.get("tipo"),
-                "referencia": p.get("referencia"),
-            }
-            for p in pagos[:limite]
-        ],
+        "moneda": mayor.get("moneda"),
+        "movimientos_recientes": mayor.get("movimientos", []),
     }
 
 
@@ -2279,12 +2278,10 @@ def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
 )
 def list_purchases(proveedor: str | None = None, limite: int = 20) -> dict[str, Any]:
     cli = api()
-    compras = cli.get("/api/admin/movimientos/compra") or []
     cuit = None
     if proveedor:
         cuit = cli.resolver_proveedor(proveedor).get("cuit")
-        compras = [c for c in compras if c.get("proveedor") == cuit]
-    compras = compras[: max(1, int(limite or 20))]
+    compras = cli.get("/api/compras/", proveedor=cuit, limite=max(1, int(limite or 20))) or []
     return {
         "cantidad": len(compras),
         "proveedor_filtrado": cuit,
@@ -2315,26 +2312,30 @@ def list_purchases(proveedor: str | None = None, limite: int = 20) -> dict[str, 
         "No mueve la caja: si el proveedor devuelve plata, eso se carga aparte.\n\n"
         "Parametros:\n"
         "- proveedor: CUIT o nombre.\n"
-        "- items: lista de {codigo, cantidad} y opcionalmente {precio}. Si no se indica "
+        "- factura_id: factura confirmada que origino la mercaderia.\n"
+        "- items: lista de {compra_id, codigo, cantidad} y opcionalmente {precio}. "
+        "compra_id es el renglon que devuelve get_purchase. Si no se indica "
         "precio se usa el precio de compra actual del articulo; si la mercaderia se compro "
         "a otro precio, indiquelo, porque el proveedor acredita lo que facturo.\n"
         "- fecha: YYYY-MM-DD, por defecto hoy.\n"
-        "- motivo: texto libre (por que se devuelve).\n"
-        "- permitir_stock_negativo: por defecto false; si se quiere devolver mas de lo que "
-        "hay en el deposito la operacion se rechaza informando el stock real."
+        "- motivo: texto libre (por que se devuelve). La API rechaza cantidades superiores "
+        "a lo comprado o al stock disponible."
     ),
 )
 def record_vendor_return(
     proveedor: str,
     items: list[dict[str, Any]],
+    factura_id: int,
     fecha: str | None = None,
     motivo: str = "",
-    permitir_stock_negativo: bool = False,
+    confirmar: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
     if not items:
         raise ALdiaError("La devolucion no tiene items: indique al menos un articulo.")
     ficha = cli.resolver_proveedor(proveedor)
+    _exigir_confirmacion_financiera(confirmar, f"Registrar devolución física a {ficha.get('nombre')}")
     dia = _fecha(fecha)
 
     lineas: list[dict[str, Any]] = []
@@ -2345,15 +2346,8 @@ def record_vendor_return(
         cantidad = float(it.get("cantidad") or 0)
         if cantidad <= 0:
             raise ALdiaError(f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0.")
-        disponible = float(art.get("cantidad") or 0)
-        if cantidad > disponible and not permitir_stock_negativo:
-            raise ALdiaError(
-                f"No hay tanta mercaderia para devolver de '{art.get('producto')}' "
-                f"(codigo {art.get('codigo')}): se quieren devolver {cantidad} y hay "
-                f"{disponible}. Revise la cantidad, o repita con "
-                "permitir_stock_negativo=true si el usuario confirma que la mercaderia ya "
-                "salio del deposito."
-            )
+        if "compra_id" not in it:
+            raise ALdiaError(f"Falta 'compra_id' (renglón de origen) en el item {it}.")
         precio = (
             float(it["precio"]) if it.get("precio") is not None
             else float(art.get("precom") or 0)
@@ -2363,11 +2357,14 @@ def record_vendor_return(
             "producto": art.get("producto") or "",
             "cantidad": cantidad,
             "precio": precio,
+            "compra_id": int(it["compra_id"]),
         })
 
     devolucion = cli.post(
         "/api/devoluciones/",
-        {"proveedor_cuit": ficha.get("cuit"), "fecha": dia, "items": lineas},
+        {"proveedor_cuit": ficha.get("cuit"), "factura_id": int(factura_id),
+         "fecha": dia, "items": lineas},
+        operation_id=operation_id,
     )
     saldo_ahora = float(cli.resolver_proveedor(ficha.get("cuit")).get("saldo") or 0)
 
@@ -2407,25 +2404,139 @@ def record_vendor_return(
 )
 def void_purchase(compra_id: int, confirmar: bool = False) -> dict[str, Any]:
     cli = api()
-    compras = cli.get("/api/admin/movimientos/compra") or []
-    ficha = next((c for c in compras if int(c.get("id") or 0) == int(compra_id)), None)
-    if not ficha:
-        raise ALdiaError(
-            f"No existe la compra {compra_id}. Liste las compras registradas para ver los "
-            "ids disponibles."
-        )
+    ficha = cli.get(f"/api/compras/{int(compra_id)}")
     _exigir_confirmacion(
         confirmar,
         f"Anular la compra {compra_id} (proveedor {ficha.get('proveedor')}, fecha "
         f"{ficha.get('fecha')}, total {ficha.get('total')})",
     )
-    cli.delete(f"/api/admin/movimientos/compra/{int(compra_id)}")
+    resultado = cli.post(f"/api/compras/{int(compra_id)}/anular")
     return {
         "anulada": True,
         "compra": ficha,
-        "nota": "Stock descontado y saldo del proveedor revertido. El precio de compra del "
-                "articulo quedo como estaba tras la compra: reviselo si hace falta.",
+        "estado": resultado.get("estado"),
+        "nota": "La compra quedó anulada con reversas auditables.",
     }
+
+
+@servidor.tool(title="Ver detalle de una compra", annotations=SOLO_LECTURA)
+def get_purchase(compra_id: int) -> dict[str, Any]:
+    """Devuelve cabecera, estado y renglones con sus compra_id de origen."""
+    return api().get(f"/api/compras/{int(compra_id)}")
+
+
+@servidor.tool(title="Confirmar borrador de compra", annotations=ESCRITURA)
+def confirm_purchase(
+    compra_id: int,
+    confirmar: bool = False,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    """[OPERACION DE DINERO] Confirma un borrador; recién entonces mueve stock y deuda."""
+    ficha = api().get(f"/api/compras/{int(compra_id)}")
+    _exigir_confirmacion_financiera(
+        confirmar, f"Confirmar compra {compra_id} por {ficha.get('total')}"
+    )
+    return api().post(
+        f"/api/compras/{int(compra_id)}/confirmar", operation_id=operation_id
+    )
+
+
+@servidor.tool(title="Registrar nota de crédito financiera de proveedor", annotations=ESCRITURA)
+def record_vendor_credit_note(
+    proveedor: str,
+    monto: float,
+    fecha: str | None = None,
+    referencia: str = "",
+    descripcion: str = "Nota de crédito financiera",
+    confirmar: bool = False,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    """[OPERACION DE DINERO] Reduce deuda sin mover mercadería."""
+    ficha = api().resolver_proveedor(proveedor)
+    if float(monto) <= 0:
+        raise ALdiaError("El monto debe ser mayor a cero.")
+    _exigir_confirmacion_financiera(confirmar, f"Acreditar {monto} de {ficha.get('nombre')}")
+    return api().post(
+        "/api/compras/notas-credito-financieras",
+        {"proveedor": ficha.get("cuit"), "fecha": _fecha(fecha), "monto": float(monto),
+         "referencia": referencia, "descripcion": descripcion},
+        operation_id=operation_id,
+    )
+
+
+@servidor.tool(title="Listar cuentas corrientes de proveedores", annotations=SOLO_LECTURA)
+def list_vendor_accounts(
+    texto: str | None = None, solo_pendientes: bool = False,
+    pagina: int = 1, por_pagina: int = 50,
+) -> dict[str, Any]:
+    return api().get(
+        "/api/proveedores/cuentas-corrientes", search=texto,
+        solo_pendientes=solo_pendientes, page=pagina, page_size=por_pagina,
+    )
+
+
+# Tesorería multicuenta. Estas tools usan exclusivamente /api/tesoreria.
+@servidor.tool(title="Listar cuentas de tesorería", annotations=SOLO_LECTURA)
+def list_treasury_accounts(solo_activas: bool = True) -> dict[str, Any]:
+    return {"cuentas": api().get("/api/tesoreria/cuentas", solo_activas=solo_activas) or []}
+
+
+@servidor.tool(title="Ver saldos por cuenta de tesorería", annotations=SOLO_LECTURA)
+def get_treasury_balances() -> dict[str, Any]:
+    return {"saldos": api().get("/api/tesoreria/saldos") or []}
+
+
+@servidor.tool(title="Ver movimientos de tesorería", annotations=SOLO_LECTURA)
+def list_treasury_movements(cuenta_id: int | None = None) -> dict[str, Any]:
+    return {"movimientos": api().get("/api/tesoreria/movimientos", cuenta_id=cuenta_id) or []}
+
+
+@servidor.tool(title="Listar cheques recibidos", annotations=SOLO_LECTURA)
+def list_received_checks(solo_disponibles: bool = True) -> dict[str, Any]:
+    return {"cheques": api().get("/api/tesoreria/cheques", disponibles=solo_disponibles) or []}
+
+
+@servidor.tool(title="Crear cuenta de tesorería", annotations=ESCRITURA)
+def create_treasury_account(
+    nombre: str, clase: str, banco: str = "", alias_cbu: str = "", moneda: str = "ARS"
+) -> dict[str, Any]:
+    return api().post(
+        "/api/tesoreria/cuentas",
+        {"nombre": nombre, "clase": clase, "banco": banco,
+         "alias_cbu": alias_cbu, "moneda": moneda},
+    )
+
+
+def _operar_cheque(
+    accion: str, cheque_id: int, cuenta_tesoreria_id: int, fecha: str | None,
+    referencia: str, confirmar: bool, operation_id: str | None,
+) -> dict[str, Any]:
+    _exigir_confirmacion_financiera(confirmar, f"{accion} cheque {cheque_id}")
+    return api().post(
+        f"/api/tesoreria/cheques/{int(cheque_id)}/{accion}",
+        {"cuenta_tesoreria_id": int(cuenta_tesoreria_id), "fecha": _fecha(fecha),
+         "referencia": referencia}, operation_id=operation_id,
+    )
+
+
+@servidor.tool(title="Depositar cheque recibido", annotations=ESCRITURA)
+def deposit_received_check(
+    cheque_id: int, cuenta_tesoreria_id: int, fecha: str | None = None,
+    referencia: str = "", confirmar: bool = False, operation_id: str | None = None,
+) -> dict[str, Any]:
+    """[OPERACION DE DINERO] Deposita un cheque disponible en una cuenta bancaria."""
+    return _operar_cheque("depositar", cheque_id, cuenta_tesoreria_id, fecha,
+                          referencia, confirmar, operation_id)
+
+
+@servidor.tool(title="Marcar cheque propio debitado", annotations=ESCRITURA)
+def mark_own_check_debited(
+    cheque_id: int, cuenta_tesoreria_id: int, fecha: str | None = None,
+    referencia: str = "", confirmar: bool = False, operation_id: str | None = None,
+) -> dict[str, Any]:
+    """[OPERACION DE DINERO] Concilia el débito bancario de un cheque propio."""
+    return _operar_cheque("marcar-debitado", cheque_id, cuenta_tesoreria_id, fecha,
+                          referencia, confirmar, operation_id)
 
 
 # ═════════════════════════════════════════════════════════════
