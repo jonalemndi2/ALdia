@@ -601,6 +601,10 @@ class CompraItem(BaseModel):
     precio: DineroEntrada = 0
 
 
+class DevolucionItem(CompraItem):
+    compra_id: int
+
+
 class CompraCreate(BaseModel):
     # Payload que envia proveedores.js (guardarCompra).
     proveedor: Optional[str] = None
@@ -608,6 +612,30 @@ class CompraCreate(BaseModel):
     fecha: str
     num_factura: str = ""
     items: List[CompraItem] = []
+    estado: str = "confirmada"
+
+    @model_validator(mode="after")
+    def _normalizar(self):
+        if not self.proveedor:
+            self.proveedor = self.proveedor_cuit
+        if not self.proveedor:
+            raise ValueError("Se requiere 'proveedor' (o 'proveedor_cuit')")
+        if self.estado not in {"borrador", "confirmada"}:
+            raise ValueError("estado debe ser borrador o confirmada")
+        if not self.items:
+            raise ValueError("La compra debe tener al menos un renglón")
+        if any(i.cantidad <= 0 or i.precio < 0 for i in self.items):
+            raise ValueError("Cantidad debe ser positiva y precio no negativo")
+        return self
+
+
+class DevolucionCreate(BaseModel):
+    # Payload que envia proveedores.js (guardarDevolucion).
+    proveedor: Optional[str] = None
+    proveedor_cuit: Optional[str] = None
+    fecha: str
+    items: List[DevolucionItem] = []
+    factura_id: Optional[int] = None
 
     @model_validator(mode="after")
     def _normalizar(self):
@@ -618,19 +646,17 @@ class CompraCreate(BaseModel):
         return self
 
 
-class DevolucionCreate(BaseModel):
-    # Payload que envia proveedores.js (guardarDevolucion).
-    proveedor: Optional[str] = None
-    proveedor_cuit: Optional[str] = None
+class NotaCreditoProveedorCreate(BaseModel):
+    proveedor: str
     fecha: str
-    items: List[CompraItem] = []
+    monto: DineroEntrada
+    referencia: str = ""
+    descripcion: str = "Nota de crédito financiera"
 
     @model_validator(mode="after")
-    def _normalizar(self):
-        if not self.proveedor:
-            self.proveedor = self.proveedor_cuit
-        if not self.proveedor:
-            raise ValueError("Se requiere 'proveedor' (o 'proveedor_cuit')")
+    def _monto_positivo(self):
+        if self.monto <= 0:
+            raise ValueError("El monto debe ser positivo")
         return self
 
 
@@ -647,6 +673,16 @@ class CobroCreate(BaseModel):
     # Si el cobro se hace con un cheque de tercero ya existente en la chequera,
     # su id: se marca como usado para que no se pueda endosar dos veces.
     cheque_id: Optional[int] = None
+    cuenta_tesoreria_id: Optional[int] = None
+
+    @field_validator("fecha", "vencimiento")
+    @classmethod
+    def _fechas(cls, v):
+        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError("La fecha debe tener formato YYYY-MM-DD")
+        if v:
+            datetime.strptime(v, "%Y-%m-%d")
+        return v
 
 class CobroResponse(BaseModel):
     ordcobro: int
@@ -673,6 +709,16 @@ class PagoCreate(BaseModel):
     # Si se paga endosando un cheque de tercero ya existente en la chequera,
     # su id: se marca como usado para que no se pueda endosar dos veces.
     cheque_id: Optional[int] = None
+    cuenta_tesoreria_id: Optional[int] = None
+
+    @field_validator("fecha", "vencimiento")
+    @classmethod
+    def _fechas(cls, v):
+        if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError("La fecha debe tener formato YYYY-MM-DD")
+        if v:
+            datetime.strptime(v, "%Y-%m-%d")
+        return v
 
 class PagoResponse(BaseModel):
     ordpago: int

@@ -33,6 +33,16 @@ COLUMNAS_NUEVAS = {
         ("stock_proveedor", "FLOAT DEFAULT 0"),
         ("fuente_actualizada_en", "TIMESTAMP"),
     ],
+    "factprov": [
+        ("num_factura", "VARCHAR(80) DEFAULT ''"),
+        ("estado", "VARCHAR(20) NOT NULL DEFAULT 'confirmada'"),
+        ("operation_id", "VARCHAR(100)"),
+        ("payload_fingerprint", "VARCHAR(64)"),
+        ("anulada_en", "TIMESTAMP"),
+    ],
+    "compras": [
+        ("iva_alicuota", "FLOAT DEFAULT 0"),
+    ],
     "usuarios": [
         # Una instalacion que ya venia funcionando puede tener el admin con la
         # contrasena de fabrica, que esta publicada en el README. Se marca en 1
@@ -57,6 +67,18 @@ COLUMNAS_NUEVAS = {
         # tratando, y reinterpretar asientos viejos cambiaria cierres de caja
         # que el comercio ya dio por buenos.
         ("cuenta", "VARCHAR(20) NOT NULL DEFAULT 'efectivo'"),
+    ],
+    "cobros": [
+        ("cuenta_tesoreria_id", "INTEGER REFERENCES cuentas_tesoreria(id)"),
+    ],
+    "pagos": [
+        ("cuenta_tesoreria_id", "INTEGER REFERENCES cuentas_tesoreria(id)"),
+    ],
+    "chequera": [
+        ("cuenta_tesoreria_id", "INTEGER REFERENCES cuentas_tesoreria(id)"),
+    ],
+    "movimientos_tesoreria": [
+        ("reversa_de", "INTEGER REFERENCES movimientos_tesoreria(id)"),
     ],
     "ncp": [
         # Importe de la nota de credito (devolucion a proveedor), en centavos.
@@ -246,11 +268,129 @@ def aplicar_migraciones(engine) -> list:
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_sku_proveedor "
                 "ON stockmercaderia(sku_proveedor) WHERE sku_proveedor IS NOT NULL"
             ))
+    if "factprov" in tablas:
+        with engine.begin() as conexion:
+            # Una base histórica puede contener números repetidos. Crear el
+            # índice directamente abortaría el arranque. Se conserva evidencia
+            # y se normalizan sólo los duplicados posteriores, de forma estable.
+            conexion.execute(text(
+                "CREATE TABLE IF NOT EXISTS conflictos_factprov_legacy ("
+                "factprov_id INTEGER PRIMARY KEY, proveedor VARCHAR(20) NOT NULL, "
+                "num_factura_original VARCHAR(80) NOT NULL, num_factura_normalizado VARCHAR(80) NOT NULL, "
+                "detectado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            ))
+            duplicados = conexion.execute(text(
+                "SELECT id, proveedor, num_factura FROM factprov f WHERE num_factura <> '' "
+                "AND EXISTS (SELECT 1 FROM factprov anterior WHERE anterior.proveedor=f.proveedor "
+                "AND anterior.num_factura=f.num_factura AND anterior.id < f.id) ORDER BY id"
+            )).fetchall()
+            for fila in duplicados:
+                # El candidato también puede existir en una importación vieja.
+                # Se busca un namespace libre de forma determinista; no se usa
+                # azar ni timestamp para que un reinicio produzca lo mismo.
+                intento = 1
+                while True:
+                    sufijo = f"#{fila.id}" if intento == 1 else f"#{fila.id}-{intento}"
+                    normalizado = f"{fila.num_factura} [DUPLICADO LEGACY {sufijo}]"
+                    ocupado = conexion.execute(text(
+                        "SELECT 1 FROM factprov WHERE proveedor=:p AND num_factura=:n AND id<>:id LIMIT 1"
+                    ), {"p": fila.proveedor, "n": normalizado, "id": fila.id}).first()
+                    if not ocupado:
+                        break
+                    intento += 1
+                conexion.execute(text(
+                    "INSERT OR IGNORE INTO conflictos_factprov_legacy "
+                    "(factprov_id,proveedor,num_factura_original,num_factura_normalizado) "
+                    "VALUES (:id,:p,:o,:n)"
+                ), {"id": fila.id, "p": fila.proveedor, "o": fila.num_factura, "n": normalizado})
+                conexion.execute(text(
+                    "UPDATE factprov SET num_factura=:n WHERE id=:id AND num_factura=:o"
+                ), {"n": normalizado, "id": fila.id, "o": fila.num_factura})
+            # La primera versión del índice excluía anuladas. Se reemplaza con
+            # la identidad durable, sin depender de estado.
+            conexion.execute(text("DROP INDEX IF EXISTS ux_factprov_proveedor_numero"))
+            conexion.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_factprov_operation_id "
+                "ON factprov(operation_id) WHERE operation_id IS NOT NULL"
+            ))
+            conexion.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_factprov_proveedor_numero "
+                "ON factprov(proveedor,num_factura) WHERE num_factura <> ''"
+            ))
+        if duplicados:
+            marca = f"factprov_duplicados_normalizados:{len(duplicados)}"
+            aplicadas.append(marca)
+            print(f"[migraciones] {marca}; ver conflictos_factprov_legacy")
+
+    # El mayor de proveedores filtra siempre por proveedor y fecha. Estos
+    # índices no cambian datos y evitan recorrer todas las compras/pagos.
+    with engine.begin() as conexion:
+        for tabla, columna in (("factprov", "proveedor"), ("gastosfacturas", "proveedor"),
+                               ("pagos", "proveedor"), ("ncp", "proveedor")):
+            if tabla in tablas:
+                conexion.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{tabla}_proveedor_fecha "
+                    f"ON {tabla}({columna}, fecha)"
+                ))
 
     # Los importes pasan de pesos (Float) a centavos (Integer). Se hace una sola
     # vez por base y queda registrado.
     aplicadas.extend(convertir_dinero_a_centavos(engine))
+    aplicadas.extend(_backfill_tesoreria_legacy(engine))
     return aplicadas
+
+
+def _backfill_tesoreria_legacy(engine) -> list:
+    """Migra el libro `caja` sin inventar bancos ni reinterpretar cierres.
+
+    `efectivo` se asigna a Caja chica legacy y `banco` a Banco legacy. El banco
+    real es desconocido y queda explícito así para conciliación posterior.
+    Cada caja histórica genera una sola fila idempotente por el índice de origen.
+    """
+    inspector = inspect(engine)
+    necesarias = {"cuentas_tesoreria", "movimientos_tesoreria", "caja"}
+    if not necesarias.issubset(set(inspector.get_table_names())):
+        return []
+    with engine.begin() as c:
+        # El corte se captura UNA sola vez. Todo asiento de Caja posterior es
+        # operación nueva y ya tiene su MovimientoTesoreria por dual-write: un
+        # reinicio nunca debe volver a presentarlo como histórico legacy.
+        c.execute(text(
+            "CREATE TABLE IF NOT EXISTS tesoreria_migracion_legacy ("
+            "version INTEGER PRIMARY KEY, caja_id_corte INTEGER NOT NULL, "
+            "aplicada_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        c.execute(text(
+            "INSERT OR IGNORE INTO tesoreria_migracion_legacy(version,caja_id_corte) "
+            "SELECT 1, COALESCE(MAX(id),0) FROM caja"
+        ))
+        c.execute(text(
+            "INSERT OR IGNORE INTO cuentas_tesoreria(nombre,clase,banco,alias_cbu,moneda,activa) "
+            "VALUES ('Caja chica legacy','caja_chica','','','ARS',1)"
+        ))
+        c.execute(text(
+            "INSERT OR IGNORE INTO cuentas_tesoreria(nombre,clase,banco,alias_cbu,moneda,activa) "
+            "VALUES ('Banco legacy','banco','Banco no identificado (legacy)','','ARS',1)"
+        ))
+        c.execute(text(
+            "INSERT OR IGNORE INTO movimientos_tesoreria "
+            "(cuenta_id,fecha,sentido,monto,origen_tipo,origen_id,referencia,descripcion,estado) "
+            "SELECT ct.id, ca.fecha, CASE WHEN ca.debe>0 THEN 'ingreso' ELSE 'egreso' END, "
+            "CASE WHEN ca.debe>0 THEN ca.debe ELSE ca.haber END, 'caja_legacy', ca.id, "
+            "ca.referencia, ca.descripcion, 'origen_legacy' FROM caja ca JOIN cuentas_tesoreria ct "
+            "ON ct.nombre=CASE WHEN ca.cuenta='banco' THEN 'Banco legacy' ELSE 'Caja chica legacy' END "
+            "WHERE ca.id <= (SELECT caja_id_corte FROM tesoreria_migracion_legacy WHERE version=1) "
+            "AND (ca.debe>0 OR ca.haber>0) "
+            # Defensa para instalaciones que alcanzaron a ejecutar la versión
+            # anterior sin corte: si COBRO/PAGO ya existe en el subledger, no
+            # se lo duplica como caja_legacy.
+            "AND NOT EXISTS (SELECT 1 FROM movimientos_tesoreria mt WHERE "
+            "(ca.referencia LIKE 'COBRO %' AND mt.origen_tipo='cobro' "
+            " AND mt.origen_id=CAST(SUBSTR(ca.referencia,7) AS INTEGER)) OR "
+            "(ca.referencia LIKE 'PAGO %' AND mt.origen_tipo='pago' "
+            " AND mt.origen_id=CAST(SUBSTR(ca.referencia,6) AS INTEGER)))"
+        ))
+    return ["tesoreria_legacy_backfill"]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

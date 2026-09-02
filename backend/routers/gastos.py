@@ -8,7 +8,7 @@ from typing import List
 import saldos
 from database import get_db
 from dinero import a_pesos
-from models import GastoFactura, CompraGasto, Proveedor, Caja
+from models import GastoFactura, CompraGasto, Proveedor
 from schemas import GastoCreate, GastoResponse
 from secuencias import siguiente_numero
 
@@ -59,14 +59,9 @@ def create_gasto(gasto_data: GastoCreate, db: Session = Depends(get_db)):
     #    SIEMPRE por backend/saldos.py (centavos enteros).
     saldos.aplicar_a_proveedor(db, proveedor.cuit, +(gasto_data.total or 0))
 
-    # 3) Egreso de caja, atomico con el gasto.
-    db.add(Caja(
-        referencia=f"GASTO {new_id}",
-        fecha=gasto_data.fecha,
-        debe=0,
-        haber=gasto_data.total or 0,
-        descripcion=f"Gasto {gasto_data.numfactura or ''} - {proveedor.nombre or proveedor.cuit}".strip(),
-    ))
+    # El comprobante DEVENGA deuda. El dinero sale recien al registrar el pago
+    # al proveedor, indicando caja/banco/cheque. Mezclar ambos hechos duplicaba
+    # egresos cuando luego se cargaba la orden de pago.
 
     db.commit()
     db.refresh(new_gasto)
@@ -101,10 +96,6 @@ def delete_gasto(gasto_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
     saldos.aplicar_a_proveedor(db, gasto.proveedor, -(gasto.total or 0))
-
-    mov = db.query(Caja).filter(Caja.referencia == f"GASTO {gasto_id}").first()
-    if mov:
-        db.delete(mov)
 
     # Delete associated conceptos first
     db.query(CompraGasto).filter(CompraGasto.gastos_id == gasto_id).delete()

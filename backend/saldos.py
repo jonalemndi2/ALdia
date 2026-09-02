@@ -93,7 +93,9 @@ def recalcular_cliente(db: Session, cuit: str) -> int:
 
 def recalcular_proveedor(db: Session, cuit: str) -> int:
     """Saldo del proveedor segun sus movimientos. En centavos."""
-    comprado = _suma(db, FacturaProveedor.total, FacturaProveedor.proveedor == cuit)
+    comprado = _suma(db, FacturaProveedor.total,
+                     (FacturaProveedor.proveedor == cuit) &
+                     (FacturaProveedor.estado == "confirmada"))
     gastado = _suma(db, GastoFactura.total, GastoFactura.proveedor == cuit)
     pagado = _suma(db, Pago.monto, Pago.proveedor == cuit)
     devuelto = _suma(db, NCP.monto, NCP.proveedor == cuit)
@@ -173,6 +175,7 @@ def _diferencias_proveedores(db: Session) -> list[dict]:
     """Un renglon por proveedor cuyo saldo guardado no coincide con el calculado."""
     comprado = dict(
         db.query(FacturaProveedor.proveedor, func.coalesce(func.sum(FacturaProveedor.total), 0))
+        .filter(FacturaProveedor.estado == "confirmada")
         .group_by(FacturaProveedor.proveedor).all()
     )
     gastado = dict(

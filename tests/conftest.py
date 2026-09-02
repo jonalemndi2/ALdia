@@ -105,6 +105,22 @@ def admin(app_cliente, token_admin):
     return app_cliente
 
 
+@pytest.fixture(scope="session")
+def tesoreria_caja(admin):
+    r = admin.post("/api/tesoreria/cuentas", json={"nombre": "Caja pruebas", "clase": "caja_chica"})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+@pytest.fixture(scope="session")
+def tesoreria_banco(admin):
+    r = admin.post("/api/tesoreria/cuentas", json={
+        "nombre": "Banco pruebas", "clase": "banco", "banco": "Banco Test",
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
 def cuit_valido(prefijo: str, semilla) -> str:
     """Genera un CUIT con digito verificador correcto (modulo 11).
 

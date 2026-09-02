@@ -20,7 +20,7 @@ from migraciones import (aplicar_migraciones, aplicar_claves_foraneas,
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
     cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip,
-    pendientes,
+    pendientes, tesoreria,
 )
 from routers.auth import current_user_dep
 from security import require_modulo
@@ -286,6 +286,10 @@ app.include_router(
 )
 app.include_router(
     caja.router, prefix="/api/caja", tags=["Caja"],
+    dependencies=[Depends(require_modulo("caja"))],
+)
+app.include_router(
+    tesoreria.router, prefix="/api/tesoreria", tags=["Tesorería"],
     dependencies=[Depends(require_modulo("caja"))],
 )
 app.include_router(

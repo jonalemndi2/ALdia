@@ -51,9 +51,18 @@ const Cobros = {
                                 <label class="form-label-sm">Forma de Pago</label>
                                 <select class="form-select form-select-sm" id="cobroTipo">
                                     <option value="efectivo">Efectivo</option>
+                                    <option value="transferencia">Transferencia</option>
                                     <option value="cheque">Cheque</option>
                                 </select>
                             </div>
+                        </div>
+                        <div id="cobroCuentaDiv" class="mt-2">
+                            <label class="form-label-sm" id="cobroCuentaLabel">Caja chica destino</label>
+                            <select class="form-select form-select-sm" id="cobroCuenta"></select>
+                        </div>
+                        <div id="cobroTransferenciaDiv" class="mt-2 d-none">
+                            <label class="form-label-sm">Referencia de transferencia</label>
+                            <input class="form-control form-control-sm" id="cobroReferencia">
                         </div>
                         <div id="cobroChequeDiv" class="mt-2 d-none">
                             <div class="row">
@@ -95,10 +104,25 @@ const Cobros = {
         const tipoEl = document.getElementById('cobroTipo');
         if (tipoEl) {
             tipoEl.addEventListener('change', (e) => {
-                const div = document.getElementById('cobroChequeDiv');
-                if (div) div.classList.toggle('d-none', e.target.value !== 'cheque');
+                const val = e.target.value;
+                document.getElementById('cobroChequeDiv').classList.toggle('d-none', val !== 'cheque');
+                document.getElementById('cobroCuentaDiv').classList.toggle('d-none', val === 'cheque');
+                document.getElementById('cobroTransferenciaDiv').classList.toggle('d-none', val !== 'transferencia');
+                this._cargarCuentas(val);
             });
         }
+        this._cargarCuentas('efectivo');
+    },
+
+    async _cargarCuentas(tipo) {
+        const sel = document.getElementById('cobroCuenta');
+        if (!sel || tipo === 'cheque') return;
+        const clase = tipo === 'efectivo' ? 'caja_chica' : 'banco';
+        const cuentas = (await API.tesoreria.cuentas()).filter(c => c.clase === clase);
+        sel.innerHTML = '<option value="">-- Seleccione --</option>' + cuentas.map(c =>
+            `<option value="${c.id}">${Utils.escapeHtml(c.nombre)}${c.banco ? ' - ' + Utils.escapeHtml(c.banco) : ''}</option>`
+        ).join('');
+        document.getElementById('cobroCuentaLabel').textContent = clase === 'banco' ? 'Banco destino' : 'Caja chica destino';
     },
 
     /** Refrescar el saldo mostrado leyéndolo de la API (fuente de verdad). */
@@ -168,6 +192,8 @@ const Cobros = {
         const tipo = document.getElementById('cobroTipo').value;
         const fecha = Utils.today();
         let referencia = '';
+        let banco = '', vencimiento = '';
+        let cuenta_tesoreria_id = null;
 
         if (tipo === 'cheque') {
             referencia = (document.getElementById('cobroNumCheque').value || '').trim();
@@ -176,16 +202,12 @@ const Cobros = {
                 Utils.flagInvalid('cobroNumCheque');
                 return;
             }
-            const banco = (document.getElementById('cobroBanco').value || '').trim();
-            const venc = document.getElementById('cobroVenc').value;
-            if (banco || venc) {
-                // No inventamos un endpoint: avisamos en vez de simular que se guardó.
-                console.warn(
-                    'Cobros: el endpoint POST /api/cobros/ no acepta banco ni vencimiento del cheque. ' +
-                    `Se registrará el cheque N° ${referencia} en la chequera sin banco ("${banco}") ` +
-                    `y con el vencimiento igual a la fecha del cobro (se ignora "${venc}").`
-                );
-            }
+            banco = (document.getElementById('cobroBanco').value || '').trim();
+            vencimiento = document.getElementById('cobroVenc').value;
+        } else {
+            cuenta_tesoreria_id = parseInt(document.getElementById('cobroCuenta').value) || null;
+            if (!cuenta_tesoreria_id) { Utils.toast('Seleccione la cuenta destino', 'Error', 'error'); return; }
+            if (tipo === 'transferencia') referencia = (document.getElementById('cobroReferencia').value || '').trim();
         }
 
         const btn = document.querySelector('[data-action="Cobros.registrarCobro"]');
@@ -193,7 +215,7 @@ const Cobros = {
 
         let cobro;
         try {
-            cobro = await API.cobros.create({ cliente: cuit, monto, fecha, tipo, referencia });
+            cobro = await API.cobros.create({ cliente: cuit, monto, fecha, tipo, referencia, banco, vencimiento, cuenta_tesoreria_id });
         } catch (err) {
             console.error('Error al registrar el cobro:', err);
             Utils.toast('No se pudo registrar el cobro: ' + err.message, 'Error', 'error');

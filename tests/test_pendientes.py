@@ -39,12 +39,12 @@ def _crear_pendiente(admin, cuerpo, **extra):
 
 
 class TestFlujoCompleto:
-    def test_se_guarda_y_se_confirma(self, admin, cliente):
+    def test_se_guarda_y_se_confirma(self, admin, cliente, tesoreria_caja):
         """El caso que motiva todo: elegir un dato y ejecutar lo ya descripto."""
         # El agente deja la operación trabada, SIN el cliente resuelto.
         r = _crear_pendiente(
             admin,
-            cuerpo={"cliente": "", "monto": 500, "fecha": "2026-08-19", "tipo": "efectivo"},
+            cuerpo={"cliente": "", "monto": 500, "fecha": "2026-08-19", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
             ruta="/api/cobros/",
         )
         assert r.status_code == 200, r.text
@@ -64,12 +64,12 @@ class TestFlujoCompleto:
         # Y la operación ocurrió de verdad.
         assert _saldo(admin, cliente) == antes - 500
 
-    def test_las_correcciones_no_pisan_el_resto(self, admin, cliente):
+    def test_las_correcciones_no_pisan_el_resto(self, admin, cliente, tesoreria_caja):
         """Corregir un campo no debe alterar los demás: ese es el punto."""
         r = _crear_pendiente(
             admin,
             cuerpo={"cliente": "", "monto": 1234.56, "fecha": "2026-08-19",
-                    "tipo": "efectivo", "referencia": "REC-001"},
+                    "tipo": "efectivo", "referencia": "REC-001", "cuenta_tesoreria_id": tesoreria_caja},
             ruta="/api/cobros/",
         )
         pid = r.json()["id"]
@@ -90,11 +90,11 @@ class TestFlujoCompleto:
 
 
 class TestNoSeEjecutaDosVeces:
-    def test_confirmar_dos_veces_se_rechaza(self, admin, cliente):
+    def test_confirmar_dos_veces_se_rechaza(self, admin, cliente, tesoreria_caja):
         r = _crear_pendiente(
             admin,
             cuerpo={"cliente": cliente, "monto": 100, "fecha": "2026-08-19",
-                    "tipo": "efectivo"},
+                    "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
             ruta="/api/cobros/",
         )
         pid = r.json()["id"]

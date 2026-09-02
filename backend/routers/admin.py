@@ -392,13 +392,10 @@ def eliminar_movimiento(
         saldos.aplicar_a_cliente(db, registro.cliente, -(registro.total or 0))
 
     elif tipo == "compra":
-        # Descontar del stock lo ingresado y revertir el saldo del proveedor.
-        for compra in db.query(Compra).filter(Compra.factprov_id == mov_id).all():
-            item = db.query(StockMercaderia).filter(StockMercaderia.codigo == compra.codigo).first()
-            if item:
-                item.cantidad = (item.cantidad or 0) - (compra.cantidad or 0)
-            db.delete(compra)
-        saldos.aplicar_a_proveedor(db, registro.proveedor, -(registro.total or 0))
+        # Las compras tienen libro físico: borrarlas destruiría la trazabilidad.
+        # La reversa se realiza en el endpoint específico, que además comprueba
+        # que la mercadería siga disponible.
+        raise HTTPException(status_code=409, detail=f"Use POST /api/compras/{mov_id}/anular")
 
     elif tipo == "cobro":
         # Anular un cobro devuelve la deuda al cliente (misma regla que

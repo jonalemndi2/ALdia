@@ -380,6 +380,11 @@ class FacturaProveedor(Base):
     subtotal = Column(Integer, default=0)  # centavos
     iva = Column(Integer, default=0)  # centavos. IMPORTE de IVA
     total = Column(Integer, default=0)  # centavos
+    num_factura = Column(String(80), default="")
+    estado = Column(String(20), nullable=False, default="confirmada")
+    operation_id = Column(String(100), unique=True, nullable=True)
+    payload_fingerprint = Column(String(64), nullable=True)
+    anulada_en = Column(DateTime, default=None)
 
 
 class Compra(Base):
@@ -393,6 +398,56 @@ class Compra(Base):
     # CASCADE: renglon de la factura de compra.
     factprov_id = Column(Integer, ForeignKey("factprov.id", ondelete="CASCADE"))
     fecha = Column(String(10))
+    iva_alicuota = Column(Float, default=0.0)
+
+
+class Deposito(Base):
+    __tablename__ = "depositos"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(120), nullable=False, unique=True)
+    activo = Column(Boolean, nullable=False, default=True)
+
+
+class ExistenciaDeposito(Base):
+    __tablename__ = "existencias_deposito"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    deposito_id = Column(Integer, ForeignKey("depositos.id", ondelete="RESTRICT"), nullable=False)
+    codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"), nullable=False)
+    cantidad = Column(Float, nullable=False, default=0.0)
+    costo_promedio = Column(Integer, nullable=False, default=0)
+    __table_args__ = (UniqueConstraint("deposito_id", "codigo", name="uq_existencia_deposito_producto"),)
+
+
+class MovimientoStock(Base):
+    """Libro físico append-only. Las anulaciones agregan una reversa."""
+    __tablename__ = "movimientos_stock"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    deposito_id = Column(Integer, ForeignKey("depositos.id", ondelete="RESTRICT"), nullable=False)
+    codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"), nullable=False)
+    fecha = Column(String(10), nullable=False)
+    sentido = Column(String(10), nullable=False)  # entrada|salida
+    cantidad = Column(Float, nullable=False)
+    costo_unitario = Column(Integer, nullable=False, default=0)
+    costo_anterior = Column(Integer, nullable=False, default=0)
+    costo_resultante = Column(Integer, nullable=False, default=0)
+    origen_tipo = Column(String(40), nullable=False)
+    origen_id = Column(Integer, nullable=False)
+    origen_renglon_id = Column(Integer, nullable=False)
+    reversa_de = Column(Integer, ForeignKey("movimientos_stock.id", ondelete="RESTRICT"), nullable=True)
+    creado_en = Column(DateTime, server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("origen_tipo", "origen_id", "origen_renglon_id", name="uq_mov_stock_origen"),
+    )
+
+
+class DevolucionCompraItem(Base):
+    __tablename__ = "devoluciones_compra_items"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ncp_id = Column(Integer, ForeignKey("ncp.id", ondelete="RESTRICT"), nullable=False)
+    compra_id = Column(Integer, ForeignKey("compras.id", ondelete="RESTRICT"), nullable=False)
+    codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"), nullable=False)
+    cantidad = Column(Float, nullable=False)
+    precio = Column(Integer, nullable=False)
 
 
 class GastoFactura(Base):
@@ -504,6 +559,7 @@ class Cobro(Base):
     fecha = Column(String(10))
     tipo = Column(String(50))
     referencia = Column(String(100), default="")
+    cuenta_tesoreria_id = Column(Integer, ForeignKey("cuentas_tesoreria.id", ondelete="RESTRICT"), nullable=True)
 
 
 class Pago(Base):
@@ -515,6 +571,39 @@ class Pago(Base):
     fecha = Column(String(10))
     tipo = Column(String(50))
     referencia = Column(String(100), default="")
+    cuenta_tesoreria_id = Column(Integer, ForeignKey("cuentas_tesoreria.id", ondelete="RESTRICT"), nullable=True)
+
+
+class CuentaTesoreria(Base):
+    __tablename__ = "cuentas_tesoreria"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(120), nullable=False, unique=True)
+    clase = Column(String(20), nullable=False)  # caja_chica | banco
+    banco = Column(String(120), default="")
+    alias_cbu = Column(String(120), default="")
+    moneda = Column(String(3), default="ARS", nullable=False)
+    activa = Column(Boolean, default=True, nullable=False)
+
+
+class MovimientoTesoreria(Base):
+    __tablename__ = "movimientos_tesoreria"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cuenta_id = Column(Integer, ForeignKey("cuentas_tesoreria.id", ondelete="RESTRICT"), nullable=False)
+    fecha = Column(String(10), nullable=False)
+    sentido = Column(String(10), nullable=False)  # ingreso | egreso
+    monto = Column(Integer, nullable=False)
+    origen_tipo = Column(String(30), nullable=False)
+    origen_id = Column(Integer, nullable=False)
+    referencia = Column(String(150), default="")
+    descripcion = Column(String(500), default="")
+    estado = Column(String(20), default="confirmado", nullable=False)
+    reversa_de = Column(Integer, ForeignKey("movimientos_tesoreria.id", ondelete="RESTRICT"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("origen_tipo", "origen_id", "cuenta_id", name="uq_mov_tesoreria_origen"),
+    )
 
 
 class Caja(Base):
@@ -552,6 +641,7 @@ class Chequera(Base):
     nombre = Column(String(200), default="")
     descripcion = Column(String(500), default="")
     pagado = Column(String(20), default="")
+    cuenta_tesoreria_id = Column(Integer, ForeignKey("cuentas_tesoreria.id", ondelete="RESTRICT"), nullable=True)
 
 
 class FacNoRem(Base):

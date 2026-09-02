@@ -320,6 +320,12 @@ const Proveedores = {
                                 </label>
                             </div>
                         </div>
+                        <label class="form-label-sm mt-2">Factura de compra origen (ID interno)</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" min="1" class="form-control" id="devFacturaId" required>
+                            <button class="btn btn-outline-secondary" data-action="Proveedores.verRenglonesDevolucion">Ver renglones</button>
+                        </div>
+                        <div id="devRenglonesAyuda" class="small text-muted mt-1"></div>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -329,15 +335,19 @@ const Proveedores = {
                             <input type="text" class="form-control form-control-sm" id="devProd" placeholder="Buscar producto...">
                         </div>
                         <div class="row mt-2">
-                            <div class="col-4">
+                            <div class="col-3">
+                                <label class="form-label-sm">ID renglón compra</label>
+                                <input type="number" class="form-control form-control-sm" id="devCompraId" min="1">
+                            </div>
+                            <div class="col-3">
                                 <label class="form-label-sm">Cantidad</label>
                                 <input type="number" class="form-control form-control-sm" id="devCant" value="1">
                             </div>
-                            <div class="col-4">
+                            <div class="col-3">
                                 <label class="form-label-sm">Precio</label>
                                 <input type="number" class="form-control form-control-sm" id="devPrecio" step="0.01">
                             </div>
-                            <div class="col-4 d-flex align-items-end">
+                            <div class="col-3 d-flex align-items-end">
                                                 <button class="btn btn-sm btn-danger w-100" data-action="Proveedores.addDevItem">
                                                     <i class="bi bi-plus"></i> Agregar
                                                 </button>
@@ -367,6 +377,19 @@ const Proveedores = {
         });
     },
 
+    async verRenglonesDevolucion() {
+        const facturaId = parseInt(document.getElementById('devFacturaId').value, 10);
+        if (!facturaId) { Utils.toast('Indique la factura de compra origen', 'Error', 'error'); return; }
+        try {
+            const lineas = await API.get(`/compras/${facturaId}/renglones`);
+            document.getElementById('devRenglonesAyuda').innerHTML = lineas.map(l =>
+                `#${Utils.escapeHtml(String(l.compra_id))} · ${Utils.escapeHtml(String(l.producto))} · ${Utils.escapeHtml(String(l.cantidad))}`
+            ).join('<br>') || 'La factura no tiene renglones.';
+        } catch (err) {
+            Utils.toast('No se pudieron leer los renglones: ' + err.message, 'Error', 'error');
+        }
+    },
+
     async addDevItem() {
         const prodInput = document.getElementById('devProd');
         const codigo = prodInput.dataset.codigo;
@@ -374,13 +397,15 @@ const Proveedores = {
 
         const cant = parseFloat(document.getElementById('devCant').value) || 0;
         const precio = parseFloat(document.getElementById('devPrecio').value) || 0;
+        const compraId = parseInt(document.getElementById('devCompraId').value, 10);
+        if (!compraId) { Utils.toast('Indique el ID del renglón de la compra', 'Error', 'error'); return; }
         const sinIVA = document.getElementById('devSinIVA').checked;
 
         try {
             const prod = await API.stock.getById(codigo);
 
             this._compraItems.push({
-                codigo: prod.codigo, producto: prod.producto, cantidad: cant,
+                compra_id: compraId, codigo: prod.codigo, producto: prod.producto, cantidad: cant,
                 precio: precio, iva: sinIVA ? 0 : prod.iva, unidad: prod.unidad,
                 subtotal: cant * precio, ivaTotal: sinIVA ? 0 : cant * precio * (prod.iva / 100)
             });
@@ -396,14 +421,14 @@ const Proveedores = {
     _renderDevGrid() {
         let subtotal = 0, ivaTotal = 0;
         let html = '<table class="table table-sm flex-grid"><thead><tr>' +
-            '<th>Código</th><th>Producto</th><th>Cant.</th><th>Precio</th><th>IVA%</th><th>Subtotal</th><th></th>' +
+            '<th>Renglón</th><th>Código</th><th>Producto</th><th>Cant.</th><th>Precio</th><th>IVA%</th><th>Subtotal</th><th></th>' +
             '</tr></thead><tbody>';
 
         this._compraItems.forEach((item, i) => {
             subtotal += item.subtotal;
             ivaTotal += item.ivaTotal;
             html += `<tr>
-                <td>${Utils.escapeHtml(String(item.codigo))}</td><td>${Utils.escapeHtml(String(item.producto))}</td><td>${Utils.escapeHtml(String(item.cantidad))}</td>
+                <td>${Utils.escapeHtml(String(item.compra_id))}</td><td>${Utils.escapeHtml(String(item.codigo))}</td><td>${Utils.escapeHtml(String(item.producto))}</td><td>${Utils.escapeHtml(String(item.cantidad))}</td>
                 <td class="text-end">${Utils.escapeHtml(Utils.formatCurrency(item.precio))}</td>
                 <td>${Utils.escapeHtml(String(item.iva))}%</td><td class="text-end">${Utils.escapeHtml(Utils.formatCurrency(item.subtotal))}</td>
                 <td><button class="btn btn-sm btn-outline-danger" data-action="Proveedores.removeCompraItem" data-idx="${i}" data-render="dev"><i class="bi bi-trash"></i></button></td>
@@ -425,6 +450,8 @@ const Proveedores = {
         if (this._compraItems.length === 0) { Utils.toast('Agregue al menos un producto', 'Error', 'error'); return; }
 
         const fecha = document.getElementById('devFecha').value;
+        const facturaId = parseInt(document.getElementById('devFacturaId').value, 10);
+        if (!facturaId) { Utils.toast('Indique la factura de compra origen', 'Error', 'error'); return; }
         let subtotal = 0, ivaTotal = 0;
         this._compraItems.forEach(i => { subtotal += i.subtotal; ivaTotal += i.ivaTotal; });
         const total = subtotal + ivaTotal;
@@ -434,7 +461,9 @@ const Proveedores = {
             await API.post('/devoluciones/', {
                 proveedor_cuit: provCuit,
                 fecha: fecha,
+                factura_id: facturaId,
                 items: this._compraItems.map(item => ({
+                    compra_id: item.compra_id,
                     codigo: item.codigo,
                     producto: item.producto,
                     cantidad: item.cantidad,

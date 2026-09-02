@@ -3,12 +3,13 @@ pagos.py - Router para Pagos a Proveedores
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import update, or_
 from typing import List
 
 import saldos
 import medios_de_pago
 from database import get_db
-from models import Pago, Proveedor, Caja, Chequera
+from models import Pago, Proveedor, Caja, Chequera, CuentaTesoreria, MovimientoTesoreria
 from schemas import PagoCreate, PagoResponse
 from secuencias import siguiente_numero
 
@@ -52,6 +53,35 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
     new_ord = siguiente_numero(db, "pago")
 
     # Los campos del cheque no son columnas de `pagos`: se usan mas abajo.
+    medio = medios_de_pago.resolver(pago_data.tipo)
+    cuenta = None
+    if pago_data.cheque_id is not None:
+        if not medio.es_valor:
+            raise HTTPException(422, "cheque_id sólo se admite para pago con cheque de tercero")
+    elif medio.clave == "transferencia" or medio.en_el_banco:
+        if not pago_data.cuenta_tesoreria_id:
+            raise HTTPException(422, "La transferencia debe indicar el banco origen")
+        if not pago_data.referencia.strip():
+            raise HTTPException(422, "La transferencia debe indicar una referencia")
+        cuenta = db.query(CuentaTesoreria).filter(CuentaTesoreria.id == pago_data.cuenta_tesoreria_id).first()
+        if not cuenta or not cuenta.activa or cuenta.clase != "banco":
+            raise HTTPException(422, "La cuenta origen debe ser un banco activo")
+    elif medio.clave == "efectivo":
+        if not pago_data.cuenta_tesoreria_id:
+            raise HTTPException(422, "El efectivo debe indicar la caja chica origen")
+        cuenta = db.query(CuentaTesoreria).filter(CuentaTesoreria.id == pago_data.cuenta_tesoreria_id).first()
+        if not cuenta or not cuenta.activa or cuenta.clase != "caja_chica":
+            raise HTTPException(422, "La cuenta origen debe ser una caja chica activa")
+    elif medio.es_valor:
+        if not pago_data.cuenta_tesoreria_id:
+            raise HTTPException(422, "El cheque propio debe seleccionar su cuenta bancaria")
+        cuenta = db.query(CuentaTesoreria).filter(CuentaTesoreria.id == pago_data.cuenta_tesoreria_id).first()
+        if not cuenta or not cuenta.activa or cuenta.clase != "banco":
+            raise HTTPException(422, "La chequera propia debe pertenecer a una cuenta bancaria activa")
+        if not all([pago_data.referencia.strip(), pago_data.vencimiento.strip()]):
+            raise HTTPException(422, "El cheque propio requiere numero y vencimiento")
+        pago_data.banco = cuenta.banco
+
     datos = pago_data.model_dump(exclude={"banco", "vencimiento", "cheque_id"})
     new_pago = Pago(ordpago=new_ord, **datos)
     db.add(new_pago)
@@ -68,12 +98,20 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
         cheque = db.query(Chequera).filter(Chequera.id == pago_data.cheque_id).first()
         if not cheque:
             raise HTTPException(status_code=404, detail="El cheque indicado no existe")
-        if (cheque.pagado or "").strip():
+        if int(cheque.monto or 0) != int(pago_data.monto):
             raise HTTPException(
-                status_code=400,
-                detail=f"El cheque {cheque.numcheque} ya fue utilizado ({cheque.pagado})",
+                status_code=422,
+                detail="En esta versión el cheque de tercero debe aplicarse por su monto exacto",
             )
-        cheque.pagado = f"Pago N° {new_ord} - {pago_data.fecha}"
+        # Compare-and-set: aun fuera del middleware BEGIN IMMEDIATE, sólo una
+        # transacción puede cambiar disponible -> endosado.
+        usados = db.execute(update(Chequera).where(
+            Chequera.id == pago_data.cheque_id,
+            or_(Chequera.pagado == "", Chequera.pagado.is_(None)),
+            Chequera.tipo == 1,
+        ).values(pagado=f"Pago N° {new_ord} - {pago_data.fecha}"))
+        if usados.rowcount != 1:
+            raise HTTPException(409, "El cheque ya no está disponible")
     elif _es_cheque(pago_data.tipo):
         # Cheque propio: se registra como emitido y no sale de caja hasta que se debita.
         db.add(Chequera(
@@ -85,6 +123,7 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
             cuit=proveedor.cuit,
             nombre=proveedor.nombre or "",
             descripcion=f"Pago N° {new_ord}",
+            cuenta_tesoreria_id=cuenta.id,
         ))
     else:
         db.add(Caja(
@@ -93,6 +132,12 @@ def create_pago(pago_data: PagoCreate, db: Session = Depends(get_db)):
             cuenta=medios_de_pago.cuenta_de(pago_data.tipo),
             debe=0,
             haber=pago_data.monto,
+            descripcion=f"Pago a {proveedor.nombre or proveedor.cuit}",
+        ))
+        db.add(MovimientoTesoreria(
+            cuenta_id=cuenta.id, fecha=pago_data.fecha, sentido="egreso",
+            monto=pago_data.monto, origen_tipo="pago", origen_id=new_ord,
+            referencia=pago_data.referencia,
             descripcion=f"Pago a {proveedor.nombre or proveedor.cuit}",
         ))
 
@@ -113,6 +158,19 @@ def delete_pago(ordpago: int, db: Session = Depends(get_db)):
     mov = db.query(Caja).filter(Caja.referencia == f"PAGO {ordpago}").first()
     if mov:
         db.delete(mov)
+    tesoreria = db.query(MovimientoTesoreria).filter(
+        MovimientoTesoreria.origen_tipo == "pago",
+        MovimientoTesoreria.origen_id == ordpago,
+        MovimientoTesoreria.estado == "confirmado",
+    ).first()
+    if tesoreria:
+        tesoreria.estado = "reversado"
+        db.add(MovimientoTesoreria(
+            cuenta_id=tesoreria.cuenta_id, fecha=pago.fecha, sentido="ingreso",
+            monto=tesoreria.monto, origen_tipo="reversa_pago", origen_id=ordpago,
+            referencia=f"ANULA PAGO {ordpago}", descripcion="Reversa auditable de pago",
+            estado="confirmado", reversa_de=tesoreria.id,
+        ))
 
     # Si se habia endosado un cheque de tercero, vuelve a quedar disponible.
     endosado = db.query(Chequera).filter(

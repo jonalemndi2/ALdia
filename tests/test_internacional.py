@@ -134,7 +134,8 @@ class TestMediosDePago:
 
         r = admin.post("/api/cobros/", json={
             "cliente": c, "monto": 121.0, "fecha": "2026-08-19",
-            "tipo": "cheque", "referencia": "0001234", "banco": "Nación"})
+            "tipo": "cheque", "referencia": "0001234", "banco": "Nación",
+            "vencimiento": "2026-09-19"})
         assert r.status_code in (200, 201), r.text
         # El cheque NO entra a caja: sigue siendo un valor a depositar.
         assert admin.get("/api/admin/dashboard").json()["caja_saldo"] == caja_antes

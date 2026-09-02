@@ -38,6 +38,7 @@ const Pagos = {
                                 <label class="form-label-sm">Forma de Pago</label>
                                 <select class="form-select form-select-sm" id="pagoTipo">
                                     <option value="efectivo">Efectivo</option>
+                                    <option value="transferencia">Transferencia</option>
                                     <option value="cheque_propio">Cheque Propio</option>
                                     <option value="cheque_tercero">Cheque Tercero</option>
                                 </select>
@@ -46,6 +47,11 @@ const Pagos = {
                                 <label class="form-label-sm">Fecha</label>
                                 <input type="date" class="form-control form-control-sm" id="pagoFecha" value="${Utils.today()}">
                             </div>
+                        </div>
+                        <div id="pagoCuentaDiv" class="mt-2">
+                            <label class="form-label-sm" id="pagoCuentaLabel">Caja chica origen</label>
+                            <select class="form-select form-select-sm" id="pagoCuenta"></select>
+                            <input class="form-control form-control-sm mt-2 d-none" id="pagoReferencia" placeholder="Referencia de transferencia">
                         </div>
                         <div id="pagoChequeDiv" class="mt-2 d-none">
                             <div class="row">
@@ -99,11 +105,26 @@ const Pagos = {
                 const val = e.target.value;
                 document.getElementById('pagoChequeDiv').classList.toggle('d-none', val !== 'cheque_propio');
                 document.getElementById('pagoChequeTerceroDiv').classList.toggle('d-none', val !== 'cheque_tercero');
+                document.getElementById('pagoCuentaDiv').classList.toggle('d-none', val === 'cheque_tercero');
+                document.getElementById('pagoReferencia').classList.toggle('d-none', val !== 'transferencia');
+                this._cargarCuentas(val);
                 if (val === 'cheque_tercero') this.cargarChequesTercero();
             });
             pagoTipoEl.__changeBound = true;
         }
+        this._cargarCuentas('efectivo');
         if (App && typeof App.bindDataActions === 'function') App.bindDataActions();
+    },
+
+    async _cargarCuentas(tipo) {
+        const sel = document.getElementById('pagoCuenta');
+        if (!sel || tipo === 'cheque_tercero') return;
+        const clase = tipo === 'efectivo' ? 'caja_chica' : 'banco';
+        const cuentas = (await API.tesoreria.cuentas()).filter(c => c.clase === clase);
+        sel.innerHTML = '<option value="">-- Seleccione --</option>' + cuentas.map(c =>
+            `<option value="${c.id}">${Utils.escapeHtml(c.nombre)}${c.banco ? ' - ' + Utils.escapeHtml(c.banco) : ''}</option>`
+        ).join('');
+        document.getElementById('pagoCuentaLabel').textContent = clase === 'banco' ? 'Banco origen' : 'Caja chica origen';
     },
 
     /** Refrescar el saldo mostrado leyéndolo de la API (fuente de verdad). */
@@ -183,25 +204,23 @@ const Pagos = {
         let monto = parseFloat(document.getElementById('pagoMonto').value) || 0;
         let tipo = 'efectivo';
         let referencia = '';
+        let banco = '', vencimiento = '', cheque_id = null, cuenta_tesoreria_id = null;
 
         if (tipoSel === 'cheque_propio') {
             tipo = 'cheque propio';
+            cuenta_tesoreria_id = parseInt(document.getElementById('pagoCuenta').value) || null;
+            if (!cuenta_tesoreria_id) {
+                Utils.toast('Seleccione la cuenta bancaria de la chequera propia', 'Error', 'error');
+                return;
+            }
             referencia = (document.getElementById('pagoNumCheque').value || '').trim();
             if (!referencia) {
                 Utils.toast('Ingrese el N° de cheque', 'Error', 'error');
                 Utils.flagInvalid('pagoNumCheque');
                 return;
             }
-            const banco = (document.getElementById('pagoBanco').value || '').trim();
-            const venc = document.getElementById('pagoVenc').value;
-            if (banco || venc) {
-                // No inventamos un endpoint: avisamos en vez de simular que se guardó.
-                console.warn(
-                    'Pagos: el endpoint POST /api/pagos/ no acepta banco ni vencimiento del cheque. ' +
-                    `Se registrará el cheque N° ${referencia} en la chequera sin banco ("${banco}") ` +
-                    `y con el vencimiento igual a la fecha del pago (se ignora "${venc}").`
-                );
-            }
+            banco = (document.getElementById('pagoBanco').value || '').trim();
+            vencimiento = document.getElementById('pagoVenc').value;
         } else if (tipoSel === 'cheque_tercero') {
             tipo = 'cheque tercero';
             const chequeId = document.getElementById('pagoChequeTercero').value;
@@ -210,11 +229,12 @@ const Pagos = {
             if (!cheque) { Utils.toast('El cheque seleccionado ya no está disponible', 'Error', 'error'); return; }
             monto = cheque.monto;
             referencia = cheque.numcheque || '';
-            console.warn(
-                'Pagos: no existe un endpoint para actualizar la chequera (PUT/PATCH /api/caja/chequera/{id}). ' +
-                `El cheque de tercero N° ${referencia} (id=${cheque.id}) NO queda marcado como usado ` +
-                'y va a seguir apareciendo como disponible.'
-            );
+            cheque_id = parseInt(cheque.id);
+        } else {
+            tipo = tipoSel;
+            cuenta_tesoreria_id = parseInt(document.getElementById('pagoCuenta').value) || null;
+            if (!cuenta_tesoreria_id) { Utils.toast('Seleccione la cuenta origen', 'Error', 'error'); return; }
+            if (tipo === 'transferencia') referencia = (document.getElementById('pagoReferencia').value || '').trim();
         }
 
         if (monto <= 0) { Utils.toast('Ingrese un monto válido', 'Error', 'error'); return; }
@@ -224,7 +244,7 @@ const Pagos = {
 
         let pago;
         try {
-            pago = await API.pagos.create({ proveedor: cuit, monto, fecha, tipo, referencia });
+            pago = await API.pagos.create({ proveedor: cuit, monto, fecha, tipo, referencia, banco, vencimiento, cheque_id, cuenta_tesoreria_id });
         } catch (err) {
             console.error('Error al registrar el pago:', err);
             Utils.toast('No se pudo registrar el pago: ' + err.message, 'Error', 'error');
@@ -237,13 +257,6 @@ const Pagos = {
             `Pago N° ${pago.ordpago} registrado por ${Utils.formatCurrency(pago.monto)}`,
             'Pagos', 'success'
         );
-
-        if (tipoSel === 'cheque_tercero') {
-            Utils.toast(
-                'El cheque de tercero no quedó marcado como usado en la chequera (falta endpoint).',
-                'Chequera', 'warning'
-            );
-        }
 
         // El backend ya descontó el saldo y generó el asiento: sólo releemos.
         await this._refrescarSaldo(cuit);

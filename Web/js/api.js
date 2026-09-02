@@ -116,7 +116,14 @@ const API = {
         getById(cuit) { return API.get(`/proveedores/${cuit}`); },
         create(data) { return API.post('/proveedores/', data); },
         update(cuit, data) { return API.put(`/proveedores/${cuit}`, data); },
-        delete(cuit) { return API.delete(`/proveedores/${cuit}`); }
+        delete(cuit) { return API.delete(`/proveedores/${cuit}`); },
+        cuentaCorriente(cuit, params = {}) { return API.get(`/proveedores/${cuit}/cuenta-corriente`, params); }
+    },
+
+    tesoreria: {
+        cuentas() { return API.get('/tesoreria/cuentas'); },
+        saldos() { return API.get('/tesoreria/saldos'); },
+        chequesDisponibles() { return API.get('/tesoreria/cheques', { disponibles: true }); }
     },
 
     // ==================== STOCK ====================

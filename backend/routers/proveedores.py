@@ -11,12 +11,84 @@ from paises import pais_configurado
 from database import get_db
 from migraciones import dependientes
 from dinero import a_pesos
-from models import Pago, Proveedor
+from models import Pago, Proveedor, FacturaProveedor, GastoFactura, NCP
 from errores import ErrorDeNegocio
 from schemas import (ProveedorCreate, ProveedorUpdate, ProveedorResponse,
                      CorreccionIdentificador)
 
 router = APIRouter()
+
+
+@router.get("/cuentas-corrientes")
+def cuentas_corrientes(search: str = None, solo_pendientes: bool = False,
+                       page: int = 1, page_size: int = 50,
+                       db: Session = Depends(get_db)):
+    if page < 1 or page_size < 1 or page_size > 500:
+        raise HTTPException(422, "Paginación inválida")
+    q = db.query(Proveedor)
+    if search:
+        q = q.filter(Proveedor.nombre.ilike(f"%{search}%") | Proveedor.cuit.ilike(f"%{search}%"))
+    if solo_pendientes:
+        q = q.filter(Proveedor.saldo != 0)
+    total = q.count()
+    filas = q.order_by(Proveedor.nombre).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "total": total, "page": page, "page_size": page_size,
+        "proveedores": [{"cuit": p.cuit, "nombre": p.nombre,
+                         "saldo": a_pesos(int(p.saldo or 0))} for p in filas],
+    }
+
+
+@router.get("/{cuit}/cuenta-corriente")
+def cuenta_corriente(cuit: str, desde: str = None, hasta: str = None,
+                     page: int = 1, page_size: int = 100,
+                     db: Session = Depends(get_db)):
+    """Mayor comercial derivado: compras/gastos suman deuda; pagos/NC restan."""
+    proveedor = db.query(Proveedor).filter(Proveedor.cuit == cuit).first()
+    if not proveedor:
+        raise HTTPException(404, "Proveedor no encontrado")
+    if page < 1 or page_size < 1 or page_size > 500:
+        raise HTTPException(422, "Paginación inválida")
+
+    fuentes = [
+        (FacturaProveedor, "id", "Compra", 1),
+        (GastoFactura, "id", "Gasto", 1),
+        (Pago, "ordpago", "Pago", -1),
+        (NCP, "id", "Nota de crédito", -1),
+    ]
+    todos = []
+    for modelo, campo_id, tipo, signo in fuentes:
+        q = db.query(modelo).filter(getattr(modelo, "proveedor") == cuit)
+        if modelo is FacturaProveedor:
+            q = q.filter(FacturaProveedor.estado == "confirmada")
+        for fila in q.all():
+            monto = int(getattr(fila, "total", None) or getattr(fila, "monto", 0) or 0)
+            todos.append({
+                "id": getattr(fila, campo_id), "tipo": tipo, "fecha": fila.fecha,
+                "referencia": getattr(fila, "num_factura", "") or getattr(fila, "numfactura", "") or getattr(fila, "referencia", "") or "",
+                "descripcion": getattr(fila, "descripcion", "") or "",
+                "impacto": signo * monto,
+            })
+    todos.sort(key=lambda x: (x["fecha"] or "", x["tipo"], x["id"]))
+    saldo_inicial = sum(x["impacto"] for x in todos if desde and (x["fecha"] or "") < desde)
+    filtrados = [x for x in todos if (not desde or (x["fecha"] or "") >= desde)
+                 and (not hasta or (x["fecha"] or "") <= hasta)]
+    saldo = saldo_inicial
+    for x in filtrados:
+        saldo += x["impacto"]
+        x["debe"] = a_pesos(max(x["impacto"], 0))
+        x["haber"] = a_pesos(max(-x["impacto"], 0))
+        x["saldo"] = a_pesos(saldo)
+        del x["impacto"]
+    inicio = (page - 1) * page_size
+    return {
+        "proveedor": {"cuit": proveedor.cuit, "nombre": proveedor.nombre},
+        "moneda": pais_configurado().moneda,
+        "saldo_actual": a_pesos(int(proveedor.saldo or 0)),
+        "saldo_inicial": a_pesos(saldo_inicial),
+        "total": len(filtrados), "page": page, "page_size": page_size,
+        "movimientos": filtrados[inicio:inicio + page_size],
+    }
 
 
 @router.get("/", response_model=List[ProveedorResponse])

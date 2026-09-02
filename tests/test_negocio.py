@@ -154,7 +154,7 @@ class TestNumeracion:
 
 
 class TestCobros:
-    def test_efectivo_baja_saldo_y_entra_a_caja(self, admin, cliente_nuevo):
+    def test_efectivo_baja_saldo_y_entra_a_caja(self, admin, cliente_nuevo, tesoreria_caja):
         admin.post("/api/facturas/", json={
             "cuit": cliente_nuevo, "fecha": "2026-08-18",
             "subtotal": 1000, "ivaTotal": 210, "total": 1210, "items": [],
@@ -163,7 +163,7 @@ class TestCobros:
 
         r = admin.post("/api/cobros/", json={
             "cliente": cliente_nuevo, "monto": 500, "fecha": "2026-08-18",
-            "tipo": "efectivo",
+            "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja,
         })
         assert r.status_code == 200, r.text
         orden = r.json()["ordcobro"]
@@ -186,11 +186,11 @@ class TestCobros:
         chequera = admin.get("/api/caja/chequera").json()
         assert any(c["numcheque"] == "CH-7788" for c in chequera)
 
-    def test_anular_revierte_saldo_y_caja(self, admin, cliente_nuevo):
+    def test_anular_revierte_saldo_y_caja(self, admin, cliente_nuevo, tesoreria_caja):
         previo = saldo(admin, cliente_nuevo)
         orden = admin.post("/api/cobros/", json={
             "cliente": cliente_nuevo, "monto": 250, "fecha": "2026-08-18",
-            "tipo": "efectivo",
+            "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja,
         }).json()["ordcobro"]
 
         assert admin.delete(f"/api/cobros/{orden}").status_code == 200
@@ -207,10 +207,10 @@ class TestCobros:
 
 
 class TestPagos:
-    def test_baja_saldo_del_proveedor(self, admin, proveedor_nuevo):
+    def test_baja_saldo_del_proveedor(self, admin, proveedor_nuevo, tesoreria_caja):
         r = admin.post("/api/pagos/", json={
             "proveedor": proveedor_nuevo, "monto": 1500, "fecha": "2026-08-18",
-            "tipo": "efectivo",
+            "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja,
         })
         assert r.status_code == 200, r.text
         p = admin.get(f"/api/proveedores/{proveedor_nuevo}").json()
@@ -225,17 +225,17 @@ class TestPagos:
 
 
 class TestExactitudDelCircuito:
-    def test_diez_cobros_de_diez_centavos(self, admin, cliente_nuevo):
+    def test_diez_cobros_de_diez_centavos(self, admin, cliente_nuevo, tesoreria_caja):
         """Con float el saldo quedaba en -0.9999999999999999."""
         previo = saldo(admin, cliente_nuevo)
         for _ in range(10):
             admin.post("/api/cobros/", json={
                 "cliente": cliente_nuevo, "monto": 0.10, "fecha": "2026-08-18",
-                "tipo": "efectivo",
+                "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja,
             })
         assert saldo(admin, cliente_nuevo) == previo - 1.00
 
-    def test_facturar_y_cobrar_cierra_en_cero(self, admin, cliente_nuevo):
+    def test_facturar_y_cobrar_cierra_en_cero(self, admin, cliente_nuevo, tesoreria_caja):
         previo = saldo(admin, cliente_nuevo)
         admin.post("/api/facturas/", json={
             "cuit": cliente_nuevo, "fecha": "2026-08-18",
@@ -243,7 +243,7 @@ class TestExactitudDelCircuito:
         })
         admin.post("/api/cobros/", json={
             "cliente": cliente_nuevo, "monto": 282.31, "fecha": "2026-08-18",
-            "tipo": "efectivo",
+            "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja,
         })
         assert saldo(admin, cliente_nuevo) == previo
 

@@ -41,38 +41,39 @@ class TestACualCuentaVaCadaMedio:
 
 
 class TestElSaldoSeSepara:
-    def test_una_transferencia_no_infla_el_efectivo(self, admin, cuit):
+    def test_una_transferencia_no_infla_el_efectivo(self, admin, cuit, tesoreria_banco):
         """El bug: cerrar la caja contando billetes nunca daba el saldo."""
         c = _cliente_con_deuda(admin, cuit)
         antes = admin.get("/api/caja/saldo").json()
 
         r = admin.post("/api/cobros/", json={
             "cliente": c, "monto": 1000.0, "fecha": "2026-08-19",
-            "tipo": "transferencia", "referencia": "TRF-001"})
+            "tipo": "transferencia", "referencia": "TRF-001", "cuenta_tesoreria_id": tesoreria_banco})
         assert r.status_code in (200, 201), r.text
 
         despues = admin.get("/api/caja/saldo").json()
         # El total sube: la plata entró y tiene que figurar.
-        assert despues["saldo"] == antes["saldo"] + 1000.0
+        assert despues["saldo"] == pytest.approx(antes["saldo"] + 1000.0)
         # Pero el efectivo NO: no hay mil pesos más en el cajón.
         assert despues["efectivo"] == antes["efectivo"]
         assert despues["banco"] == antes["banco"] + 1000.0
 
-    def test_el_efectivo_si_sube_con_efectivo(self, admin, cuit):
+    def test_el_efectivo_si_sube_con_efectivo(self, admin, cuit, tesoreria_caja):
         c = _cliente_con_deuda(admin, cuit)
         antes = admin.get("/api/caja/saldo").json()
         admin.post("/api/cobros/", json={
-            "cliente": c, "monto": 1000.0, "fecha": "2026-08-19", "tipo": "efectivo"})
+            "cliente": c, "monto": 1000.0, "fecha": "2026-08-19", "tipo": "efectivo",
+            "cuenta_tesoreria_id": tesoreria_caja})
         despues = admin.get("/api/caja/saldo").json()
-        assert despues["efectivo"] == antes["efectivo"] + 1000.0
+        assert despues["efectivo"] == pytest.approx(antes["efectivo"] + 1000.0)
         assert despues["banco"] == antes["banco"]
 
-    def test_las_dos_cuentas_suman_el_total(self, admin, cuit):
+    def test_las_dos_cuentas_suman_el_total(self, admin, cuit, tesoreria_banco):
         """Nada se pierde entre medio: es la garantía de que no desaparece plata."""
         c = _cliente_con_deuda(admin, cuit, 500.0)
         admin.post("/api/cobros/", json={
             "cliente": c, "monto": 500.0, "fecha": "2026-08-19",
-            "tipo": "tarjeta_credito", "referencia": "T-9"})
+            "tipo": "tarjeta_credito", "referencia": "T-9", "cuenta_tesoreria_id": tesoreria_banco})
         s = admin.get("/api/caja/saldo").json()
         assert round(s["efectivo"] + s["banco"], 2) == round(s["saldo"], 2)
 
@@ -92,13 +93,13 @@ class TestPlanilla1099:
         admin.post("/api/proveedores/", json=datos)
         return c
 
-    def test_solo_aparecen_los_marcados_como_elegibles(self, admin, cuit):
+    def test_solo_aparecen_los_marcados_como_elegibles(self, admin, cuit, tesoreria_caja):
         comun = self._proveedor(admin, cuit)
         elegible = self._proveedor(admin, cuit, elegible_1099=True, w9_recibido=True)
         for prov in (comun, elegible):
             admin.post("/api/pagos/", json={
                 "proveedor": prov, "monto": 800.0, "fecha": "2026-05-10",
-                "tipo": "efectivo"})
+                "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja})
 
         r = admin.get("/api/proveedores/informe-1099", params={"anio": 2026})
         assert r.status_code == 200, r.text
@@ -106,26 +107,26 @@ class TestPlanilla1099:
         assert elegible in ids
         assert comun not in ids, "Un proveedor no marcado no puede aparecer"
 
-    def test_suma_solo_los_pagos_del_anio(self, admin, cuit):
+    def test_suma_solo_los_pagos_del_anio(self, admin, cuit, tesoreria_caja):
         p = self._proveedor(admin, cuit, elegible_1099=True, w9_recibido=True)
         admin.post("/api/pagos/", json={"proveedor": p, "monto": 300.0,
-                                        "fecha": "2026-03-01", "tipo": "efectivo"})
+                                        "fecha": "2026-03-01", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja})
         admin.post("/api/pagos/", json={"proveedor": p, "monto": 200.0,
-                                        "fecha": "2026-11-30", "tipo": "efectivo"})
+                                        "fecha": "2026-11-30", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja})
         admin.post("/api/pagos/", json={"proveedor": p, "monto": 999.0,
-                                        "fecha": "2025-12-31", "tipo": "efectivo"})
+                                        "fecha": "2025-12-31", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja})
 
         fila = next(f for f in admin.get("/api/proveedores/informe-1099",
                                          params={"anio": 2026}).json()["proveedores"]
                     if f["tax_id"] == p)
         assert fila["total_pagado"] == 500.0, "Se coló un pago de otro año"
 
-    def test_avisa_de_quien_falta_el_W9(self, admin, cuit):
+    def test_avisa_de_quien_falta_el_W9(self, admin, cuit, tesoreria_caja):
         """No se lo esconde: se lista para que se sepa que hay que pedirlo."""
         p = self._proveedor(admin, cuit, elegible_1099=True, w9_recibido=False,
                             nombre="Sin Papeles LLC")
         admin.post("/api/pagos/", json={"proveedor": p, "monto": 700.0,
-                                        "fecha": "2026-06-01", "tipo": "efectivo"})
+                                        "fecha": "2026-06-01", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja})
         datos = admin.get("/api/proveedores/informe-1099",
                           params={"anio": 2026}).json()
         fila = next(f for f in datos["proveedores"] if f["tax_id"] == p)

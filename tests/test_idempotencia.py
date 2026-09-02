@@ -34,11 +34,11 @@ def _saldo(admin, c):
 
 
 class TestReintentos:
-    def test_el_mismo_id_no_cobra_dos_veces(self, admin, cliente_con_saldo):
+    def test_el_mismo_id_no_cobra_dos_veces(self, admin, cliente_con_saldo, tesoreria_caja):
         """El caso que motiva todo esto."""
         op = _op_id("cobro")
         cuerpo = {"cliente": cliente_con_saldo, "monto": 500,
-                  "fecha": "2026-08-18", "tipo": "efectivo"}
+                  "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja}
 
         antes = _saldo(admin, cliente_con_saldo)
         r1 = admin.post("/api/cobros/", json=cuerpo, headers={"X-Operation-Id": op})
@@ -56,32 +56,32 @@ class TestReintentos:
             "El reintento volvió a cobrar: el saldo se movió dos veces"
         )
 
-    def test_diez_reintentos_siguen_siendo_un_cobro(self, admin, cliente_con_saldo):
+    def test_diez_reintentos_siguen_siendo_un_cobro(self, admin, cliente_con_saldo, tesoreria_caja):
         op = _op_id("insistente")
         cuerpo = {"cliente": cliente_con_saldo, "monto": 100,
-                  "fecha": "2026-08-18", "tipo": "efectivo"}
+                  "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja}
         antes = _saldo(admin, cliente_con_saldo)
         for _ in range(10):
             assert admin.post("/api/cobros/", json=cuerpo,
                               headers={"X-Operation-Id": op}).status_code == 200
         assert _saldo(admin, cliente_con_saldo) == antes - 100
 
-    def test_sin_id_no_hay_proteccion(self, admin, cliente_con_saldo):
+    def test_sin_id_no_hay_proteccion(self, admin, cliente_con_saldo, tesoreria_caja):
         """Sin identificador el sistema no puede saber que es un reintento.
 
         Se documenta para que quede explícito: la protección la habilita quien
         llama, mandando el identificador.
         """
         cuerpo = {"cliente": cliente_con_saldo, "monto": 50,
-                  "fecha": "2026-08-18", "tipo": "efectivo"}
+                  "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja}
         antes = _saldo(admin, cliente_con_saldo)
         admin.post("/api/cobros/", json=cuerpo)
         admin.post("/api/cobros/", json=cuerpo)
         assert _saldo(admin, cliente_con_saldo) == antes - 100  # se cobró dos veces
 
-    def test_ids_distintos_son_operaciones_distintas(self, admin, cliente_con_saldo):
+    def test_ids_distintos_son_operaciones_distintas(self, admin, cliente_con_saldo, tesoreria_caja):
         cuerpo = {"cliente": cliente_con_saldo, "monto": 25,
-                  "fecha": "2026-08-18", "tipo": "efectivo"}
+                  "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja}
         antes = _saldo(admin, cliente_con_saldo)
         admin.post("/api/cobros/", json=cuerpo, headers={"X-Operation-Id": _op_id()})
         admin.post("/api/cobros/", json=cuerpo, headers={"X-Operation-Id": _op_id()})
@@ -89,7 +89,7 @@ class TestReintentos:
 
 
 class TestConflictos:
-    def test_reusar_un_id_con_otros_datos_se_rechaza(self, admin, cliente_con_saldo):
+    def test_reusar_un_id_con_otros_datos_se_rechaza(self, admin, cliente_con_saldo, tesoreria_caja):
         """No es un reintento: es un error de quien llama, y hay que avisarlo.
 
         Devolver la respuesta vieja sería mentir; ejecutar sería arriesgar un
@@ -98,12 +98,12 @@ class TestConflictos:
         op = _op_id("conflicto")
         admin.post("/api/cobros/",
                    json={"cliente": cliente_con_saldo, "monto": 10,
-                         "fecha": "2026-08-18", "tipo": "efectivo"},
+                         "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
                    headers={"X-Operation-Id": op})
 
         r = admin.post("/api/cobros/",
                        json={"cliente": cliente_con_saldo, "monto": 99999,
-                             "fecha": "2026-08-18", "tipo": "efectivo"},
+                             "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
                        headers={"X-Operation-Id": op})
         assert r.status_code == 409
         assert r.json().get("codigo") == "OPERACION_CONFLICTIVA"
@@ -172,7 +172,7 @@ class TestCarrera:
         return respuestas
 
     def test_dos_cobros_simultaneos_con_el_mismo_id_cobran_una_sola_vez(
-            self, admin, cliente_con_saldo):
+            self, admin, cliente_con_saldo, tesoreria_caja):
         """El defecto real: la ventana entre consultar y guardar.
 
         Con el flujo anterior (consultar, ejecutar, guardar al final) esta
@@ -184,7 +184,7 @@ class TestCarrera:
         op = _op_id("carrera")
         monto = 303
         cuerpo = {"cliente": cliente_con_saldo, "monto": monto,
-                  "fecha": "2026-08-18", "tipo": "efectivo"}
+                  "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja}
         antes = _saldo(admin, cliente_con_saldo)
 
         respuestas = self._en_paralelo(
@@ -313,7 +313,7 @@ class TestReservaEnCurso:
         assert r.status_code == 409
         assert r.json().get("codigo") == "OPERACION_CONFLICTIVA"
 
-    def test_una_reserva_abandonada_se_retoma(self, admin, cliente_con_saldo):
+    def test_una_reserva_abandonada_se_retoma(self, admin, cliente_con_saldo, tesoreria_caja):
         """El proceso que la tomó murió: nadie va a cerrar esa reserva.
 
         Sin salida, ese identificador quedaría bloqueado para siempre. Pasado
@@ -329,7 +329,7 @@ class TestReservaEnCurso:
         antes = _saldo(admin, cliente_con_saldo)
         r = admin.post("/api/cobros/",
                        json={"cliente": cliente_con_saldo, "monto": 60,
-                             "fecha": "2026-08-18", "tipo": "efectivo"},
+                             "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
                        headers={"X-Operation-Id": op})
 
         assert r.status_code == 200, r.text
@@ -363,13 +363,13 @@ class TestCierreDeLaReserva:
         assert _fila(op) is None, "La reserva quedó colgada después de un error"
 
     def test_un_exito_deja_la_reserva_completada_con_su_respuesta(
-            self, admin, cliente_con_saldo):
+            self, admin, cliente_con_saldo, tesoreria_caja):
         import idempotencia
 
         op = _op_id("completa")
         r = admin.post("/api/cobros/",
                        json={"cliente": cliente_con_saldo, "monto": 15,
-                             "fecha": "2026-08-18", "tipo": "efectivo"},
+                             "fecha": "2026-08-18", "tipo": "efectivo", "cuenta_tesoreria_id": tesoreria_caja},
                        headers={"X-Operation-Id": op})
         assert r.status_code == 200
         fila = _fila(op)
