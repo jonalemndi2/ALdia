@@ -167,8 +167,7 @@ diagnóstico de escritorio (este documento incluido) acertó.
 ### Etapas 1 a 3 — hechas
 
 Identidad y trazabilidad, idempotencia y confirmaciones con estado están
-implementadas y cubiertas por pruebas (ver `tests/test_origen_agentes.py`,
-`tests/test_idempotencia.py`, `tests/test_pendientes.py`).
+implementadas y cubiertas por la validación privada del proyecto.
 
 ### Etapa 4 — Errores con código de máquina — hecha
 
@@ -201,7 +200,7 @@ se agregan donde aportan.
 
 El catálogo completo se consulta en **`GET /api/errores`**, sin autenticarse: un
 agente que está recibiendo un `401` tiene que poder averiguar qué significa. Ver
-`backend/errores.py` y `tests/test_errores.py`.
+`backend/errores.py`.
 
 ### Etapa 5 — Cockpit de actividad
 

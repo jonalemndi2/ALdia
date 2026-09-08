@@ -7,7 +7,6 @@
 #
 #     ./instalar.sh              instala el rango de versiones (requirements.txt)
 #     ./instalar.sh --lock       instala las versiones exactas ya verificadas
-#     ./instalar.sh --dev        agrega pytest y httpx (para desarrollar)
 #
 # Se escribe en bash 3.2 a proposito: es el que trae macOS de fabrica, y una
 # sintaxis de bash 4 (arrays asociativos, ${var,,}) fallaria ahi con un error
@@ -30,17 +29,13 @@ for argumento in "$@"; do
             REQUISITOS="backend/requirements.lock.txt"
             ETIQUETA="versiones exactas verificadas"
             ;;
-        --dev)
-            REQUISITOS="backend/requirements-dev.txt"
-            ETIQUETA="desarrollo (incluye pytest y httpx)"
-            ;;
         -h|--help)
             sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
             echo "  [ERROR] Opción desconocida: $argumento" >&2
-            echo "  Use --lock, --dev o ninguna. Con --help se ve el detalle." >&2
+            echo "  Use --lock o ninguna opción. Con --help se ve el detalle." >&2
             exit 1
             ;;
     esac

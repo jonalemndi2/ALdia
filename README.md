@@ -225,12 +225,10 @@ lock out the entire store.
 
 ## Verified
 
-**271 tests** covering amount exactness, authentication and per-role
-permissions, fiscal validation, idempotency under real concurrency, automatic
-backup, and the full commercial cycle with its reversals. They run on every push
-against Python 3.10 and 3.13, plus once more with the exact pinned versions
-recommended for production, plus a job that fails if a secret or a database ever
-gets committed.
+Every public release passes private functional validation before publication.
+GitHub additionally verifies installation and dependency integrity on Windows,
+Linux and macOS, and rejects databases, credentials, certificates and test
+material from the public tree.
 
 ## Documentation
 

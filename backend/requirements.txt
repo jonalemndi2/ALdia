@@ -12,7 +12,6 @@
 # y muy mal para una PC que factura — un cambio incompatible de FastAPI o
 # Pydantic te deja sin emitir comprobantes y sin nadie que lo arregle.
 #
-# Para correr las pruebas: requirements-dev.txt (incluye a este y agrega pytest).
 # ─────────────────────────────────────────────────────────────────────────────
 
 fastapi>=0.115.0

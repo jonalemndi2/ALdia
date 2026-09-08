@@ -1,0 +1,53 @@
+name: Validación pública
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  paquete:
+    name: Instalación · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock.txt
+      - name: Instalar dependencias públicas
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compilar el código Python
+        run: python -m compileall -q backend mcp
+      - name: Comprobar dependencias
+        run: python -m pip check
+      - name: Comprobar arranque del backend
+        working-directory: backend
+        env:
+          ALDIA_DB: validacion-publica.db
+        run: python -c "import main; print('backend importado')"
+
+  privacidad:
+    name: Sin material privado
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verificar árbol público
+        run: |
+          prohibidos=$(git ls-files | grep -E '(^|/)(tests?|fixtures?|private|privado)(/|$)|(^|/)requirements-dev\.txt$|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)
+          if [ -n "$prohibidos" ]; then
+            echo "$prohibidos" | sed 's/^/  /'
+            echo "Hay pruebas o archivos privados versionados."
+            exit 1
+          fi
+          sensibles=$(git grep -IlE '(-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{24,}|AKIA[A-Z0-9]{16})' -- . || true)
+          if [ -n "$sensibles" ]; then
+            echo "$sensibles" | sed 's/^/  /'
+            echo "Se detectó contenido con apariencia de credencial."
+            exit 1
+          fi

@@ -405,20 +405,12 @@ docs/               documentación (AFIP, etc.)
 certificados/       certificados de AFIP (ignorado por git)
 ```
 
-## Pruebas
+## Validación
 
-```bash
-.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
-.venv\Scripts\python.exe -m pytest tests/ -q
-```
-
-**271 pruebas** que cubren la exactitud de los importes, la autenticación y los
-permisos por rol, la validación fiscal, la idempotencia bajo concurrencia real, el respaldo automatico, y el
-circuito comercial completo con sus anulaciones. No hace falta levantar el servidor ni
-tocan los datos del comercio: usan una base temporal. Ver [tests/README.md](tests/README.md).
-
-Corren solas en cada push y cada *pull request* (Linux, Python 3.10 y 3.13), y además
-una vez con las versiones exactas de `backend/requirements.lock.txt`.
+Cada versión pública pasa una validación funcional privada antes de publicarse.
+GitHub comprueba además la instalación y las dependencias en Windows, Linux y
+macOS, y rechaza bases, credenciales, certificados y material de prueba dentro
+del árbol público.
 
 ## Construido con
 

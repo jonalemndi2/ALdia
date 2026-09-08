@@ -80,3 +80,13 @@ mcp/.venv/
 
 # Caché de pytest
 .pytest_cache/
+
+# Validación privada: existe en el equipo de desarrollo, no en GitHub.
+tests/
+backend/requirements-dev.txt
+.publicar-privado
+.private/
+private/
+privado/
+*.private.*
+*.local.*

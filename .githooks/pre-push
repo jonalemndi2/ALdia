@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${ALDIA_PUBLICACION_VALIDADA:-}" != "1" ]; then
+    echo "Push bloqueado: use ./publicar.sh --publicar" >&2
+    exit 1
+fi
