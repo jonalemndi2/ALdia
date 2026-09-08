@@ -48,7 +48,7 @@ hoja de ruta.
 - [Seguridad](#seguridad)
 - [Registro de auditoría](#registro-de-auditoría)
 - [Copias de seguridad](#copias-de-seguridad)
-- [Pruebas](#pruebas)
+- [Validación](#validación)
 - [Otros países](#otros-países)
 - [Licencia](#licencia)
 
@@ -216,7 +216,64 @@ Ver **[docs/AFIP.md](docs/AFIP.md)** para el procedimiento completo.
 ALdia incluye un **servidor MCP** que permite a un asistente personal operar el sistema:
 consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del día.
 
-Ver **[mcp/README.md](mcp/README.md)** para instalarlo y conectarlo.
+### Guía rápida: Claude Code, OpenClaw o Hermes
+
+Los tres clientes usan el mismo puente MCP y descubren las mismas **59 herramientas**.
+Antes de conectarlos:
+
+1. Iniciá ALdía con `./iniciar_web.sh` en Linux/macOS o `iniciar_web.bat` en Windows.
+2. Instalá el puente una sola vez desde la carpeta `mcp/` siguiendo
+   [su guía](mcp/README.md#instalación).
+3. Creá en ALdía un usuario de rol acotado —`auditor` para consultar, `caja` para
+   cobranzas— y configurá `ALDIA_USER`, `ALDIA_PASSWORD` y, si cambia,
+   `ALDIA_URL` mediante el gestor seguro del cliente o del sistema operativo.
+   **No pongas la contraseña en el comando ni en el repositorio.**
+
+Los ejemplos siguientes usan rutas de Linux/macOS. En Windows reemplazá el
+intérprete por `C:\ruta\a\ALdia\mcp\.venv\Scripts\python.exe` y el lanzador por
+`C:\ruta\a\ALdia\mcp\server.py`.
+
+**Claude Code** ([documentación oficial](https://code.claude.com/docs/en/mcp)):
+
+```bash
+claude mcp add aldia -s user -- \
+  "/ruta/a/ALdia/mcp/.venv/bin/python" "/ruta/a/ALdia/mcp/server.py"
+claude mcp list
+```
+
+Después abrí `claude`; el comando `/mcp` muestra la conexión y las herramientas.
+
+**OpenClaw**:
+
+```bash
+openclaw mcp add aldia \
+  --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
+  --arg "/ruta/a/ALdia/mcp/server.py"
+openclaw mcp probe aldia
+```
+
+**Hermes Agent** ([referencia oficial](https://hermes-agent.nousresearch.com/docs/reference/cli-commands)):
+
+```bash
+hermes mcp add aldia \
+  --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
+  --args "/ruta/a/ALdia/mcp/server.py"
+hermes mcp test aldia
+```
+
+Una vez conectado, podés pedir por chat, por ejemplo:
+
+- _“Buscá al cliente Cliente Ejemplo y decime su saldo.”_
+- _“¿Cuánto efectivo figura hoy en la caja chica?”_
+- _“Prepará una factura para Cliente Ejemplo y pedime confirmación antes de emitirla.”_
+- _“Mostrame las compras pendientes del proveedor seleccionado.”_
+
+Las operaciones que crean comprobantes o mueven dinero deben confirmar importe,
+fecha y contraparte antes de ejecutarse. ALdía vuelve a validar permisos y reglas
+en el backend y registra la operación en la auditoría.
+
+Ver **[mcp/README.md](mcp/README.md)** para configuración avanzada, roles, Claude
+Desktop, variables opcionales y el catálogo completo de herramientas.
 
 ### Errores que un agente puede interpretar
 

@@ -95,20 +95,18 @@ backend invalida el token, reintenta el login una vez de forma transparente.
 **Linux y macOS**
 
 ```bash
-export ALDIA_URL=http://127.0.0.1:8000
-export ALDIA_USER=caja
-export ALDIA_PASSWORD=****
 .venv/bin/python -m aldia_mcp
 ```
 
 **Windows**
 
 ```bat
-set ALDIA_URL=http://127.0.0.1:8000
-set ALDIA_USER=caja
-set ALDIA_PASSWORD=****
 .venv\Scripts\python -m aldia_mcp
 ```
+
+Antes de ejecutar la prueba, cargue `ALDIA_USER`, `ALDIA_PASSWORD` y la URL
+opcional mediante el gestor seguro del sistema operativo. No escriba
+credenciales en comandos, archivos versionados ni historiales de terminal.
 
 El proceso queda esperando mensajes MCP por stdin (es lo normal: lo maneja el
 cliente MCP, no una persona). Si las credenciales o la URL están mal, el error
@@ -135,13 +133,7 @@ expande dentro del JSON, hay que escribir `/home/usuario/...` o
   "mcpServers": {
     "aldia": {
       "command": "/ruta/a/ALdia/mcp/.venv/bin/python",
-      "args": ["-m", "aldia_mcp"],
-      "cwd": "/ruta/a/ALdia/mcp",
-      "env": {
-        "ALDIA_URL": "http://127.0.0.1:8000",
-        "ALDIA_USER": "caja",
-        "ALDIA_PASSWORD": "la-contrasena-del-usuario-caja"
-      }
+      "args": ["/ruta/a/ALdia/mcp/server.py"]
     }
   }
 }
@@ -155,13 +147,7 @@ carácter de escape:
   "mcpServers": {
     "aldia": {
       "command": "C:\\ruta\\a\\ALdia\\mcp\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "aldia_mcp"],
-      "cwd": "C:\\ruta\\a\\ALdia\\mcp",
-      "env": {
-        "ALDIA_URL": "http://127.0.0.1:8000",
-        "ALDIA_USER": "caja",
-        "ALDIA_PASSWORD": "la-contrasena-del-usuario-caja"
-      }
+      "args": ["C:\\ruta\\a\\ALdia\\mcp\\server.py"]
     }
   }
 }
@@ -172,12 +158,14 @@ Reiniciar Claude Desktop. Las herramientas aparecen con el prefijo `aldia`.
 ### Claude Code
 
 ```bash
-claude mcp add aldia \
-  --env ALDIA_URL=http://127.0.0.1:8000 \
-  --env ALDIA_USER=caja \
-  --env ALDIA_PASSWORD='la-contrasena' \
-  -- "/ruta/a/ALdia/mcp/.venv/bin/python" -m aldia_mcp
+claude mcp add aldia -s user -- \
+  "/ruta/a/ALdia/mcp/.venv/bin/python" "/ruta/a/ALdia/mcp/server.py"
+claude mcp list
 ```
+
+Configure `ALDIA_USER`, `ALDIA_PASSWORD` y la URL opcional mediante el gestor
+seguro del cliente o del sistema operativo antes de iniciar Claude Code. No pase
+la contraseña como argumento del comando.
 
 o, equivalente, en `.mcp.json` del proyecto:
 
@@ -186,20 +174,15 @@ o, equivalente, en `.mcp.json` del proyecto:
   "mcpServers": {
     "aldia": {
       "command": "./mcp/.venv/bin/python",
-      "args": ["-m", "aldia_mcp"],
-      "cwd": "./mcp",
-      "env": {
-        "ALDIA_URL": "http://127.0.0.1:8000",
-        "ALDIA_USER": "caja",
-        "ALDIA_PASSWORD": "la-contrasena"
-      }
+      "args": ["./mcp/server.py"]
     }
   }
 }
 ```
 
-> Si prefiere no escribir la contraseña en el archivo de configuración, expórtela
-> en el entorno del sistema y omita esa clave: el servidor la lee igual.
+> Cargue las credenciales con el almacenamiento protegido del cliente o del
+> sistema operativo. El archivo `.mcp.json` puede versionarse sólo si no contiene
+> credenciales ni datos privados.
 
 ### OpenClaw
 
@@ -210,12 +193,7 @@ espacios y no depende del directorio desde el que arrancó el Gateway.
 ```bash
 openclaw mcp add aldia \
   --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
-  --arg -m --arg aldia_mcp \
-  --cwd "/ruta/a/ALdia/mcp" \
-  --env ALDIA_URL=http://127.0.0.1:8000 \
-  --env ALDIA_USER=caja \
-  --env ALDIA_PASSWORD='la-contrasena-del-usuario-caja' \
-  --env ALDIA_CANAL=openclaw
+  --arg "/ruta/a/ALdia/mcp/server.py"
 ```
 
 En macOS la primera ruta normalmente empieza con `/Users/usuario/`; en Linux,
@@ -223,18 +201,33 @@ con `/home/usuario/`. Luego valide la definición y la conexión real:
 
 ```bash
 openclaw mcp doctor aldia --probe
-openclaw mcp tools aldia
-openclaw gateway restart
+openclaw mcp probe aldia
 ```
 
 El backend debe estar corriendo antes del `--probe`. Si OpenClaw se ejecuta como
 servicio, no confíe en variables definidas solamente en `.zshrc` o `.bashrc`:
-los servicios de macOS y Linux normalmente no las heredan. Las variables
-guardadas con `openclaw mcp add --env` pertenecen a la configuración local de
-OpenClaw y no deben versionarse ni copiarse al repositorio.
+los servicios de macOS y Linux normalmente no las heredan. Configure las
+credenciales mediante el almacenamiento protegido o el entorno del servicio de
+OpenClaw; nunca las agregue al comando ni las copie al repositorio.
 
 En Windows, cambie `command` por la ruta absoluta a
 `mcp\\.venv\\Scripts\\python.exe`; el resto de los argumentos es igual.
+
+### Hermes Agent
+
+Hermes permite registrar un servidor MCP `stdio` personalizado desde su CLI:
+
+```bash
+hermes mcp add aldia \
+  --command "/ruta/a/ALdia/mcp/.venv/bin/python" \
+  --args "/ruta/a/ALdia/mcp/server.py"
+hermes mcp test aldia
+hermes mcp list
+```
+
+En Windows, use las rutas absolutas a `mcp\\.venv\\Scripts\\python.exe` y
+`mcp\\server.py`. Las credenciales deben estar disponibles en el entorno seguro
+con el que se inicia Hermes; no las escriba en el comando ni en el repositorio.
 
 ### Skills
 

@@ -203,6 +203,39 @@ To connect an assistant, see [`mcp/README.md`](mcp/README.md). Give it a
 **limited-role account**, not the administrator's: a connected agent can create
 documents and move real money.
 
+### Quick MCP examples
+
+Start ALdía first, install the MCP environment as described in
+[`mcp/README.md`](mcp/README.md), and provide `ALDIA_USER`, `ALDIA_PASSWORD` and
+the optional `ALDIA_URL` through the client's or operating system's secure
+credential mechanism. Never put the password in a command or in the repository.
+
+The examples below use Linux/macOS paths; on Windows use the absolute paths to
+`mcp\.venv\Scripts\python.exe` and `mcp\server.py`.
+
+```bash
+# Claude Code
+claude mcp add aldia -s user -- \
+  "/path/to/ALdia/mcp/.venv/bin/python" "/path/to/ALdia/mcp/server.py"
+claude mcp list
+
+# OpenClaw
+openclaw mcp add aldia \
+  --command "/path/to/ALdia/mcp/.venv/bin/python" \
+  --arg "/path/to/ALdia/mcp/server.py"
+openclaw mcp probe aldia
+
+# Hermes Agent
+hermes mcp add aldia \
+  --command "/path/to/ALdia/mcp/.venv/bin/python" \
+  --args "/path/to/ALdia/mcp/server.py"
+hermes mcp test aldia
+```
+
+All three clients discover the same 59 tools. For a safe first check, ask the
+agent to find a customer, read a balance, or show today's cash; require an
+explicit review before issuing a document or moving money.
+
 ## Before exposing it to the internet
 
 **HTTPS is mandatory.** Without a certificate, credentials and session tokens
