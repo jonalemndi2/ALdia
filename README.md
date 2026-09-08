@@ -6,7 +6,7 @@
 
 Instead of handing an agent database access, ALdía exposes the business itself —
 invoicing, payments, customers, vendors, inventory, checks, expenses, cash — as
-**48 permission-controlled MCP tools**, with identity, idempotency, structured
+**59 permission-controlled MCP tools**, with identity, idempotency, structured
 errors and an immutable audit trail already built in.
 
 *[Léeme en español](README.es.md)*
@@ -49,7 +49,7 @@ list_debtors             who owes money, and since when
 get_audit_log            what happened, and who did it
 ```
 
-All 48 of them are business actions, not fiscal ones: `create_invoice` means
+All 59 of them are business actions, not fiscal ones: `create_invoice` means
 the same thing in Miami as in Córdoba. What changes underneath is which rules
 the server applies.
 
@@ -225,7 +225,7 @@ lock out the entire store.
 
 ## Verified
 
-**236 tests** covering amount exactness, authentication and per-role
+**280 tests** covering amount exactness, authentication and per-role
 permissions, fiscal validation, idempotency under real concurrency, automatic
 backup, and the full commercial cycle with its reversals. They run on every push
 against Python 3.10 and 3.13, plus once more with the exact pinned versions
@@ -259,7 +259,7 @@ matrix that verifies ALdía on Linux, macOS and Windows.
 
 **Built to be driven by** — any [MCP](https://modelcontextprotocol.io/) client.
 [OpenClaw](https://github.com/openclaw) is the assistant this engine was shaped
-around, but nothing here depends on it: the 48 tools are plain MCP, and the
+around, but nothing here depends on it: the 59 tools are plain MCP, and the
 server never assumes which client is on the other end.
 
 That's deliberate. An engine that only works with one assistant isn't

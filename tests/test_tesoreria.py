@@ -143,3 +143,133 @@ def test_reinicio_no_reimporta_dual_write_como_legacy(admin, cuit, tesoreria_caj
     assert len([m for m in movimientos if m["origen_tipo"] == "cobro" and m["origen_id"] == orden]) == 1
     assert not any(m["origen_tipo"] == "caja_legacy" and m["referencia"] == f"COBRO {orden}"
                    for m in movimientos)
+
+
+def test_anular_cobro_con_cheque_anula_cartera_y_revierte_deposito(admin, cuit, tesoreria_banco):
+    cliente = cuit()
+    admin.post("/api/clientes/", json={"cuit": cliente, "nombre": "Cliente cheque anulado"})
+    cobro = admin.post("/api/cobros/", json={
+        "cliente": cliente, "monto": 140, "fecha": "2026-09-01", "tipo": "cheque",
+        "referencia": "REC-ANULA", "banco": "Emisor", "vencimiento": "2026-09-20",
+    }).json()
+    cheque = next(c for c in admin.get("/api/tesoreria/cheques", params={"disponibles": True}).json()
+                  if c["numcheque"] == "REC-ANULA")
+    saldo_antes = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                       if s["id"] == tesoreria_banco)["saldo"]
+    assert admin.post(f"/api/tesoreria/cheques/{cheque['id']}/depositar", json={
+        "cuenta_tesoreria_id": tesoreria_banco,
+        "fecha": "2026-09-05",
+        "referencia": "DEP-ANULA",
+    }).status_code == 200
+
+    anulacion = admin.delete(f"/api/cobros/{cobro['ordcobro']}")
+    assert anulacion.status_code == 200, anulacion.text
+    saldo_despues = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                         if s["id"] == tesoreria_banco)["saldo"]
+    assert saldo_despues == saldo_antes
+    cartera = admin.get("/api/caja/chequera").json()
+    assert next(c for c in cartera if c["id"] == cheque["id"])["pagado"].startswith("Anulado")
+    movimientos = admin.get("/api/tesoreria/movimientos", params={"cuenta_id": tesoreria_banco}).json()
+    deposito = next(m for m in movimientos if m["origen_tipo"] == "deposito_cheque"
+                    and m["origen_id"] == cheque["id"])
+    reversa = next(m for m in movimientos if m["origen_tipo"] == "reversa_deposito_cheque"
+                   and m["origen_id"] == cheque["id"])
+    assert deposito["estado"] == "reversado"
+    assert reversa["reversa_de"] == deposito["id"]
+
+
+def test_no_se_anula_cobro_si_su_cheque_financia_un_pago_vigente(admin, cuit):
+    cliente, proveedor = cuit(), cuit("33")
+    admin.post("/api/clientes/", json={"cuit": cliente, "nombre": "Cliente endoso"})
+    admin.post("/api/proveedores/", json={"cuit": proveedor, "nombre": "Proveedor endoso"})
+    cobro = admin.post("/api/cobros/", json={
+        "cliente": cliente, "monto": 75, "fecha": "2026-09-01", "tipo": "cheque",
+        "referencia": "REC-ENDOSO", "banco": "Emisor", "vencimiento": "2026-09-20",
+    }).json()
+    cheque = next(c for c in admin.get("/api/tesoreria/cheques", params={"disponibles": True}).json()
+                  if c["numcheque"] == "REC-ENDOSO")
+    pago = admin.post("/api/pagos/", json={
+        "proveedor": proveedor, "monto": 75, "fecha": "2026-09-02",
+        "tipo": "cheque tercero", "cheque_id": cheque["id"],
+    })
+    assert pago.status_code == 200, pago.text
+    saldo_cliente = admin.get(f"/api/clientes/{cliente}").json()["saldo"]
+    anulacion = admin.delete(f"/api/cobros/{cobro['ordcobro']}")
+    assert anulacion.status_code == 409
+    assert admin.get(f"/api/clientes/{cliente}").json()["saldo"] == saldo_cliente
+
+
+def test_anular_pago_con_cheque_propio_cancela_cheque_y_revierte_debito(admin, cuit, tesoreria_banco):
+    proveedor = cuit("33")
+    admin.post("/api/proveedores/", json={"cuit": proveedor, "nombre": "Proveedor cheque anulado"})
+    saldo_antes = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                       if s["id"] == tesoreria_banco)["saldo"]
+    pago = admin.post("/api/pagos/", json={
+        "proveedor": proveedor, "monto": 90, "fecha": "2026-09-01",
+        "tipo": "cheque propio", "referencia": "PROP-ANULA",
+        "vencimiento": "2026-09-30", "cuenta_tesoreria_id": tesoreria_banco,
+    }).json()
+    cheque = next(c for c in admin.get("/api/caja/chequera").json()
+                  if c["numcheque"] == "PROP-ANULA")
+    assert admin.post(f"/api/tesoreria/cheques/{cheque['id']}/marcar-debitado", json={
+        "cuenta_tesoreria_id": tesoreria_banco,
+        "fecha": "2026-09-30",
+    }).status_code == 200
+
+    anulacion = admin.delete(f"/api/pagos/{pago['ordpago']}")
+    assert anulacion.status_code == 200, anulacion.text
+    saldo_despues = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                         if s["id"] == tesoreria_banco)["saldo"]
+    assert saldo_despues == saldo_antes
+    cheque_final = next(c for c in admin.get("/api/caja/chequera").json()
+                        if c["id"] == cheque["id"])
+    assert cheque_final["pagado"].startswith("Anulado")
+    movimientos = admin.get("/api/tesoreria/movimientos", params={"cuenta_id": tesoreria_banco}).json()
+    debito = next(m for m in movimientos if m["origen_tipo"] == "debito_cheque"
+                  and m["origen_id"] == cheque["id"])
+    reversa = next(m for m in movimientos if m["origen_tipo"] == "reversa_debito_cheque"
+                   and m["origen_id"] == cheque["id"])
+    assert debito["estado"] == "reversado"
+    assert reversa["reversa_de"] == debito["id"]
+
+
+def test_movimiento_manual_usa_caja_concreta_y_su_borrado_deja_reversa(admin, tesoreria_caja):
+    saldo_antes = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                       if s["id"] == tesoreria_caja)["saldo"]
+    creado = admin.post("/api/caja/", json={
+        "fecha": "2026-09-03", "debe": 125, "haber": 0,
+        "referencia": "FONDO-1", "descripcion": "Fondo fijo",
+        "cuenta_tesoreria_id": tesoreria_caja,
+    })
+    assert creado.status_code == 200, creado.text
+    movimiento_id = creado.json()["id"]
+    saldo_con_fondo = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                           if s["id"] == tesoreria_caja)["saldo"]
+    assert saldo_con_fondo == saldo_antes + 125
+
+    borrado = admin.delete(f"/api/caja/{movimiento_id}")
+    assert borrado.status_code == 200, borrado.text
+    saldo_final = next(s for s in admin.get("/api/tesoreria/saldos").json()
+                       if s["id"] == tesoreria_caja)["saldo"]
+    assert saldo_final == saldo_antes
+    movimientos = admin.get("/api/tesoreria/movimientos", params={"cuenta_id": tesoreria_caja}).json()
+    original = next(m for m in movimientos if m["origen_tipo"] == "caja_manual"
+                    and m["origen_id"] == movimiento_id)
+    reversa = next(m for m in movimientos if m["origen_tipo"] == "reversa_caja_manual"
+                   and m["origen_id"] == movimiento_id)
+    assert original["estado"] == "reversado"
+    assert reversa["reversa_de"] == original["id"]
+
+
+def test_no_se_puede_borrar_solo_el_asiento_de_un_cobro(admin, cuit, tesoreria_caja):
+    cliente = cuit()
+    admin.post("/api/clientes/", json={"cuit": cliente, "nombre": "Cliente caja protegida"})
+    cobro = admin.post("/api/cobros/", json={
+        "cliente": cliente, "monto": 30, "fecha": "2026-09-03", "tipo": "efectivo",
+        "cuenta_tesoreria_id": tesoreria_caja,
+    }).json()
+    asiento = next(m for m in admin.get("/api/caja/").json()
+                   if m["referencia"] == f"COBRO {cobro['ordcobro']}")
+    intento = admin.delete(f"/api/caja/{asiento['id']}")
+    assert intento.status_code == 409
+    assert admin.delete(f"/api/cobros/{cobro['ordcobro']}").status_code == 200

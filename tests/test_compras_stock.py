@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, text
 
 from database import SessionLocal
 from migraciones import aplicar_migraciones
-from models import DevolucionCompraItem, ExistenciaDeposito, FacturaProveedor, MovimientoStock, StockMercaderia
+from models import DevolucionCompraItem, ExistenciaDeposito, FacturaProveedor, MovimientoStock, NCP, StockMercaderia
 
 
 _codigos = itertools.count(970001)
@@ -149,6 +149,81 @@ def test_devolucion_identifica_renglon_exacto_con_sku_repetido(admin, cuit):
     with SessionLocal() as db:
         assert db.query(DevolucionCompraItem).filter_by(compra_id=lineas[0]["compra_id"]).count() == 0
         assert db.query(DevolucionCompraItem).filter_by(compra_id=segunda["compra_id"]).count() == 1
+
+
+def test_devolucion_usa_precio_e_iva_historicos_y_bloquea_anulacion(admin, cuit):
+    proveedor, codigo = _preparar(admin, cuit)
+    factura_id = _compra(admin, proveedor, codigo, "DEV-HIST").json()["id"]
+    renglon = admin.get(f"/api/compras/{factura_id}/renglones").json()[0]
+
+    # El catalogo puede cambiar despues de comprar. La nota de credito debe
+    # seguir revirtiendo los valores de la factura original (200 + IVA 21%).
+    with SessionLocal() as db:
+        producto = db.query(StockMercaderia).filter_by(codigo=codigo).one()
+        producto.precom = 99900
+        producto.iva = 10.5
+        db.commit()
+
+    base = {
+        "proveedor_cuit": proveedor,
+        "fecha": "2026-09-02",
+        "factura_id": factura_id,
+        "motivo": "Mercaderia danada",
+        "items": [{
+            "compra_id": renglon["compra_id"], "codigo": codigo,
+            "producto": "Texto no confiable", "cantidad": 2, "precio": 999,
+        }],
+    }
+    alterada = admin.post("/api/devoluciones/", json=base)
+    assert alterada.status_code == 422
+    assert admin.get(f"/api/proveedores/{proveedor}").json()["saldo"] == 1210
+
+    base["items"][0]["precio"] = 200
+    correcta = admin.post("/api/devoluciones/", json=base)
+    assert correcta.status_code == 200, correcta.text
+    assert correcta.json()["subtotal"] == 400
+    assert correcta.json()["iva"] == 84
+    assert correcta.json()["total"] == 484
+    assert admin.get(f"/api/proveedores/{proveedor}").json()["saldo"] == 726
+
+    actualizado = admin.get(f"/api/compras/{factura_id}/renglones").json()[0]
+    assert actualizado["cantidad_devuelta"] == 2
+    assert actualizado["cantidad_disponible_devolver"] == 3
+    assert actualizado["iva_alicuota"] == 21
+    with SessionLocal() as db:
+        devolucion = db.query(DevolucionCompraItem).filter_by(
+            compra_id=renglon["compra_id"],
+        ).one()
+        nota = db.query(NCP).filter_by(id=devolucion.ncp_id).one()
+        assert devolucion.precio == 20000
+        assert "Mercaderia danada" in nota.descripcion
+
+    # Anular la factura despues de emitir una NC por devolucion descontaria la
+    # deuda dos veces. El historial compuesto debe conservarse.
+    anulacion = admin.post(f"/api/compras/{factura_id}/anular")
+    assert anulacion.status_code == 409
+    assert admin.get(f"/api/compras/{factura_id}").json()["estado"] == "confirmada"
+
+
+def test_devolucion_rechaza_renglon_repetido_en_el_mismo_payload(admin, cuit):
+    proveedor, codigo = _preparar(admin, cuit)
+    factura_id = _compra(admin, proveedor, codigo, "DEV-DUP").json()["id"]
+    compra_id = admin.get(f"/api/compras/{factura_id}/renglones").json()[0]["compra_id"]
+    payload = {
+        "proveedor_cuit": proveedor,
+        "fecha": "2026-09-02",
+        "factura_id": factura_id,
+        "items": [
+            {"compra_id": compra_id, "codigo": codigo, "cantidad": 3, "precio": 200},
+            {"compra_id": compra_id, "codigo": codigo, "cantidad": 3, "precio": 200},
+        ],
+    }
+    antes_stock = admin.get(f"/api/stock/{codigo}").json()["cantidad"]
+    antes_saldo = admin.get(f"/api/proveedores/{proveedor}").json()["saldo"]
+    respuesta = admin.post("/api/devoluciones/", json=payload)
+    assert respuesta.status_code == 422
+    assert admin.get(f"/api/stock/{codigo}").json()["cantidad"] == antes_stock
+    assert admin.get(f"/api/proveedores/{proveedor}").json()["saldo"] == antes_saldo
 
 
 def test_nota_credito_financiera_no_mueve_stock(admin, cuit):

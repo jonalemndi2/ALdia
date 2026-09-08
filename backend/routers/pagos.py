@@ -8,6 +8,7 @@ from typing import List
 
 import saldos
 import medios_de_pago
+from libro_tesoreria import revertir as revertir_movimiento
 from database import get_db
 from models import Pago, Proveedor, Caja, Chequera, CuentaTesoreria, MovimientoTesoreria
 from schemas import PagoCreate, PagoResponse
@@ -153,6 +154,39 @@ def delete_pago(ordpago: int, db: Session = Depends(get_db)):
     if not pago:
         raise HTTPException(status_code=404, detail="Pago no encontrado")
 
+    # El cheque propio emitido tambien es parte de la orden de pago. Antes la
+    # orden se anulaba pero el cheque seguia pendiente (o incluso debitado),
+    # dejando una obligacion bancaria sin proveedor que la explicara.
+    cheque_propio = db.query(Chequera).filter(
+        Chequera.tipo == 0,
+        Chequera.descripcion == f"Pago N° {ordpago}",
+    ).first()
+    if cheque_propio:
+        estado_cheque = (cheque_propio.pagado or "").strip()
+        if estado_cheque.startswith("Debitado"):
+            debito = db.query(MovimientoTesoreria).filter(
+                MovimientoTesoreria.origen_tipo == "debito_cheque",
+                MovimientoTesoreria.origen_id == cheque_propio.id,
+                MovimientoTesoreria.estado == "confirmado",
+            ).first()
+            if not debito:
+                raise HTTPException(
+                    status_code=409,
+                    detail="El cheque figura debitado pero no se encontro su movimiento de tesoreria",
+                )
+            revertir_movimiento(
+                db, debito, fecha=pago.fecha,
+                origen_tipo="reversa_debito_cheque", origen_id=cheque_propio.id,
+                referencia=f"ANULA DEBITO CHEQUE {cheque_propio.id}",
+                descripcion=f"Reversa por anulacion del pago N° {ordpago}",
+            )
+        elif estado_cheque:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede anular el pago: el cheque tiene estado '{estado_cheque}'",
+            )
+        cheque_propio.pagado = f"Anulado {pago.fecha}"
+
     saldos.aplicar_a_proveedor(db, pago.proveedor, +(pago.monto or 0))
 
     mov = db.query(Caja).filter(Caja.referencia == f"PAGO {ordpago}").first()
@@ -164,13 +198,12 @@ def delete_pago(ordpago: int, db: Session = Depends(get_db)):
         MovimientoTesoreria.estado == "confirmado",
     ).first()
     if tesoreria:
-        tesoreria.estado = "reversado"
-        db.add(MovimientoTesoreria(
-            cuenta_id=tesoreria.cuenta_id, fecha=pago.fecha, sentido="ingreso",
-            monto=tesoreria.monto, origen_tipo="reversa_pago", origen_id=ordpago,
-            referencia=f"ANULA PAGO {ordpago}", descripcion="Reversa auditable de pago",
-            estado="confirmado", reversa_de=tesoreria.id,
-        ))
+        revertir_movimiento(
+            db, tesoreria, fecha=pago.fecha,
+            origen_tipo="reversa_pago", origen_id=ordpago,
+            referencia=f"ANULA PAGO {ordpago}",
+            descripcion="Reversa auditable de pago",
+        )
 
     # Si se habia endosado un cheque de tercero, vuelve a quedar disponible.
     endosado = db.query(Chequera).filter(

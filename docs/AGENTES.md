@@ -109,7 +109,7 @@ la corrección en el cuerpo original y **reejecuta la misma petición**.
 Se guarda la petición y no una llamada a una función a propósito: al reejecutarse
 pasa de nuevo por permisos, validaciones, auditoría e idempotencia, en vez de
 abrir un camino paralelo con reglas propias que se desincronice. Y funciona para
-las 47 herramientas sin que ninguna tenga que saber que esto existe.
+las 59 herramientas sin que ninguna tenga que saber que esto existe.
 
 ---
 
@@ -122,7 +122,7 @@ específicas por unas pocas de alto nivel, tipo
 `consultar_negocio(query_type, filtros)`.
 
 **No lo recomiendo, al menos no antes de medirlo.** El razonamiento es que 44
-herramientas (hoy 47) saturan al modelo; pero una mega-herramienta con un `enum` de 20
+herramientas (hoy 59) saturan al modelo; pero una mega-herramienta con un `enum` de 20
 valores no elimina la elección, la **esconde dentro de un parámetro**, donde el
 modelo pierde justamente lo que lo ayuda a acertar: una descripción propia por
 cada operación, con sus parámetros documentados y sus casos de error.
@@ -134,7 +134,7 @@ Lo razonable es al revés: **primero medir**. Ejercitar los flujos reales
 (facturar, cobrar con cheque, cargar factura de proveedor) y ver si el agente
 elige bien. Si se equivoca, ver *en qué* se equivoca — puede ser un problema de
 descripciones ambiguas entre dos herramientas parecidas, que se arregla
-reescribiendo esas dos, no rediseñando las 44.
+reescribiendo esas dos, no rediseñando las 59.
 
 ### Sobre la reversión granular
 

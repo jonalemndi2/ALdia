@@ -93,7 +93,19 @@ const Caja = {
     },
 
     async nuevoMovimiento(tipo) {
+        let cuentas = [];
+        try {
+            cuentas = (await API.tesoreria.cuentas()).filter(c => c.clase === 'caja_chica');
+        } catch (err) {
+            Utils.toast('No se pudieron cargar las cajas: ' + err.message, 'Error', 'error');
+            return;
+        }
+        if (cuentas.length === 0) {
+            Utils.toast('Primero cree una caja chica en Tesorería', 'Configuración requerida', 'error');
+            return;
+        }
         const data = await Utils.multiInput(`Nuevo ${tipo === 'debe' ? 'Ingreso' : 'Egreso'}`, [
+            { name: 'cuenta', label: 'Caja chica', options: cuentas.map(c => ({ value: c.id, label: c.nombre })) },
             { name: 'monto', label: 'Monto', type: 'number' },
             { name: 'desc', label: 'Descripción', type: 'text' },
             { name: 'ref', label: 'Referencia', type: 'text' }
@@ -112,7 +124,8 @@ const Caja = {
                 fecha: Utils.today(),
                 debe: tipo === 'debe' ? monto : 0,
                 haber: tipo === 'haber' ? monto : 0,
-                descripcion: data.desc || ''
+                descripcion: data.desc || '',
+                cuenta_tesoreria_id: parseInt(data.cuenta, 10)
             });
             Utils.toast('Movimiento registrado', 'Caja', 'success');
             await this.filtrarCaja();

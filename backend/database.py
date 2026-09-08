@@ -52,8 +52,7 @@ import os
 from contextvars import ContextVar
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Ruta de la base de datos SQLite en disco.
 # Por defecto, `backend/aldia.db` (el comportamiento de siempre). Se puede

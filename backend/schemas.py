@@ -1,7 +1,7 @@
 """
 schemas.py - Schemas Pydantic para validación de datos
 """
-from pydantic import BaseModel, model_validator, field_validator, Field
+from pydantic import BaseModel, ConfigDict, model_validator, field_validator, Field
 from typing import Optional, List
 
 # Capa de dinero: la base guarda CENTAVOS (enteros), la API habla PESOS.
@@ -123,6 +123,8 @@ class UsuarioCreate(BaseModel):
 
 
 class UsuarioResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     rol: str
@@ -132,10 +134,6 @@ class UsuarioResponse(BaseModel):
     # True si esta cuenta puede declarar por quien actua. Se expone para que el
     # administrador vea de un vistazo quien tiene la llave de impersonacion.
     puede_actuar_por: bool = False
-
-    class Config:
-        from_attributes = True
-
 
 class CambioPassword(BaseModel):
     password_actual: str
@@ -230,6 +228,8 @@ class ClienteUpdate(BaseModel):
         return v if v is None else validar_condicion_iva(v)
 
 class ClienteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     # Identidad propia, independiente del identificador fiscal: es lo que
     # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
     id: Optional[int] = None
@@ -251,10 +251,6 @@ class ClienteResponse(BaseModel):
     region: Optional[str] = ""
     postal_code: Optional[str] = ""
     country_code: Optional[str] = ""
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== PROVEEDORES ====================
 class ProveedorCreate(BaseModel):
@@ -311,6 +307,8 @@ class ProveedorUpdate(BaseModel):
     elegible_1099: Optional[bool] = None
 
 class ProveedorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     # Identidad propia, independiente del identificador fiscal: es lo que
     # permite corregir un CUIT o un EIN mal cargado sin perder los movimientos.
     id: Optional[int] = None
@@ -336,10 +334,6 @@ class ProveedorResponse(BaseModel):
     w9_fecha: Optional[str] = ""
     elegible_1099: Optional[bool] = False
     saldo: DineroSalida
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== STOCK ====================
 class StockCreate(BaseModel):
@@ -377,6 +371,8 @@ class StockUpdate(BaseModel):
         return v if v is None else validar_iva(v)
 
 class StockResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     codigo: int
     producto: str
     cantidad: float
@@ -384,10 +380,6 @@ class StockResponse(BaseModel):
     preven: DineroSalida
     iva: float          # ALICUOTA %
     precom: DineroSalida
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== FACTURAS ====================
 class FacturaItemRef(BaseModel):
@@ -433,6 +425,8 @@ class FacturaCreate(BaseModel):
         return self
 
 class FacturaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     facturanumero: int
     cliente: str
     fecha: str
@@ -448,10 +442,6 @@ class FacturaResponse(BaseModel):
     resultado: Optional[str] = None
     nro_comprobante_afip: Optional[int] = None
     afip_observaciones: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== AFIP (factura electrónica) ====================
 class SolicitudCAE(BaseModel):
@@ -539,17 +529,17 @@ class RemitoCreate(BaseModel):
 
 
 class RemitoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     cliente: Optional[str]
     fecha: Optional[str]
     total: DineroSalida
     iva: DineroSalida
 
-    class Config:
-        from_attributes = True
-
-
 class RemitoNoFacturadoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     """Linea de remito sin facturar, tal como la muestra la grilla del frontend."""
     id: Optional[int] = None
     nmov: Optional[int] = None
@@ -560,10 +550,6 @@ class RemitoNoFacturadoResponse(BaseModel):
     unidad: Optional[str] = None
     cliente: Optional[str] = None
     fecha: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== VENTAS ====================
 class VentaCreate(BaseModel):
@@ -578,6 +564,8 @@ class VentaCreate(BaseModel):
     fecha: str
 
 class VentaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     codigo: int
     producto: str
@@ -589,10 +577,6 @@ class VentaResponse(BaseModel):
     cliente: str
     fecha: str
 
-    class Config:
-        from_attributes = True
-
-
 # ==================== COMPRAS / DEVOLUCIONES ====================
 class CompraItem(BaseModel):
     codigo: int
@@ -602,7 +586,11 @@ class CompraItem(BaseModel):
 
 
 class DevolucionItem(CompraItem):
-    compra_id: int
+    compra_id: int = Field(gt=0)
+    cantidad: float = Field(gt=0)
+    # El precio es informativo: si viene, se contrasta con el origen; si se
+    # omite, el backend toma el historico del renglon de compra.
+    precio: DineroEntradaOpc = None
 
 
 class CompraCreate(BaseModel):
@@ -634,8 +622,9 @@ class DevolucionCreate(BaseModel):
     proveedor: Optional[str] = None
     proveedor_cuit: Optional[str] = None
     fecha: str
-    items: List[DevolucionItem] = []
+    items: List[DevolucionItem] = Field(min_length=1)
     factura_id: Optional[int] = None
+    motivo: str = ""
 
     @model_validator(mode="after")
     def _normalizar(self):
@@ -643,6 +632,8 @@ class DevolucionCreate(BaseModel):
             self.proveedor = self.proveedor_cuit
         if not self.proveedor:
             raise ValueError("Se requiere 'proveedor' (o 'proveedor_cuit')")
+        if self.factura_id is not None and self.factura_id <= 0:
+            raise ValueError("factura_id debe ser positivo")
         return self
 
 
@@ -685,16 +676,14 @@ class CobroCreate(BaseModel):
         return v
 
 class CobroResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     ordcobro: int
     cliente: str
     monto: DineroSalida
     fecha: str
     tipo: str
     referencia: str
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== PAGOS ====================
 class PagoCreate(BaseModel):
@@ -721,16 +710,14 @@ class PagoCreate(BaseModel):
         return v
 
 class PagoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     ordpago: int
     proveedor: str
     monto: DineroSalida
     fecha: str
     tipo: str
     referencia: str
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== CAJA ====================
 class CajaCreate(BaseModel):
@@ -742,6 +729,9 @@ class CajaCreate(BaseModel):
     debe: DineroEntrada = Field(default=0, ge=0)
     haber: DineroEntrada = Field(default=0, ge=0)
     descripcion: str = ""
+    # Ubicacion concreta para el libro de tesoreria. Se mantiene opcional para
+    # clientes antiguos, pero la WebUI y el MCP actuales siempre la envian.
+    cuenta_tesoreria_id: Optional[int] = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _validar_asiento(self):
@@ -752,16 +742,14 @@ class CajaCreate(BaseModel):
         return self
 
 class CajaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     referencia: str
     fecha: str
     debe: DineroSalida
     haber: DineroSalida
     descripcion: str
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== GASTOS ====================
 class GastoConceptoCreate(BaseModel):
@@ -790,6 +778,8 @@ class GastoCreate(BaseModel):
     items: List[GastoConceptoCreate] = []
 
 class GastoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     proveedor: str
     numfactura: str
@@ -799,10 +789,6 @@ class GastoResponse(BaseModel):
     total: DineroSalida
     descripcion: str
     cdc: int
-
-    class Config:
-        from_attributes = True
-
 
 # ==================== LOGIN ====================
 class LoginRequest(BaseModel):
@@ -836,8 +822,7 @@ class ModuloUpdate(BaseModel):
     orden: Optional[int] = None
 
 class ModuloResponse(ModuloBase):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== CONFIGURACION ====================

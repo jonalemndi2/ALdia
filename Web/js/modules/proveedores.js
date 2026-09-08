@@ -298,6 +298,7 @@ const Proveedores = {
     /** Devolución a Proveedores (equivale a Devolucion.frm) */
     devolucion() {
         this._compraItems = [];
+        this._devolucionRenglones = [];
         const html = `
             <div class="section-header" style="background:linear-gradient(135deg,#b71c1c,#d32f2f)">
                 <h4><i class="bi bi-arrow-return-left"></i> Devolución a Proveedores</h4>
@@ -315,9 +316,8 @@ const Proveedores = {
                                 <input type="date" class="form-control form-control-sm" id="devFecha" value="${Utils.today()}">
                             </div>
                             <div class="col-6">
-                                <label class="form-check-label mt-4">
-                                    <input type="checkbox" class="form-check-input" id="devSinIVA"> Sin IVA
-                                </label>
+                                <label class="form-label-sm">Motivo</label>
+                                <input type="text" class="form-control form-control-sm" id="devMotivo" placeholder="Falla, vencimiento, error...">
                             </div>
                         </div>
                         <label class="form-label-sm mt-2">Factura de compra origen (ID interno)</label>
@@ -344,8 +344,8 @@ const Proveedores = {
                                 <input type="number" class="form-control form-control-sm" id="devCant" value="1">
                             </div>
                             <div class="col-3">
-                                <label class="form-label-sm">Precio</label>
-                                <input type="number" class="form-control form-control-sm" id="devPrecio" step="0.01">
+                                <label class="form-label-sm">Precio original</label>
+                                <input type="number" class="form-control form-control-sm" id="devPrecio" step="0.01" readonly>
                             </div>
                             <div class="col-3 d-flex align-items-end">
                                                 <button class="btn btn-sm btn-danger w-100" data-action="Proveedores.addDevItem">
@@ -372,9 +372,7 @@ const Proveedores = {
         `;
         Utils.showView(html);
         Utils.searchEntity('proveedores', 'devProveedor');
-        Utils.searchProduct('devProd', (p) => {
-            document.getElementById('devPrecio').value = p.precom || p.preven;
-        });
+        Utils.searchProduct('devProd', () => {});
     },
 
     async verRenglonesDevolucion() {
@@ -382,8 +380,11 @@ const Proveedores = {
         if (!facturaId) { Utils.toast('Indique la factura de compra origen', 'Error', 'error'); return; }
         try {
             const lineas = await API.get(`/compras/${facturaId}/renglones`);
+            this._devolucionRenglones = lineas;
             document.getElementById('devRenglonesAyuda').innerHTML = lineas.map(l =>
-                `#${Utils.escapeHtml(String(l.compra_id))} · ${Utils.escapeHtml(String(l.producto))} · ${Utils.escapeHtml(String(l.cantidad))}`
+                `#${Utils.escapeHtml(String(l.compra_id))} · ${Utils.escapeHtml(String(l.producto))} · ` +
+                `disponible ${Utils.escapeHtml(String(l.cantidad_disponible_devolver))} · ` +
+                `${Utils.escapeHtml(Utils.formatCurrency(l.precio))} + ${Utils.escapeHtml(String(l.iva_alicuota || 0))}%`
             ).join('<br>') || 'La factura no tiene renglones.';
         } catch (err) {
             Utils.toast('No se pudieron leer los renglones: ' + err.message, 'Error', 'error');
@@ -396,18 +397,36 @@ const Proveedores = {
         if (!codigo) { Utils.toast('Seleccione un producto', 'Error', 'error'); return; }
 
         const cant = parseFloat(document.getElementById('devCant').value) || 0;
-        const precio = parseFloat(document.getElementById('devPrecio').value) || 0;
         const compraId = parseInt(document.getElementById('devCompraId').value, 10);
         if (!compraId) { Utils.toast('Indique el ID del renglón de la compra', 'Error', 'error'); return; }
-        const sinIVA = document.getElementById('devSinIVA').checked;
+        const origen = (this._devolucionRenglones || []).find(l => Number(l.compra_id) === compraId);
+        if (!origen) {
+            Utils.toast('Primero consulte los renglones de la factura y elija uno de ellos', 'Error', 'error');
+            return;
+        }
+        if (Number(origen.codigo) !== Number(codigo)) {
+            Utils.toast('El producto elegido no coincide con el renglón de compra', 'Error', 'error');
+            return;
+        }
+        if (this._compraItems.some(i => i.compra_id === compraId)) {
+            Utils.toast('Ese renglón ya fue agregado a la devolución', 'Error', 'error');
+            return;
+        }
+        if (cant <= 0 || cant > Number(origen.cantidad_disponible_devolver || 0)) {
+            Utils.toast('La cantidad supera lo disponible para devolver en ese renglón', 'Error', 'error');
+            return;
+        }
+        const precio = Number(origen.precio || 0);
+        const iva = Number(origen.iva_alicuota || 0);
+        document.getElementById('devPrecio').value = precio;
 
         try {
             const prod = await API.stock.getById(codigo);
 
             this._compraItems.push({
                 compra_id: compraId, codigo: prod.codigo, producto: prod.producto, cantidad: cant,
-                precio: precio, iva: sinIVA ? 0 : prod.iva, unidad: prod.unidad,
-                subtotal: cant * precio, ivaTotal: sinIVA ? 0 : cant * precio * (prod.iva / 100)
+                precio: precio, iva: iva, unidad: prod.unidad,
+                subtotal: cant * precio, ivaTotal: cant * precio * (iva / 100)
             });
 
             prodInput.value = '';
@@ -462,6 +481,7 @@ const Proveedores = {
                 proveedor_cuit: provCuit,
                 fecha: fecha,
                 factura_id: facturaId,
+                motivo: document.getElementById('devMotivo').value || '',
                 items: this._compraItems.map(item => ({
                     compra_id: item.compra_id,
                     codigo: item.codigo,

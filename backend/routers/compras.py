@@ -5,10 +5,10 @@ El frontend (Web/js/modules/proveedores.js) postea a /api/compras/ y
 /api/devoluciones/. Antes no existia ningun router montado en esas rutas, por lo
 que el mount estatico de "/" respondia 405. Aca se exponen ambos endpoints.
 """
-from datetime import datetime
 import hashlib
 import json
 from fastapi import APIRouter, Depends, HTTPException, Header
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import saldos
@@ -20,6 +20,7 @@ from models import (
 )
 from schemas import CompraCreate, DevolucionCreate, NotaCreditoProveedorCreate
 from secuencias import siguiente_numero
+from tiempo import ahora_utc
 
 router = APIRouter()
 router_devoluciones = APIRouter()
@@ -243,9 +244,26 @@ def renglones_compra(factura_id: int, db: Session = Depends(get_db)):
     factura = db.query(FacturaProveedor).filter(FacturaProveedor.id == factura_id).first()
     if not factura:
         raise HTTPException(status_code=404, detail="Factura de compra no encontrada")
-    return [{"compra_id": r.id, "codigo": r.codigo, "producto": r.producto,
-             "cantidad": r.cantidad, "precio": a_pesos(r.precio)}
-            for r in db.query(Compra).filter(Compra.factprov_id == factura_id).order_by(Compra.id).all()]
+    devueltas = dict(db.query(
+        DevolucionCompraItem.compra_id,
+        func.coalesce(func.sum(DevolucionCompraItem.cantidad), 0.0),
+    ).join(Compra, DevolucionCompraItem.compra_id == Compra.id).filter(
+        Compra.factprov_id == factura_id,
+    ).group_by(DevolucionCompraItem.compra_id).all())
+    return [{
+        "compra_id": r.id,
+        "codigo": r.codigo,
+        "producto": r.producto,
+        "cantidad": r.cantidad,
+        "cantidad_devuelta": float(devueltas.get(r.id, 0.0) or 0.0),
+        "cantidad_disponible_devolver": max(
+            0.0, float(r.cantidad or 0.0) - float(devueltas.get(r.id, 0.0) or 0.0),
+        ),
+        "precio": a_pesos(r.precio),
+        "iva_alicuota": r.iva_alicuota,
+    } for r in db.query(Compra).filter(
+        Compra.factprov_id == factura_id,
+    ).order_by(Compra.id).all()]
 
 
 @router.post("/{factura_id}/anular")
@@ -256,8 +274,19 @@ def anular_compra(factura_id: int, db: Session = Depends(get_db)):
     if cabecera.estado == "anulada":
         return {"id": cabecera.id, "estado": "anulada"}
     if cabecera.estado == "borrador":
-        cabecera.estado = "anulada"; cabecera.anulada_en = datetime.utcnow(); db.commit()
+        cabecera.estado = "anulada"; cabecera.anulada_en = ahora_utc(); db.commit()
         return {"id": cabecera.id, "estado": "anulada"}
+    devoluciones = db.query(DevolucionCompraItem).join(
+        Compra, DevolucionCompraItem.compra_id == Compra.id,
+    ).filter(Compra.factprov_id == factura_id).count()
+    if devoluciones:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede anular la compra: ya tiene devoluciones vinculadas. "
+                "La factura y sus notas de credito deben conservarse como historial."
+            ),
+        )
     deposito = _deposito_principal(db)
     movimientos = db.query(MovimientoStock).filter(
         MovimientoStock.origen_tipo == "factura_compra", MovimientoStock.origen_id == factura_id
@@ -278,7 +307,7 @@ def anular_compra(factura_id: int, db: Session = Depends(get_db)):
             ExistenciaDeposito.codigo == original.codigo).first()
         producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == original.codigo).first()
         db.add(MovimientoStock(
-            deposito_id=original.deposito_id, codigo=original.codigo, fecha=datetime.utcnow().date().isoformat(),
+            deposito_id=original.deposito_id, codigo=original.codigo, fecha=ahora_utc().date().isoformat(),
             sentido="salida", cantidad=original.cantidad, costo_unitario=original.costo_unitario,
             costo_anterior=existencia.costo_promedio, costo_resultante=original.costo_anterior,
             origen_tipo="anulacion_factura_compra", origen_id=factura_id,
@@ -287,7 +316,7 @@ def anular_compra(factura_id: int, db: Session = Depends(get_db)):
         existencia.cantidad -= original.cantidad; existencia.costo_promedio = original.costo_anterior
         producto.cantidad = existencia.cantidad; producto.precom = existencia.costo_promedio
     saldos.aplicar_a_proveedor(db, cabecera.proveedor, -(cabecera.total or 0))
-    cabecera.estado = "anulada"; cabecera.anulada_en = datetime.utcnow(); db.commit()
+    cabecera.estado = "anulada"; cabecera.anulada_en = ahora_utc(); db.commit()
     return {"id": cabecera.id, "estado": "anulada"}
 
 
@@ -321,37 +350,60 @@ def create_devolucion(data: DevolucionCreate, db: Session = Depends(get_db)):
     if not factura:
         raise HTTPException(status_code=404, detail="Factura confirmada del proveedor no encontrada")
 
-    # Aritmetica en CENTAVOS enteros (ver backend/dinero.py).
+    # La nota de credito se valua SIEMPRE con el precio y la alicuota que quedaron
+    # congelados en el renglon de compra. Usar el precio enviado por el cliente o
+    # el IVA actual del articulo permitia acreditar un importe distinto del que
+    # el proveedor habia facturado.
     subtotal = 0
     iva_total = 0
+    origenes = {}
     for item in data.items:
-        linea = multiplicar(item.precio, item.cantidad)
-        subtotal += linea
+        if item.compra_id in origenes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"El renglon {item.compra_id} esta repetido en la devolucion",
+            )
         compra = db.query(Compra).filter(Compra.id == item.compra_id,
                                          Compra.factprov_id == factura.id).first()
         if not compra:
             raise HTTPException(status_code=422, detail=f"El renglón {item.compra_id} no pertenece a la factura")
         if compra.codigo != item.codigo:
             raise HTTPException(status_code=422, detail="El producto no coincide con el renglón de compra")
+        if item.precio is not None and int(item.precio) != int(compra.precio):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"El precio del renglon {item.compra_id} no coincide con la compra "
+                    "original; use el precio informado por GET /api/compras/{factura_id}"
+                ),
+            )
         devuelto = db.query(DevolucionCompraItem).filter(DevolucionCompraItem.compra_id == compra.id).all()
         if sum(d.cantidad for d in devuelto) + item.cantidad > compra.cantidad + 1e-9:
             raise HTTPException(status_code=409, detail=f"La devolución supera lo comprado para {item.codigo}")
         producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
         if not producto or (producto.cantidad or 0) + 1e-9 < item.cantidad:
             raise HTTPException(status_code=409, detail=f"Stock insuficiente para devolver {item.codigo}")
-        iva_pct = producto.iva if producto and producto.iva is not None else 21.0
+        linea = multiplicar(compra.precio, item.cantidad)
+        subtotal += linea
+        iva_pct = compra.iva_alicuota if compra.iva_alicuota is not None else 0.0
         iva_total += aplicar_alicuota(linea, iva_pct)
+        origenes[item.compra_id] = compra
 
     total = subtotal + iva_total
     saldos.aplicar_a_proveedor(db, proveedor.cuit, -total)
 
     ncp_id = siguiente_numero(db, "nota_credito_proveedor")
-    detalle = ", ".join(f"{i.producto} x{i.cantidad}" for i in data.items)
+    detalle = ", ".join(
+        f"{origenes[i.compra_id].producto or i.producto} x{i.cantidad}"
+        for i in data.items
+    )
+    motivo = data.motivo.strip()
+    prefijo = f"Devolucion ({motivo})" if motivo else "Devolucion"
     db.add(NCP(
         id=ncp_id,
         proveedor=data.proveedor,
         fecha=data.fecha,
-        descripcion=f"Devolución: {detalle}"[:500],
+        descripcion=f"{prefijo}: {detalle}"[:500],
         # El IMPORTE de la devolucion ahora queda registrado. Antes solo se
         # restaba del saldo del proveedor y no se guardaba en ningun lado, con
         # lo cual el saldo no se podia recalcular desde los movimientos y toda
@@ -361,14 +413,13 @@ def create_devolucion(data: DevolucionCreate, db: Session = Depends(get_db)):
     db.flush()
     deposito = _deposito_principal(db)
     for item in data.items:
-        compra = db.query(Compra).filter(Compra.id == item.compra_id,
-                                         Compra.factprov_id == factura.id).one()
+        compra = origenes[item.compra_id]
         producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
         existencia = _existencia(db, deposito.id, producto)
         if existencia.cantidad + 1e-9 < item.cantidad:
             raise HTTPException(status_code=409, detail=f"Stock insuficiente en depósito para devolver {item.codigo}")
         db.add(DevolucionCompraItem(ncp_id=ncp_id, compra_id=compra.id, codigo=item.codigo,
-                                    cantidad=item.cantidad, precio=item.precio))
+                                    cantidad=item.cantidad, precio=compra.precio))
         db.flush()
         dev = db.query(DevolucionCompraItem).filter(DevolucionCompraItem.ncp_id == ncp_id,
                                                     DevolucionCompraItem.compra_id == compra.id).first()

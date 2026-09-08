@@ -36,8 +36,16 @@ class ApiFalsa:
 
     def get(self, ruta, **params):
         self.llamadas.append(("GET", ruta, params, None, None))
+        if ruta == "/api/tesoreria/cuentas":
+            return [{"id": 5, "nombre": "Caja", "clase": "caja_chica", "activa": True}]
         if ruta.startswith("/api/compras/") and ruta != "/api/compras/":
-            return {"id": 8, "proveedor": "302", "total": 12, "estado": "borrador"}
+            return {
+                "id": 8, "proveedor": "302", "total": 12, "estado": "borrador",
+                "renglones": [{
+                    "compra_id": 91, "codigo": 1, "cantidad": 2,
+                    "cantidad_disponible_devolver": 2, "precio": 3,
+                }],
+            }
         if ruta.endswith("cuenta-corriente"):
             return {"moneda": "ARS", "movimientos": [{"tipo": "Compra"}]}
         return []
@@ -85,12 +93,14 @@ def test_devolucion_envia_factura_y_renglon(srv, monkeypatch):
     falsa = ApiFalsa(); monkeypatch.setattr(srv, "api", lambda: falsa)
     fn(srv.record_vendor_return)(
         "Proveedor", [{"compra_id": 91, "codigo": 1, "cantidad": 1, "precio": 3}],
-        factura_id=8, confirmar=True, operation_id="dev-1",
+        factura_id=8, motivo="fallado", confirmar=True, operation_id="dev-1",
     )
     llamada = next(x for x in falsa.llamadas if x[0] == "POST")
     assert llamada[1] == "/api/devoluciones/"
     assert llamada[3]["factura_id"] == 8
     assert llamada[3]["items"][0]["compra_id"] == 91
+    assert llamada[3]["items"][0]["precio"] == 3
+    assert llamada[3]["motivo"] == "fallado"
 
 
 def test_compras_y_cuenta_corriente_no_usen_admin(srv, monkeypatch):
@@ -129,3 +139,12 @@ def test_gasto_describe_devengamiento_sin_egreso(srv, monkeypatch):
     salida = fn(srv.record_expense)("Proveedor", [{"descripcion": "Luz", "monto": 10}],
                                     confirmar=True)
     assert "No salio dinero" in salida["nota"]
+
+
+def test_movimiento_manual_envia_caja_concreta(srv, monkeypatch):
+    falsa = ApiFalsa(); monkeypatch.setattr(srv, "api", lambda: falsa)
+    salida = fn(srv.record_cash_movement)("Fondo fijo", ingreso=10, confirmar=True)
+    llamada = next(x for x in falsa.llamadas if x[0] == "POST")
+    assert llamada[1] == "/api/caja/"
+    assert llamada[3]["cuenta_tesoreria_id"] == 5
+    assert salida["cuenta_tesoreria_id"] == 5

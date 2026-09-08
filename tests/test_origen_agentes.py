@@ -71,7 +71,8 @@ class TestLasCabecerasNoAutorizan:
     # Scope de clase: el usuario se crea UNA vez. Con scope de funcion, la
     # segunda prueba intenta registrar el mismo nombre y falla por duplicado.
     @pytest.fixture(scope="class")
-    def token_consulta(self, admin, app_cliente):
+    @classmethod
+    def token_consulta(cls, admin, app_cliente):  # noqa: ARG003
         """Un canal de consulta: rol auditor, lee todo y no escribe nada."""
         provisoria, definitiva = "clave-provisoria-bot", "clave-definitiva-bot"
         admin.post("/api/auth/register",
@@ -149,7 +150,8 @@ class TestActorYPermisos:
     """
 
     @pytest.fixture(scope="class")
-    def deposito(self, admin, app_cliente):
+    @classmethod
+    def deposito(cls, admin, app_cliente):  # noqa: ARG003
         """Un empleado de depósito: solo stock, nada de caja."""
         prov, defi = "clave-provisoria-dep", "clave-definitiva-dep"
         admin.post("/api/auth/register",

@@ -281,11 +281,11 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `create_invoice`            | Factura remitos pendientes y/o artículos sin remito; calcula IVA y totales; carga la deuda al cliente. |
 | `record_payment`           | Cobro de cliente: baja el saldo y entra a caja (o a la chequera si es cheque). |
 | `record_vendor_payment`            | Pago a proveedor: baja la deuda y sale de caja (o emite/endosa cheque).      |
-| `record_cash_movement` | Ingreso o egreso manual de caja (fondo fijo, retiro, ajuste de arqueo).      |
+| `record_cash_movement` | Ingreso o egreso manual asociado a una caja chica concreta.                 |
 | `record_expense`              | Devenga una factura de gasto; el dinero sale sólo al pagarla.                |
 | `record_purchase`          | Guarda borrador o confirma una compra; sólo confirmada mueve stock/deuda.     |
 | `confirm_purchase` | Confirma un borrador y recién entonces mueve stock y deuda.                              |
-| `record_vendor_return` | Devolución física referenciada a factura y renglón de compra.                         |
+| `record_vendor_return` | Devolución física valuada con precio e impuesto históricos del renglón de compra. |
 | `record_vendor_credit_note` | Nota de crédito financiera sin movimiento de stock.                                |
 | `create_treasury_account` | Alta de caja chica o cuenta bancaria concreta.                                      |
 | `deposit_received_check` / `mark_own_check_debited` | Depósito y conciliación bancaria de cheques.              |
@@ -295,8 +295,8 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | Herramienta              | Qué hace                                                                |
 | ------------------------ | ----------------------------------------------------------------------- |
 | `void_invoice`         | Borra la factura, revierte la deuda y libera los remitos.                |
-| `void_payment`           | Borra el cobro, devuelve el saldo al cliente y quita el ingreso de caja. |
-| `void_vendor_payment`            | Borra el pago, devuelve la deuda y libera el cheque endosado.            |
+| `void_payment`           | Anula el cobro y también cancela o revierte el cheque asociado.       |
+| `void_vendor_payment`    | Anula el pago y libera/cancela su cheque, revirtiendo el débito si corresponde. |
 | `void_expense`           | Borra el gasto, revierte la deuda y el egreso de caja.                   |
 | `delete_cash_movement` | Borra un movimiento manual de caja.                                      |
 | `void_purchase` | Anula conservando cabecera y renglones, con reversas auditables de stock/deuda. |

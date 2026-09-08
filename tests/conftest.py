@@ -39,7 +39,9 @@ _TMP = tempfile.mkdtemp(prefix="aldia_test_")
 RUTA_DB = os.path.join(_TMP, f"prueba_{uuid.uuid4().hex[:8]}.db")
 
 os.environ["ALDIA_DB"] = RUTA_DB
-os.environ["ALDIA_SECRET_KEY"] = "clave-solo-para-pruebas"
+# HS256 recomienda al menos 32 bytes. Las pruebas no deben acostumbrarnos a
+# ignorar el mismo aviso que en produccion indicaria una clave debil.
+os.environ["ALDIA_SECRET_KEY"] = "clave-solo-para-pruebas-con-32-bytes"
 os.environ["AFIP_HABILITADO"] = "no"
 # Que ninguna prueba dispare la copia de seguridad del arranque.
 os.environ["ALDIA_SIN_RESPALDO"] = "1"

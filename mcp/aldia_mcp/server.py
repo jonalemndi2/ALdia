@@ -1471,6 +1471,8 @@ def record_vendor_payment(
         "- ingreso: importe que ENTRA a la caja (positivo).\n"
         "- egreso: importe que SALE de la caja (positivo).\n"
         "  Hay que informar uno de los dos, nunca los dos a la vez, y siempre en positivo.\n"
+        "- cuenta_tesoreria_id: caja chica concreta. Si hay mas de una, obtengala con "
+        "list_treasury_accounts y no adivine.\n"
         "- fecha: YYYY-MM-DD, por defecto hoy.\n"
         "- referencia: numero de comprobante o etiqueta corta, opcional.\n\n"
         "Ojo: los cobros, pagos y gastos YA generan su movimiento de caja automaticamente. "
@@ -1483,6 +1485,7 @@ def record_cash_movement(
     egreso: float = 0.0,
     fecha: str | None = None,
     referencia: str = "",
+    cuenta_tesoreria_id: int | None = None,
     confirmar: bool = False,
     operation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1501,6 +1504,15 @@ def record_cash_movement(
         confirmar, f"Registrar movimiento manual de caja por {ingreso or egreso}"
     )
 
+    if cuenta_tesoreria_id is None:
+        cuentas = cli.get("/api/tesoreria/cuentas") or []
+        cajas = [c for c in cuentas if c.get("clase") == "caja_chica" and c.get("activa", True)]
+        if len(cajas) != 1:
+            raise ALdiaError(
+                "Indique cuenta_tesoreria_id: no hay una unica caja chica activa para elegir."
+            )
+        cuenta_tesoreria_id = int(cajas[0]["id"])
+
     mov = cli.post(
         "/api/caja/",
         {
@@ -1509,6 +1521,7 @@ def record_cash_movement(
             "debe": ingreso,
             "haber": egreso,
             "descripcion": concepto,
+            "cuenta_tesoreria_id": int(cuenta_tesoreria_id),
         },
         operation_id=operation_id,
     )
@@ -1520,6 +1533,7 @@ def record_cash_movement(
         "concepto": mov.get("descripcion"),
         "ingreso": mov.get("debe"),
         "egreso": mov.get("haber"),
+        "cuenta_tesoreria_id": int(cuenta_tesoreria_id),
         "saldo_de_caja_luego": saldo,
     }
 
@@ -2313,10 +2327,9 @@ def list_purchases(proveedor: str | None = None, limite: int = 20) -> dict[str, 
         "Parametros:\n"
         "- proveedor: CUIT o nombre.\n"
         "- factura_id: factura confirmada que origino la mercaderia.\n"
-        "- items: lista de {compra_id, codigo, cantidad} y opcionalmente {precio}. "
-        "compra_id es el renglon que devuelve get_purchase. Si no se indica "
-        "precio se usa el precio de compra actual del articulo; si la mercaderia se compro "
-        "a otro precio, indiquelo, porque el proveedor acredita lo que facturo.\n"
+        "- items: lista de {compra_id, codigo, cantidad}. compra_id es el renglon "
+        "que devuelve get_purchase. El servidor toma el precio y el impuesto historicos "
+        "de ese renglon: no se pueden reemplazar por el precio actual del articulo.\n"
         "- fecha: YYYY-MM-DD, por defecto hoy.\n"
         "- motivo: texto libre (por que se devuelve). La API rechaza cantidades superiores "
         "a lo comprado o al stock disponible."
@@ -2338,6 +2351,12 @@ def record_vendor_return(
     _exigir_confirmacion_financiera(confirmar, f"Registrar devolución física a {ficha.get('nombre')}")
     dia = _fecha(fecha)
 
+    compra_origen = cli.get(f"/api/compras/{int(factura_id)}")
+    renglones_origen = {
+        int(r["compra_id"]): r for r in compra_origen.get("renglones", [])
+        if r.get("compra_id") is not None
+    }
+
     lineas: list[dict[str, Any]] = []
     for it in items:
         if "codigo" not in it:
@@ -2348,22 +2367,38 @@ def record_vendor_return(
             raise ALdiaError(f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0.")
         if "compra_id" not in it:
             raise ALdiaError(f"Falta 'compra_id' (renglón de origen) en el item {it}.")
-        precio = (
-            float(it["precio"]) if it.get("precio") is not None
-            else float(art.get("precom") or 0)
-        )
+        compra_id = int(it["compra_id"])
+        origen = renglones_origen.get(compra_id)
+        if not origen:
+            raise ALdiaError(
+                f"El renglon {compra_id} no pertenece a la factura {factura_id}."
+            )
+        if int(origen.get("codigo")) != int(art["codigo"]):
+            raise ALdiaError(
+                f"El articulo {art.get('codigo')} no coincide con el renglon {compra_id}."
+            )
+        precio = float(origen.get("precio") or 0)
+        if it.get("precio") is not None and abs(float(it["precio"]) - precio) > 0.000001:
+            raise ALdiaError(
+                f"El precio del renglon {compra_id} es {precio}; no puede modificarse en la devolucion."
+            )
+        disponible = float(origen.get("cantidad_disponible_devolver", origen.get("cantidad") or 0))
+        if cantidad > disponible:
+            raise ALdiaError(
+                f"El renglon {compra_id} solo tiene {disponible} disponible para devolver."
+            )
         lineas.append({
             "codigo": int(art["codigo"]),
             "producto": art.get("producto") or "",
             "cantidad": cantidad,
             "precio": precio,
-            "compra_id": int(it["compra_id"]),
+            "compra_id": compra_id,
         })
 
     devolucion = cli.post(
         "/api/devoluciones/",
         {"proveedor_cuit": ficha.get("cuit"), "factura_id": int(factura_id),
-         "fecha": dia, "items": lineas},
+         "fecha": dia, "motivo": motivo, "items": lineas},
         operation_id=operation_id,
     )
     saldo_ahora = float(cli.resolver_proveedor(ficha.get("cuit")).get("saldo") or 0)
@@ -2388,18 +2423,18 @@ def record_vendor_return(
     title="Anular una compra a proveedor",
     annotations=DESTRUCTIVA,
     description=(
-        "[DESTRUCTIVA] Anula una compra de mercaderia mal cargada: borra la cabecera y sus "
-        "renglones, DESCUENTA del stock lo que habia ingresado y revierte la deuda con el "
+        "[DESTRUCTIVA] Anula una compra de mercaderia mal cargada: conserva la cabecera y sus "
+        "renglones, agrega reversas del stock ingresado y revierte la deuda con el "
         "proveedor.\n\n"
         "Uselo solo para corregir un error de carga (compra duplicada, cantidades o "
         "proveedor equivocados). Si la mercaderia se devuelve realmente al proveedor, lo "
         "que corresponde es la DEVOLUCION, no la anulacion: la devolucion deja el "
-        "comprobante y la nota de credito, la anulacion borra el rastro de la compra.\n\n"
+        "comprobante y la nota de credito. Una compra que ya tiene devoluciones vinculadas "
+        "no se puede anular, porque duplicaria el credito.\n\n"
         "Requiere rol administrador. El 'compra_id' se obtiene con la herramienta de "
         "consulta de compras. Pida autorizacion explicita del usuario (proveedor, fecha e "
         "importe) y recien entonces llame con confirmar=true.\n\n"
-        "Ojo: el precio de compra que la compra dejo grabado en cada articulo NO vuelve "
-        "solo al valor anterior; si hace falta, corrijalo con la actualizacion de producto."
+        "El costo promedio se revierte con los valores historicos del libro de stock."
     ),
 )
 def void_purchase(compra_id: int, confirmar: bool = False) -> dict[str, Any]:

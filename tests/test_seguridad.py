@@ -80,12 +80,14 @@ class TestAutorizacionPorRol:
         return cambio.json()["access_token"]
 
     @pytest.fixture(scope="class")
-    def token_caja(self, admin, app_cliente):
-        return self._usuario_operativo(admin, app_cliente, "caja_test", "caja")
+    @classmethod
+    def token_caja(cls, admin, app_cliente):
+        return cls._usuario_operativo(admin, app_cliente, "caja_test", "caja")
 
     @pytest.fixture(scope="class")
-    def token_auditor(self, admin, app_cliente):
-        return self._usuario_operativo(admin, app_cliente, "auditor_test", "auditor")
+    @classmethod
+    def token_auditor(cls, admin, app_cliente):
+        return cls._usuario_operativo(admin, app_cliente, "auditor_test", "auditor")
 
     def test_caja_no_escribe_en_stock(self, app_cliente, token_caja):
         r = app_cliente.post("/api/stock/",

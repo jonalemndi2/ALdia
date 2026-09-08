@@ -7,6 +7,7 @@ from typing import List
 
 import saldos
 import medios_de_pago
+from libro_tesoreria import revertir as revertir_movimiento
 from database import get_db
 from models import Cobro, Cliente, Caja, Chequera, CuentaTesoreria, MovimientoTesoreria
 from schemas import CobroCreate, CobroResponse
@@ -128,6 +129,47 @@ def delete_cobro(ordcobro: int, db: Session = Depends(get_db)):
     if not cobro:
         raise HTTPException(status_code=404, detail="Cobro no encontrado")
 
+    # Un cheque recibido es parte del cobro, aunque viva en la cartera. Antes
+    # se anulaba el recibo y el cheque quedaba disponible: podia depositarse o
+    # endosarse despues de haber restaurado la deuda del cliente.
+    cheque = db.query(Chequera).filter(
+        Chequera.tipo == 1,
+        Chequera.descripcion == f"Cobro N° {ordcobro}",
+    ).first()
+    if cheque:
+        estado_cheque = (cheque.pagado or "").strip()
+        if estado_cheque.startswith("Pago N°"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "No se puede anular el cobro: su cheque fue endosado en un "
+                    "pago a proveedor. Anule primero ese pago."
+                ),
+            )
+        if estado_cheque.startswith("Depositado"):
+            deposito = db.query(MovimientoTesoreria).filter(
+                MovimientoTesoreria.origen_tipo == "deposito_cheque",
+                MovimientoTesoreria.origen_id == cheque.id,
+                MovimientoTesoreria.estado == "confirmado",
+            ).first()
+            if not deposito:
+                raise HTTPException(
+                    status_code=409,
+                    detail="El cheque figura depositado pero no se encontro su movimiento de tesoreria",
+                )
+            revertir_movimiento(
+                db, deposito, fecha=cobro.fecha,
+                origen_tipo="reversa_deposito_cheque", origen_id=cheque.id,
+                referencia=f"ANULA DEPOSITO CHEQUE {cheque.id}",
+                descripcion=f"Reversa por anulacion del cobro N° {ordcobro}",
+            )
+        elif estado_cheque:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede anular el cobro: el cheque tiene estado '{estado_cheque}'",
+            )
+        cheque.pagado = f"Anulado {cobro.fecha}"
+
     # Revertir el saldo: si el cobro lo bajo, anularlo lo devuelve.
     saldos.aplicar_a_cliente(db, cobro.cliente, +(cobro.monto or 0))
 
@@ -141,17 +183,12 @@ def delete_cobro(ordcobro: int, db: Session = Depends(get_db)):
         MovimientoTesoreria.estado == "confirmado",
     ).first()
     if tesoreria:
-        # Deuda de compatibilidad: el subledger conserva ambas filas, pero la
-        # original cambia de estado para que saldos no la computen dos veces.
-        # Convertir estado en un evento separado exige versionar las consultas
-        # existentes; no se amplía ese cambio en esta corrección acotada.
-        tesoreria.estado = "reversado"
-        db.add(MovimientoTesoreria(
-            cuenta_id=tesoreria.cuenta_id, fecha=cobro.fecha, sentido="egreso",
-            monto=tesoreria.monto, origen_tipo="reversa_cobro", origen_id=ordcobro,
-            referencia=f"ANULA COBRO {ordcobro}", descripcion="Reversa auditable de cobro",
-            estado="confirmado", reversa_de=tesoreria.id,
-        ))
+        revertir_movimiento(
+            db, tesoreria, fecha=cobro.fecha,
+            origen_tipo="reversa_cobro", origen_id=ordcobro,
+            referencia=f"ANULA COBRO {ordcobro}",
+            descripcion="Reversa auditable de cobro",
+        )
 
     db.delete(cobro)
     db.commit()
