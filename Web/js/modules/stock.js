@@ -33,9 +33,6 @@ const Stock = {
                     <button class="btn btn-sm btn-warning" data-action="Stock.cambiarPrecio">
                         <i class="bi bi-pencil"></i> Cambiar Precio
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" data-action="Stock.importarEikon">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Importar lista Eikon
-                    </button>
                 </div>
             </div>
             <div class="mb-3">
@@ -162,33 +159,6 @@ const Stock = {
     async cambiarPrecio() {
         this.showExistencia();
         Utils.toast('Haga doble click en el producto para cambiar su precio', 'Stock', 'info');
-    },
-
-    importarEikon() {
-        Utils.showView(`<div class="section-header"><h4>Importar catálogo Eikon</h4></div>
-          <div class="alert alert-warning">La disponibilidad del proveedor no modifica el stock propio. Revisá el resultado antes de confirmar.</div>
-          <form id="eikonImportForm" class="card card-body">
-            <label class="form-label">Archivo XLSX</label><input name="archivo" type="file" accept=".xlsx" class="form-control" required>
-            <label class="form-label mt-2">Precio a usar</label><select name="precio_origen" class="form-select"><option value="especial">Final Especial USD</option><option value="regular">Final Regular USD</option></select>
-            <label class="form-label mt-2">Tipo de cambio ARS/USD</label><input name="tipo_cambio_ars_por_usd" type="number" min="0.0001" step="0.0001" class="form-control" required>
-            <label class="form-label mt-2">Fecha TC</label><input name="fecha_tc" type="date" class="form-control" required>
-            <label class="mt-2"><input name="actualizar_existentes" type="checkbox"> actualizar datos de SKU existentes</label>
-            <button class="btn btn-primary mt-3">Generar vista previa</button>
-          </form><div id="eikonPreview" class="mt-3"></div>`);
-        const form = document.getElementById('eikonImportForm');
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            try {
-                const preview = await API.stock.previewImportacion(new FormData(form));
-                const r = preview.resumen;
-                document.getElementById('eikonPreview').innerHTML = `<div class="card card-body"><b>Vista previa:</b> ${r.total} filas; altas ${r.altas}; actualizaciones ${r.actualizaciones}; sin cambios ${r.sin_cambios}; rechazadas ${r.rechazadas}.<br><button id="confirmarEikon" class="btn btn-danger mt-3">Confirmar importación</button></div>`;
-                document.getElementById('confirmarEikon').addEventListener('click', async () => {
-                    if (!confirm('Se actualizará el catálogo. El stock propio permanecerá sin cambios. ¿Confirmar?')) return;
-                    await API.stock.confirmarImportacion(preview.id, preview.preview_hash);
-                    Utils.toast('Catálogo Eikon importado', 'Stock', 'success'); this.showExistencia();
-                });
-            } catch (err) { Utils.toast(err.message, 'Importación Eikon', 'error'); }
-        });
     }
 };
 // Exponer módulo Stock al scope global

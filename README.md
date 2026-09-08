@@ -225,7 +225,7 @@ lock out the entire store.
 
 ## Verified
 
-**280 tests** covering amount exactness, authentication and per-role
+**271 tests** covering amount exactness, authentication and per-role
 permissions, fiscal validation, idempotency under real concurrency, automatic
 backup, and the full commercial cycle with its reversals. They run on every push
 against Python 3.10 and 3.13, plus once more with the exact pinned versions

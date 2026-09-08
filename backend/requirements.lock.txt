@@ -42,14 +42,12 @@ SQLAlchemy==2.0.52
 greenlet==3.5.5
 bcrypt==5.0.0
 PyJWT==2.13.0
-python-multipart==0.0.32
 httpx==0.28.1
 
 # ── Factura electrónica AFIP (backend/afip.py) ───────────────────────────────
 zeep==4.3.3
 cryptography==50.0.0
 segno==1.6.6
-openpyxl==3.1.5
 
 # ── Dependencias indirectas ──────────────────────────────────────────────────
 # No se instalan a mano: las arrastran las de arriba. Van fijadas igual, porque
@@ -63,7 +61,6 @@ certifi==2026.7.22
 cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.4.2
-et_xmlfile==2.0.0
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.8.0

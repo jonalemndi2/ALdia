@@ -25,14 +25,6 @@ from sqlalchemy import inspect, text
 
 # tabla -> [(columna, tipo SQL, comentario)]
 COLUMNAS_NUEVAS = {
-    "stockmercaderia": [
-        ("sku_proveedor", "VARCHAR(80)"),
-        ("categoria_proveedor", "VARCHAR(120) DEFAULT ''"),
-        ("subcategoria_proveedor", "VARCHAR(120) DEFAULT ''"),
-        ("precio_proveedor_usd", "VARCHAR(32) DEFAULT ''"),
-        ("stock_proveedor", "FLOAT DEFAULT 0"),
-        ("fuente_actualizada_en", "TIMESTAMP"),
-    ],
     "factprov": [
         ("num_factura", "VARCHAR(80) DEFAULT ''"),
         ("estado", "VARCHAR(20) NOT NULL DEFAULT 'confirmada'"),
@@ -259,15 +251,6 @@ def aplicar_migraciones(engine) -> list:
     if aplicadas:
         print(f"[migraciones] Columnas agregadas: {', '.join(aplicadas)}")
 
-    # SQLite permite varios NULL bajo un índice UNIQUE; por eso este índice
-    # deja intacto el catálogo histórico que todavía no tenga SKU proveedor y
-    # hace única cualquier identidad Eikon incorporada de ahora en adelante.
-    if "stockmercaderia" in tablas:
-        with engine.begin() as conexion:
-            conexion.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ux_stock_sku_proveedor "
-                "ON stockmercaderia(sku_proveedor) WHERE sku_proveedor IS NOT NULL"
-            ))
     if "factprov" in tablas:
         with engine.begin() as conexion:
             # Una base histórica puede contener números repetidos. Crear el

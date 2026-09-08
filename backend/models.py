@@ -192,44 +192,6 @@ class StockMercaderia(Base):
     preven = Column(Integer, default=0)  # centavos. Precio de venta unitario
     iva = Column(Float, default=21.0)  # ALICUOTA en % (21.0 = 21%), NO es un importe
     precom = Column(Integer, default=0)  # centavos. Precio de compra unitario
-    # Datos del proveedor.  No representan existencia propia: `cantidad` sigue
-    # siendo el unico stock fisico del comercio.
-    sku_proveedor = Column(String(80), unique=True, nullable=True)
-    categoria_proveedor = Column(String(120), default="")
-    subcategoria_proveedor = Column(String(120), default="")
-    precio_proveedor_usd = Column(String(32), default="")
-    stock_proveedor = Column(Float, default=0.0)
-    fuente_actualizada_en = Column(DateTime, default=None)
-
-
-class ImportacionCatalogo(Base):
-    """Preview persistente y confirmable de una lista de proveedor.
-
-    La fila no es el catalogo: guarda la evidencia que el usuario reviso.  La
-    escritura sobre `stockmercaderia` sucede exclusivamente en confirmar().
-    """
-    __tablename__ = "importaciones_catalogo"
-    id = Column(String(36), primary_key=True)
-    hash_original = Column(String(64), nullable=False)
-    hash_preview = Column(String(64), nullable=False)
-    estado = Column(String(20), nullable=False, default="preview")
-    usuario = Column(String(50), nullable=False)
-    origen = Column(String(120), nullable=False, default="eikon")
-    precio_origen = Column(String(12), nullable=False)
-    tipo_cambio_ars_por_usd = Column(String(32), nullable=False)
-    fecha_tc = Column(String(10), nullable=False)
-    actualizar_existentes = Column(Boolean, nullable=False, default=False)
-    resumen_json = Column(Text, nullable=False, default="{}")
-    filas_json = Column(Text, nullable=False, default="[]")
-    creado_en = Column(DateTime, server_default=func.now())
-    confirmado_en = Column(DateTime, default=None)
-
-    __table_args__ = (
-        UniqueConstraint("hash_original", "precio_origen", "tipo_cambio_ars_por_usd",
-                         "fecha_tc", "actualizar_existentes", name="uq_importacion_catalogo_idempotente"),
-    )
-
-
 class Usuario(Base):
     __tablename__ = "usuarios"
 
