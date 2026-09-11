@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Ensaya restauración en un directorio temporal; nunca reemplaza la base activa."""
 import argparse
+from contextlib import closing
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -10,8 +11,8 @@ def verificar(origen):
     origen = Path(origen).resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='aldia-restauracion-') as carpeta:
         destino = Path(carpeta) / 'restaurada.db'
-        with sqlite3.connect(origen.as_uri() + '?mode=ro', uri=True) as fuente:
-            with sqlite3.connect(destino) as copia:
+        with closing(sqlite3.connect(origen.as_uri() + '?mode=ro', uri=True)) as fuente:
+            with closing(sqlite3.connect(destino)) as copia:
                 fuente.backup(copia)
                 if copia.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
                     raise ValueError('La copia tiene errores de integridad')
@@ -22,7 +23,7 @@ def verificar(origen):
                 if not {'clientes', 'facturas', 'usuarios'}.issubset(tablas):
                     raise ValueError('No es una base completa de ALdía')
         # Reabrir sin WAL/SHM del origen: comprueba independencia física.
-        with sqlite3.connect(destino.as_uri() + '?mode=ro', uri=True) as restaurada:
+        with closing(sqlite3.connect(destino.as_uri() + '?mode=ro', uri=True)) as restaurada:
             restaurada.execute('SELECT COUNT(*) FROM facturas').fetchone()
         return len(tablas)
 
