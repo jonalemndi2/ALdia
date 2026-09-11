@@ -1,3 +1,8 @@
+> **Piloto comercial:** `create_invoice` prepara un borrador sin efectos.
+> `confirm_invoice_draft` confirma stock/deuda; no solicita CAE.
+> Emisión fiscal deshabilitada por defecto y no disponible desde MCP.
+> [Alcance, soporte y recuperación](docs/PILOTO_COMERCIAL.md).
+
 # ALdía — Motor de gestión comercial operable por agentes
 
 *[Read this in English](README.md)*
@@ -218,7 +223,7 @@ consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del 
 
 ### Guía rápida: Claude Code, OpenClaw o Hermes
 
-Los tres clientes usan el mismo puente MCP y descubren las mismas **59 herramientas**.
+Los tres clientes usan el mismo puente MCP y descubren las mismas **60 herramientas**.
 Antes de conectarlos:
 
 1. Iniciá ALdía con `./iniciar_web.sh` en Linux/macOS o `iniciar_web.bat` en Windows.

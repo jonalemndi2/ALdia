@@ -18,6 +18,11 @@ Reglas que se respetan en todo el archivo:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
+import os
+import json
+from sqlalchemy.exc import IntegrityError
+from models import EmisionFiscalEnCurso
+from routers.auth import current_user_dep
 
 import afip as ws
 from errores import ErrorDeNegocio
@@ -248,6 +253,7 @@ def estado(db: Session = Depends(get_db)):
     cfg = _config(db)
     salida = {
         "habilitado": cfg.habilitado,
+        "emision_permitida": os.getenv("ALDIA_EMISION_FISCAL", "no").lower() == "si",
         "configurado": cfg.configurado,
         "entorno": cfg.entorno,
         "cuit": cfg.cuit,
@@ -406,6 +412,7 @@ def solicitar_cae(
     factura_num: int,
     datos: SolicitudCAE = SolicitudCAE(),
     db: Session = Depends(get_db),
+    usuario = Depends(current_user_dep),
 ):
     """Pide a AFIP el CAE de una factura YA emitida y guarda el resultado.
 
@@ -426,6 +433,12 @@ def solicitar_cae(
             "La factura ya es valida tal como fue emitida.",
         )
 
+    if os.getenv("ALDIA_EMISION_FISCAL", "no").lower() != "si":
+        raise HTTPException(409, "Emisión fiscal deshabilitada para el piloto; requiere habilitación del administrador")
+    if usuario.rol.lower() != "administrador":
+        raise HTTPException(403, "La emisión fiscal requiere un administrador")
+    if not datos.confirmar:
+        raise HTTPException(409, "Revise el comprobante y confirme expresamente la emisión fiscal")
     cfg = _config_operativa(db)
 
     factura = db.query(Factura).filter(Factura.facturanumero == factura_num).first()
@@ -486,10 +499,22 @@ def solicitar_cae(
             alicuotas=importes["alicuotas"],
             concepto=datos.concepto or 1,
         )
+        # Reserva confirmada ANTES de la red: sobrevive a timeout, caída y a
+        # nuevos X-Operation-Id. Serializa también la numeración entre facturas.
+        reserva = EmisionFiscalEnCurso(id=1, factura_numero=factura_num,
+            detalle=json.dumps({"entorno": cfg.entorno, "punto_venta": punto_venta,
+                                "tipo": tipo, "estado": "resultado_pendiente"}))
+        db.add(reserva)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Hay una emisión en curso o incierta. No reintentar: conciliar con ARCA")
         resultado = ws.solicitar_cae(cfg, comprobante)
     except ws.AfipRechazo as exc:
         # AFIP miró el comprobante y NO lo autorizó: queda registrado para que
         # nunca parezca autorizado, y se devuelve como error (nunca como éxito).
+        db.delete(reserva)
         factura.resultado = "R"
         factura.punto_venta = punto_venta
         factura.tipo_comprobante = tipo
@@ -497,10 +522,11 @@ def solicitar_cae(
         db.commit()
         raise HTTPException(status_code=422, detail=exc.mensaje)
     except ws.AfipError as exc:
-        # Problema de red, de certificado o de autenticación: AFIP no llegó a
-        # evaluar el comprobante, así que NO se toca su estado fiscal.
+        # No sabemos si ARCA aceptó antes del corte. Conservamos la reserva
+        # durable y bloqueamos nuevas emisiones hasta conciliación manual.
         raise _error_afip(exc, status=502)
 
+    db.delete(reserva)
     factura.cae = resultado["cae"]
     factura.cae_vencimiento = ws.fecha_desde_afip(resultado["cae_vencimiento"])
     factura.punto_venta = resultado["punto_venta"]

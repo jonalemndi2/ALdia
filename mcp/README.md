@@ -1,3 +1,8 @@
+> **Piloto comercial:** `create_invoice` prepara un borrador sin efectos.
+> `confirm_invoice_draft` confirma stock/deuda; no solicita CAE.
+> Emisión fiscal deshabilitada por defecto y no disponible desde MCP.
+> [Alcance, soporte y recuperación](../docs/PILOTO_COMERCIAL.md).
+
 # Servidor MCP de ALdia
 
 Capa de integración que expone la gestión comercial de **ALdia** (stock,
@@ -271,7 +276,7 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `create_customer`              | Crea la ficha de un cliente (valida CUIT).                                  |
 | `create_vendor`            | Crea la ficha de un proveedor (valida CUIT).                                |
 | `create_delivery_note`          | Venta con entrega: guarda el remito y descuenta stock.                      |
-| `create_invoice`            | Factura remitos pendientes y/o artículos sin remito; calcula IVA y totales; carga la deuda al cliente. |
+| `create_invoice`            | Prepara un borrador sin mover stock ni deuda; devuelve su ID y los totales. |
 | `record_payment`           | Cobro de cliente: baja el saldo y entra a caja (o a la chequera si es cheque). |
 | `record_vendor_payment`            | Pago a proveedor: baja la deuda y sale de caja (o emite/endosa cheque).      |
 | `record_cash_movement` | Ingreso o egreso manual asociado a una caja chica concreta.                 |
@@ -282,6 +287,8 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `record_vendor_credit_note` | Nota de crédito financiera sin movimiento de stock.                                |
 | `create_treasury_account` | Alta de caja chica o cuenta bancaria concreta.                                      |
 | `deposit_received_check` / `mark_own_check_debited` | Depósito y conciliación bancaria de cheques.              |
+
+| `confirm_invoice_draft` | Confirma el borrador revisado una sola vez, con `confirmar=true`. No solicita CAE. |
 
 ### Anulaciones (destructivas — exigen `confirmar=true`)
 

@@ -1,3 +1,6 @@
+> **Commercial pilot:** draft → explicit commercial confirmation; fiscal emission
+> is disabled by default and unavailable from MCP. See [scope and rollout](docs/PILOTO_COMERCIAL.md).
+
 # ALdía
 
 ### The open-source business engine built for AI agents.
@@ -6,7 +9,7 @@
 
 Instead of handing an agent database access, ALdía exposes the business itself —
 invoicing, payments, customers, vendors, inventory, checks, expenses, cash — as
-**59 permission-controlled MCP tools**, with identity, idempotency, structured
+**60 permission-controlled MCP tools**, with identity, idempotency, structured
 errors and an immutable audit trail already built in.
 
 *[Léeme en español](README.es.md)*
@@ -39,7 +42,8 @@ An agent connected to ALdía doesn't get a database. It gets a vocabulary:
 ```
 find_customer            find a customer
 get_customer_balance     what they owe, and since when
-create_invoice           issue an invoice
+create_invoice           prepare a draft (no stock/debt effects)
+confirm_invoice_draft    confirm the reviewed commercial operation
 record_payment           record a customer payment
 record_vendor_payment    pay a vendor
 record_expense           record an expense
@@ -49,9 +53,9 @@ list_debtors             who owes money, and since when
 get_audit_log            what happened, and who did it
 ```
 
-All 59 of them are business actions, not fiscal ones: `create_invoice` means
-the same thing in Miami as in Córdoba. What changes underneath is which rules
-the server applies.
+The tools expose business operations. `create_invoice` prepares a draft; confirmation
+is separate. Fiscal authorization is disabled from MCP and requires administrative
+review outside the agent. Server-side rules remain authoritative.
 
 Every write goes through the **same code path as the web application**: the same
 validations, the same transaction, the same audit record. There is no second
@@ -60,8 +64,8 @@ database — it speaks HTTP to the same API your browser does.
 
 ## The part nobody builds until it hurts
 
-When an agent starts moving real money, four problems show up. All four are
-already solved here, and covered by tests.
+When an agent starts moving real money, four problems show up. These controls are
+covered by tests, but do not constitute fiscal or production certification.
 
 **🔁 Idempotency that actually holds**
 An agent retries when it doesn't get a response — and a lost response doesn't
@@ -158,7 +162,7 @@ once, explicitly, at the point of conversion. This isn't pedantry:
 
 ```python
 sum([0.10] * 10)   # 0.9999999999999999
-1234.56 * 0.21     # 259.25759999999997   ← the VAT on a real invoice
+1234.56 * 0.21     # 260.25760999999997   ← the VAT on a real invoice
 ```
 
 Balances, ledger entries and period totals reconcile to the cent, permanently.
@@ -232,7 +236,7 @@ hermes mcp add aldia \
 hermes mcp test aldia
 ```
 
-All three clients discover the same 59 tools. For a safe first check, ask the
+All three clients discover the same 60 tools. For a safe first check, ask the
 agent to find a customer, read a balance, or show today's cash; require an
 explicit review before issuing a document or moving money.
 
@@ -290,7 +294,7 @@ matrix that verifies ALdía on Linux, macOS and Windows.
 
 **Built to be driven by** — any [MCP](https://modelcontextprotocol.io/) client.
 [OpenClaw](https://github.com/openclaw) is the assistant this engine was shaped
-around, but nothing here depends on it: the 59 tools are plain MCP, and the
+around, but nothing here depends on it: the 60 tools are plain MCP, and the
 server never assumes which client is on the other end.
 
 That's deliberate. An engine that only works with one assistant isn't

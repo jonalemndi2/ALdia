@@ -370,6 +370,8 @@ def eliminar_movimiento(
         raise HTTPException(status_code=404, detail=f"{tipo} N° {mov_id} no encontrado")
 
     if tipo == "remito":
+        if db.query(Venta).filter(Venta.nmov == mov_id, Venta.idfactura != 0).first():
+            raise HTTPException(409, "Remito facturado: no se puede eliminar aisladamente")
         # Devolver al stock lo entregado y borrar los items del remito.
         for venta in db.query(Venta).filter(Venta.nmov == mov_id).all():
             item = db.query(StockMercaderia).filter(StockMercaderia.codigo == venta.codigo).first()
@@ -378,18 +380,8 @@ def eliminar_movimiento(
             db.delete(venta)
 
     elif tipo == "factura":
-        # Los remitos vuelven a quedar pendientes de facturacion, y la deuda que
-        # la factura genero se cancela.
-        #
-        # CORRECCION: antes esta rama NO tocaba clientes.saldo, con el comentario
-        # de que "la creacion de la factura tampoco lo modifica". Eso dejo de ser
-        # cierto (POST /api/facturas/ suma el total al saldo), asi que anular por
-        # aca dejaba la deuda viva para siempre mientras anular por
-        # DELETE /api/facturas/{n} si la cancelaba: dos caminos para la misma
-        # operacion con dos resultados distintos. Ese es exactamente el desvio
-        # que ahora detecta GET /api/admin/verificar-saldos.
-        db.query(Venta).filter(Venta.idfactura == mov_id).update({Venta.idfactura: 0})
-        saldos.aplicar_a_cliente(db, registro.cliente, -(registro.total or 0))
+        from routers.facturas import delete_factura
+        return delete_factura(mov_id, db)
 
     elif tipo == "compra":
         # Las compras tienen libro físico: borrarlas destruiría la trazabilidad.
@@ -398,13 +390,12 @@ def eliminar_movimiento(
         raise HTTPException(status_code=409, detail=f"Use POST /api/compras/{mov_id}/anular")
 
     elif tipo == "cobro":
-        # Anular un cobro devuelve la deuda al cliente (misma regla que
-        # DELETE /api/cobros/{n}).
-        saldos.aplicar_a_cliente(db, registro.cliente, +(registro.monto or 0))
+        from routers.cobros import delete_cobro
+        return delete_cobro(mov_id, db)
 
     elif tipo == "pago":
-        # Anular un pago devuelve la deuda con el proveedor.
-        saldos.aplicar_a_proveedor(db, registro.proveedor, +(registro.monto or 0))
+        from routers.pagos import delete_pago
+        return delete_pago(mov_id, db)
 
     db.delete(registro)
     db.commit()
@@ -417,37 +408,8 @@ def reset_db(
     db: Session = Depends(get_db),
     _: Usuario = Depends(require_admin),
 ):
-    """Resetear la base de datos: BORRA TODO. Solo administrador.
-
-    Antes esta ruta no pedia autenticacion: un unico POST anonimo destruia toda
-    la facturacion. Ahora exige ser administrador Y enviar una confirmacion
-    explicita, para que no se dispare por accidente ni por un enlace malicioso
-    abierto en el navegador de un admin logueado (CSRF).
-    """
-    if confirmacion != "BORRAR TODOS LOS DATOS":
-        raise HTTPException(
-            status_code=400,
-            detail="Operacion destructiva: repita exactamente confirmacion='BORRAR TODOS LOS DATOS'",
-        )
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    # Volver a sembrar usuario administrador, modulos y configuracion.
-    # Sin esto la tabla `usuarios` quedaba VACIA y nadie podia volver a entrar:
-    # el sistema quedaba inutilizable hasta reiniciar el servidor a mano.
-    # (La tabla de auditoria vive en su propio MetaData y no se borra aca: el
-    #  historial de quien hizo que debe sobrevivir al borrado de datos.)
-    from main import inicializar_datos
-    inicializar_datos()
-
-    return {
-        "message": "Base de datos reseteada correctamente",
-        "aviso": (
-            "Se recreo el usuario 'admin' con la contrasena por defecto. "
-            "Cambiela antes de volver a usar el sistema."
-        ),
-        "auditoria_conservada": True,
-    }
+    """El reset destructivo no está disponible en instalaciones comerciales."""
+    raise HTTPException(409, "Reset remoto deshabilitado. Para una instalación nueva use otra base y conserve los respaldos de la anterior.")
 
 
 @router.post("/seed-data")

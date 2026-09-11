@@ -41,12 +41,13 @@ const Facturas = {
 
     /** ¿Se puede pedir CAE ahora mismo? */
     _afipOperativo(estado) {
-        return !!(estado && estado.habilitado && estado.configurado && !estado.error);
+        return !!(estado && estado.emision_permitida && estado.habilitado && estado.configurado && !estado.error);
     },
 
     /** Texto honesto para mostrar en pantalla según el estado devuelto. */
     _afipTextoEstado(estado) {
         if (!estado) return 'No se pudo consultar el estado de AFIP desde este equipo.';
+        if (!estado.emision_permitida) return 'Emisión fiscal deshabilitada para el piloto. Puede preparar ventas sin autorización fiscal.';
         if (!estado.habilitado || !estado.configurado || estado.error) {
             return estado.mensaje || 'AFIP no configurado.';
         }
@@ -81,6 +82,11 @@ const Facturas = {
         const num = parseInt(factNum, 10);
         if (!num) { Utils.toast('Indique el número de factura', 'AFIP', 'error'); return null; }
 
+        const aceptar = await Utils.confirm('Autorizar ante ARCA',
+            'Va a solicitar autorización fiscal del comprobante ' + num +
+            '. Una vez autorizado no se elimina. Ante un error de red, no reintente sin conciliar. ¿Confirmar?');
+        if (!aceptar) return null;
+        opciones = {...opciones, confirmar: true};
         const overlay = document.getElementById('loadingOverlay');
         if (overlay) overlay.classList.remove('d-none');
         try {
@@ -440,7 +446,7 @@ const Facturas = {
                 items: this._items.map(item => ({ id: item.id, codigo: item.codigo }))
             });
 
-            Utils.toast(`Factura N° ${result.facturanumero} emitida`, 'Facturas', 'success');
+            Utils.toast(`Factura N° ${result.facturanumero} registrada (sin autorización fiscal)`, 'Facturas', 'success');
 
             // La factura ya está registrada. Recién ahora se le pide el CAE a
             // AFIP: si AFIP rechaza, la venta no se pierde y el CAE se puede
@@ -626,7 +632,7 @@ const Facturas = {
         }
         const factNum = factura.facturanumero;
 
-        Utils.toast(`Factura N° ${factNum} emitida por ${Utils.formatCurrency(total)}`, 'Facturas', 'success');
+        Utils.toast(`Factura N° ${factNum} registrada sin autorización fiscal por ${Utils.formatCurrency(total)}`, 'Facturas', 'success');
         this.facturaSinEntrega();
     },
 
@@ -634,9 +640,10 @@ const Facturas = {
 
     async remitirFactura() {
         try {
-            const [facturas, estadoAfip] = await Promise.all([
+            const [facturas, estadoAfip, borradores] = await Promise.all([
                 API.facturas.getAll(),
                 this._estadoAfip(true),
+                API.get('/facturas/borradores'),
                 this._cargarNombresClientes()
             ]);
             // La API devuelve `cliente` = CUIT; el nombre se resuelve contra /clientes/.
@@ -666,6 +673,12 @@ const Facturas = {
             const html = `
                 <div class="section-header">
                     <h4><i class="bi bi-file-earmark-medical"></i> Remitir Factura</h4>
+                </div>
+                <div class="form-card mb-2">
+                    <h5>Ventas pendientes (sin efectos en stock ni deuda)</h5>
+                    ${borradores.map((b, idx) => `<div class="mb-2">${Utils.escapeHtml(String(b.datos.cliente))} ·
+                        ${Utils.escapeHtml(String(b.datos.fecha))} · ${Utils.formatCurrency(b.datos.total)}
+                        <button class="btn btn-sm btn-outline-primary" data-action="Facturas.confirmarBorrador" data-idx="${idx}">Revisar</button></div>`).join('') || 'Sin borradores pendientes.'}
                 </div>
                 ${this._afipPanelHtml(estadoAfip)}
                 <div class="form-card mb-2">
@@ -697,11 +710,31 @@ const Facturas = {
                 ${Utils.buildTable(columns, data, { id: 'factList', onDblClick: 'Facturas.verDetalle' })}
                 <div class="mt-2 text-muted"><small>Doble click para ver detalle e imprimir</small></div>
             `;
+            this._borradores = borradores;
             Utils.showView(html);
             this._factList = data;
         } catch (err) {
             Utils.toast('Error al cargar facturas: ' + err.message, 'Error', 'error');
         }
+    },
+
+    async confirmarBorrador(idx) {
+        const b = this._borradores[idx];
+        if (!b) return;
+        const d = b.datos;
+        const detalle = `<p>Cliente: ${Utils.escapeHtml(this._nombreCliente(d.cliente))}<br>
+            Fecha: ${Utils.escapeHtml(String(d.fecha))}<br>
+            Neto: ${Utils.formatCurrency(d.subtotal)} · IVA: ${Utils.formatCurrency(d.iva)}<br>
+            <strong>Total: ${Utils.formatCurrency(d.total)}</strong></p>` +
+            (d.items || []).map(i => `<p>${Utils.escapeHtml(String(i.producto || ('Artículo ' + (i.codigo || ''))))}
+                ${i.id ? ' · Renglón de remito ' + Utils.escapeHtml(String(i.id)) :
+                ' · Cantidad ' + Utils.escapeHtml(String(i.cantidad)) + ' · Precio ' + Utils.formatCurrency(i.precio)}</p>`).join('');
+        if (!await Utils.confirm('Revisar venta pendiente',
+            ` ${detalle} Confirmar genera deuda y puede descontar stock. No solicita CAE.`)) return;
+        try {
+            await API.post(`/facturas/borradores/${b.borrador_id}/confirmar`, {confirmar: true});
+            await this.remitirFactura();
+        } catch (err) { Utils.toast(err.message, 'Venta pendiente', 'error'); }
     },
 
     async verDetalle(idx) {

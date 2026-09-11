@@ -38,9 +38,11 @@ servidor = MCPServer(
         "(kiosco, almacen, supermercado, agro). Permite consultar stock, clientes, "
         "proveedores, saldos, caja, chequera, libro IVA y el registro de auditoria; "
         "registrar remitos, facturas, notas de credito y debito, cobros, pagos, compras, "
-        "devoluciones, gastos y movimientos de caja; pedirle el CAE a AFIP; y administrar "
+        "devoluciones, gastos y movimientos de caja; preparar borradores sin CAE; y administrar "
         "usuarios, roles y modulos.\n\n"
         "Reglas de uso:\n"
+        "- create_invoice prepara un borrador. Solo confirm_invoice_draft confirma stock/deuda. "
+        "La emision fiscal no esta disponible desde MCP.\n"
         "- Fechas en formato YYYY-MM-DD; si el usuario dice 'hoy', omita la fecha.\n"
         "- Antes de registrar un cobro, un pago o una factura, identifique al cliente o "
         "proveedor con las herramientas de busqueda: no invente CUIT.\n"
@@ -1183,23 +1185,11 @@ def create_delivery_note(
 
 
 @servidor.tool(
-    title="Emitir factura",
+    title="Preparar venta pendiente (sin efectos comerciales)",
     annotations=ESCRITURA,
-    description=(
-        "[OPERACION DE DINERO] Emite una factura de venta. Suma el total a la cuenta "
-        "corriente del cliente (le genera deuda) y, si la factura incluye articulos sin "
-        "remito previo, descuenta el stock de esos articulos.\n\n"
-        "Dos formas de armarla (se pueden combinar):\n"
-        "1. lineas_remito_ids: lista de ids de lineas de remito ya entregadas y sin "
-        "facturar (los devuelve 'ver remitos sin facturar'). Esas lineas quedan asociadas a "
-        "la factura y el remito deja de figurar como pendiente.\n"
-        "2. items: articulos que se facturan sin entrega previa, cada uno {codigo, cantidad} "
-        "y opcionalmente {precio}. ALdia valida el stock y rechaza la factura si no "
-        "alcanza.\n\n"
-        "Los importes (subtotal, IVA y total) los calcula esta herramienta a partir de los "
-        "precios y alicuotas de cada articulo; no hay que pasarlos.\n\n"
-        "Parametros: cliente (CUIT o nombre) y fecha (YYYY-MM-DD, por defecto hoy)."
-    ),
+    description="Crea un borrador inmutable sin mover stock, deuda ni emitir ante ARCA. "
+                "Recibe cliente, items y/o lineas_remito_ids y fecha. Devuelve borrador_id "
+                "y totales para revisión. Luego requiere confirm_invoice_draft.",
 )
 def create_invoice(
     cliente: str,
@@ -1293,7 +1283,7 @@ def create_invoice(
     total = _redondear(subtotal + iva_total)
 
     factura = cli.post(
-        "/api/facturas/",
+        "/api/facturas/borradores",
         {
             "cliente": ficha.get("cuit"),
             "fecha": dia,
@@ -1305,7 +1295,9 @@ def create_invoice(
     )
 
     return {
-        "emitida": True,
+        "emitida": False,
+        "estado": "borrador",
+        "borrador_id": factura.get("borrador_id"),
         "factura_numero": factura.get("facturanumero"),
         "cliente": ficha.get("nombre"),
         "cuit": ficha.get("cuit"),
@@ -1314,9 +1306,16 @@ def create_invoice(
         "iva": iva_total,
         "total": total,
         "detalle": detalle,
-        "nota": "El total quedo cargado en la cuenta corriente del cliente. Cuando el cliente "
-                "pague, registre el cobro.",
+        "nota": "Sin efectos en stock ni deuda. Revise el borrador y use confirm_invoice_draft. No es una factura fiscal.",
     }
+
+
+@servidor.tool(title="Confirmar venta pendiente", annotations=ESCRITURA,
+    description="Tras revisión y autorización del usuario, confirma un borrador por ID. "
+                "Mueve stock y deuda UNA vez. NO solicita CAE ni autoriza fiscalmente.")
+def confirm_invoice_draft(borrador_id: str, confirmar: bool = False) -> dict[str, Any]:
+    _exigir_confirmacion_financiera(confirmar, "Confirmar venta pendiente")
+    return api().post(f"/api/facturas/borradores/{borrador_id}/confirmar", {"confirmar": True})
 
 
 @servidor.tool(
@@ -1910,7 +1909,9 @@ def create_credit_note(
     factura_original: int | None = None,
     fecha: str | None = None,
     reingresa_stock: bool = False,
+    confirmar: bool = False,
 ) -> dict[str, Any]:
+    _exigir_confirmacion_financiera(confirmar, "Registrar nota de ajuste")
     cli = api()
     ficha = cli.resolver_cliente(cliente)
     dia = _fecha(fecha)
@@ -1972,6 +1973,7 @@ def create_credit_note(
     nota = cli.post(
         "/api/facturas/",
         {
+            "confirmar": True,
             "cliente": ficha.get("cuit"),
             "fecha": dia,
             "subtotal": -neto,
@@ -2054,7 +2056,9 @@ def create_debit_note(
     iva_pct: float = 21.0,
     factura_original: int | None = None,
     fecha: str | None = None,
+    confirmar: bool = False,
 ) -> dict[str, Any]:
+    _exigir_confirmacion_financiera(confirmar, "Registrar nota de ajuste")
     cli = api()
     if not (concepto or "").strip():
         raise ALdiaError("Falta el concepto de la nota de debito: es lo que se factura.")
@@ -2072,6 +2076,7 @@ def create_debit_note(
     nota = cli.post(
         "/api/facturas/",
         {
+            "confirmar": True,
             "cliente": ficha.get("cuit"),
             "fecha": dia,
             "subtotal": neto,
@@ -2146,38 +2151,9 @@ def get_einvoicing_status() -> dict[str, Any]:
 
 
 @servidor.tool(
-    title="Solicitar CAE a AFIP para una factura",
-    annotations=ESCRITURA,
-    description=(
-        "[OPERACION FISCAL] Pide a AFIP la autorizacion (CAE) de una factura YA emitida en "
-        "ALdia y guarda el resultado en el comprobante.\n\n"
-        "El CAE es el numero que le da validez fiscal al comprobante. REGLA ABSOLUTA: el "
-        "CAE lo otorga AFIP, nunca el asistente. Si esta herramienta devuelve un error, la "
-        "factura NO quedo autorizada; hay que decirselo al usuario tal cual, jamas inventar "
-        "ni suponer un CAE.\n\n"
-        "Que significa cada respuesta:\n"
-        "- Exito: devuelve cae, vencimiento del CAE y el numero de comprobante que asigno "
-        "AFIP. Si el entorno es HOMOLOGACION, el CAE es de prueba y no tiene validez fiscal: "
-        "avisele al usuario.\n"
-        "- Error 400 'AFIP no configurado': falta el certificado o la habilitacion. No se "
-        "puede autorizar; es tarea del administrador.\n"
-        "- Error 422: AFIP MIRO el comprobante y lo RECHAZO. El motivo viene en el mensaje. "
-        "El rechazo queda guardado en la factura; hay que corregir la causa (tipo de "
-        "comprobante, CUIT del cliente, importes, numeracion) y volver a pedirlo.\n"
-        "- Error 409: la factura ya tiene CAE. Pedir otro duplicaria la declaracion.\n"
-        "- Error 502: no se pudo hablar con AFIP (red, certificado, WSAA). AFIP no llego a "
-        "evaluar el comprobante; se puede reintentar mas tarde.\n\n"
-        "Parametros:\n"
-        "- numero: numero de factura de ALdia.\n"
-        "- tipo_comprobante: codigo AFIP. Si se omite, el sistema lo deduce de la condicion "
-        "frente al IVA del negocio y del cliente (1=Fac A, 6=Fac B, 11=Fac C). Hay que "
-        "indicarlo SI O SI para una NOTA DE DEBITO (2, 7 o 12), porque su importe positivo "
-        "la hace parecer una factura.\n"
-        "- punto_venta: por defecto el de la configuracion.\n"
-        "- concepto: 1=Productos (por defecto), 2=Servicios, 3=Ambos.\n"
-        "- doc_tipo / doc_nro: documento del receptor. Por defecto 80 (CUIT) y el CUIT del "
-        "cliente de la factura. Para consumidor final sin identificar: doc_tipo=99."
-    ),
+    title="Emisión fiscal no disponible desde MCP",
+    annotations=SOLO_LECTURA,
+    description="No emite. Explica que la autorización fiscal está reservada a revisión administrativa en WebUI.",
 )
 def request_fiscal_authorization(
     numero: int,
@@ -2187,58 +2163,7 @@ def request_fiscal_authorization(
     doc_tipo: int | None = None,
     doc_nro: str | None = None,
 ) -> dict[str, Any]:
-    # En un pais sin autorizacion previa de comprobantes no hay CAE que pedir.
-    # Se corta aca en vez de mandar la peticion para que el agente reciba una
-    # explicacion y no un error del otro lado.
-    reglas = _reglas_del_pais()
-    if reglas and not reglas.get("requiere_autorizacion_fiscal", True):
-        raise ALdiaError(
-            f"Esta instalacion opera en {reglas.get('nombre', 'este pais')}, donde los "
-            "comprobantes no requieren autorizacion previa de ningun organismo. "
-            "La factura ya es valida tal como fue emitida: no hay CAE que pedir."
-        )
-    cli = api()
-    factura = cli.get(f"/api/facturas/{int(numero)}")
-    if factura.get("cae"):
-        raise ALdiaError(
-            f"La factura {numero} YA tiene CAE {factura.get('cae')} (vence "
-            f"{factura.get('cae_vencimiento') or 's/d'}). No se pide dos veces: duplicaria "
-            "la declaracion ante AFIP."
-        )
-    if tipo_comprobante is not None and int(tipo_comprobante) not in TIPOS_COMPROBANTE:
-        validos = ", ".join(f"{k}={v}" for k, v in TIPOS_COMPROBANTE.items())
-        raise ALdiaError(
-            f"Tipo de comprobante {tipo_comprobante} no soportado. Validos: {validos}."
-        )
-
-    cuerpo: dict[str, Any] = {
-        "tipo_comprobante": int(tipo_comprobante) if tipo_comprobante is not None else None,
-        "punto_venta": int(punto_venta) if punto_venta is not None else None,
-        "concepto": int(concepto) if concepto is not None else None,
-        "doc_tipo": int(doc_tipo) if doc_tipo is not None else None,
-        "doc_nro": doc_nro,
-    }
-    cuerpo = {k: v for k, v in cuerpo.items() if v is not None}
-
-    resultado = cli.post(f"/api/afip/facturas/{int(numero)}/solicitar-cae", cuerpo)
-    entorno = resultado.get("entorno")
-    return {
-        "autorizada": True,
-        "factura_numero": resultado.get("facturanumero"),
-        "resultado_afip": resultado.get("resultado"),
-        "cae": resultado.get("cae"),
-        "cae_vencimiento": resultado.get("cae_vencimiento"),
-        "punto_venta": resultado.get("punto_venta"),
-        "tipo_comprobante": resultado.get("tipo_comprobante"),
-        "tipo_comprobante_descripcion": TIPOS_COMPROBANTE.get(
-            resultado.get("tipo_comprobante") or 0, "-"
-        ),
-        "numero_afip": resultado.get("nro_comprobante_afip"),
-        "entorno": entorno,
-        "tiene_validez_fiscal": entorno == "produccion",
-        "observaciones": resultado.get("observaciones"),
-        "mensaje": resultado.get("mensaje"),
-    }
+    raise ALdiaError("La emisión fiscal desde MCP está deshabilitada. Un administrador debe revisar y confirmar en la WebUI; no se emitió ningún comprobante ante ARCA.")
 
 
 # ═════════════════════════════════════════════════════════════

@@ -402,6 +402,7 @@ class FacturaItemRef(BaseModel):
 
 
 class FacturaCreate(BaseModel):
+    confirmar: bool = False
     # El frontend (facturas.js) envia "cuit" e "ivaTotal"; se aceptan como alias
     # de "cliente" e "iva" para que el contrato sea compatible en ambos sentidos.
     cliente: Optional[str] = None
@@ -445,6 +446,7 @@ class FacturaResponse(BaseModel):
 
 # ==================== AFIP (factura electrónica) ====================
 class SolicitudCAE(BaseModel):
+    confirmar: bool = False
     """Parámetros opcionales del pedido de CAE.
 
     Si no se envían, se usan los de la configuración (punto de venta y tipo de

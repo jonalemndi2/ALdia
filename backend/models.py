@@ -665,3 +665,20 @@ class Configuracion(Base):
 
     clave = Column(String(60), primary_key=True)
     valor = Column(String(500), default="")
+
+
+class BorradorVenta(Base):
+    """Preparación inmutable, sin número fiscal ni efectos comerciales."""
+    __tablename__ = "borradores_venta"
+    id = Column(String(36), primary_key=True)
+    contenido = Column(Text, nullable=False)
+    estado = Column(String(20), nullable=False, default="pendiente")
+    factura_numero = Column(Integer, nullable=True)
+
+
+class EmisionFiscalEnCurso(Base):
+    """Candado durable: un resultado incierto nunca se reintenta automáticamente."""
+    __tablename__ = "emision_fiscal_en_curso"
+    id = Column(Integer, primary_key=True)
+    factura_numero = Column(Integer, nullable=False)
+    detalle = Column(Text, nullable=False)

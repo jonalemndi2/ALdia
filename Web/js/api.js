@@ -155,7 +155,27 @@ const API = {
         },
         getById(num) { return API.get(`/facturas/${num}`); },
         getVentas(num) { return API.get(`/facturas/${num}/ventas`); },
-        create(data) { return API.post('/facturas/', data); },
+        async create(data) {
+            if (this._creando) throw new Error('Ya hay una operación pendiente de confirmación.');
+            this._creando = true;
+            try {
+                const huella = JSON.stringify(data);
+                let pendiente = JSON.parse(sessionStorage.getItem('aldia_venta_pendiente') || 'null');
+                if (!pendiente || pendiente.huella !== huella) {
+                    const b = await API.post('/facturas/borradores', data);
+                    pendiente = {huella, id: b.borrador_id};
+                    sessionStorage.setItem('aldia_venta_pendiente', JSON.stringify(pendiente));
+                }
+                const ok = await Utils.confirm('Confirmar operación comercial',
+                    `Cliente: ${Utils.escapeHtml(String(data.cliente || data.cuit))}<br>` +
+                    `Total: ${Utils.escapeHtml(String(data.total))}<br>` +
+                    'Esta confirmación genera deuda y puede descontar stock. No autoriza ante ARCA.');
+                if (!ok) throw new Error('Borrador conservado sin efectos. Puede retomarlo en Remitir Factura.');
+                const resultado = await API.post(`/facturas/borradores/${pendiente.id}/confirmar`, {confirmar: true});
+                sessionStorage.removeItem('aldia_venta_pendiente');
+                return resultado;
+            } finally { this._creando = false; }
+        },
         delete(num) { return API.delete(`/facturas/${num}`); }
     },
 

@@ -4,6 +4,13 @@ facturas.py - Router para Facturas
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import json
+import uuid
+import math
+from pydantic import BaseModel
+from sqlalchemy import update
+from dinero import a_pesos
+from models import BorradorVenta, EmisionFiscalEnCurso
 
 import saldos
 from errores import ErrorDeNegocio
@@ -30,6 +37,76 @@ def get_facturas(fecha: str = None, cliente: str = None, db: Session = Depends(g
     return query.order_by(Factura.facturanumero.desc()).all()
 
 
+class ConfirmacionVenta(BaseModel):
+    confirmar: bool = False
+
+
+def _payload_publico(datos):
+    payload = datos.model_dump()
+    for campo in ("subtotal", "iva", "ivaTotal", "total"):
+        if payload.get(campo) is not None:
+            payload[campo] = a_pesos(payload[campo])
+    for item in payload["items"]:
+        if item.get("precio") is not None:
+            item["precio"] = a_pesos(item["precio"])
+    payload["confirmar"] = False
+    return payload
+
+
+@router.post("/borradores")
+def preparar_venta(datos: FacturaCreate, db: Session = Depends(get_db)):
+    if not db.query(Cliente).filter(Cliente.cuit == datos.cliente).first():
+        raise HTTPException(404, "Cliente no encontrado")
+    if datos.total != datos.subtotal + (datos.iva or 0):
+        raise HTTPException(422, "El total debe coincidir con subtotal más IVA")
+    payload = _payload_publico(datos)
+    borrador = BorradorVenta(id=str(uuid.uuid4()), contenido=json.dumps(payload), estado="pendiente")
+    db.add(borrador)
+    db.commit()
+    return {"borrador_id": borrador.id, "estado": "pendiente", "datos": payload,
+            "efectos": "Ninguno: no reserva stock, no genera deuda ni autoriza ante ARCA"}
+
+
+@router.get("/borradores")
+def listar_borradores(db: Session = Depends(get_db)):
+    return [{"borrador_id": b.id, "datos": json.loads(b.contenido)}
+            for b in db.query(BorradorVenta).filter_by(estado="pendiente").limit(100).all()]
+
+
+@router.get("/borradores/{borrador_id}")
+def ver_borrador(borrador_id: str, db: Session = Depends(get_db)):
+    b = db.get(BorradorVenta, borrador_id)
+    if not b:
+        raise HTTPException(404, "Borrador no encontrado")
+    return {"borrador_id": b.id, "estado": b.estado, "factura_numero": b.factura_numero,
+            "datos": json.loads(b.contenido)}
+
+
+@router.post("/borradores/{borrador_id}/confirmar", response_model=FacturaResponse)
+def confirmar_venta(borrador_id: str, datos: ConfirmacionVenta, db: Session = Depends(get_db)):
+    if not datos.confirmar:
+        raise HTTPException(409, "Revise el borrador y confirme explícitamente")
+    # La actualización adquiere el bloqueo de escritura antes de leer. El cambio
+    # de estado y TODOS los efectos comerciales se confirman en una transacción.
+    db.execute(update(BorradorVenta).where(BorradorVenta.id == borrador_id,
+               BorradorVenta.estado == "pendiente").values(estado="confirmando"))
+    b = db.get(BorradorVenta, borrador_id)
+    if not b:
+        raise HTTPException(404, "Borrador no encontrado")
+    if b.estado == "anulado":
+        raise HTTPException(409, "La venta fue anulada: este borrador no puede reutilizarse")
+    if b.factura_numero is not None:
+        return db.query(Factura).filter(Factura.facturanumero == b.factura_numero).one()
+    payload = json.loads(b.contenido)
+    payload["confirmar"] = True
+    factura = create_factura(FacturaCreate.model_validate(payload), db, _commit=False)
+    b.factura_numero = factura.facturanumero
+    b.estado = "confirmado"
+    db.commit()
+    db.refresh(factura)
+    return factura
+
+
 @router.get("/{factura_num}/ventas", response_model=List[VentaResponse])
 def get_factura_ventas(factura_num: int, db: Session = Depends(get_db)):
     """Renglones de una factura.
@@ -49,8 +126,23 @@ def get_factura(factura_num: int, db: Session = Depends(get_db)):
     return factura
 
 
-@router.post("/", response_model=FacturaResponse)
-def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
+def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db), *, _commit: bool = True):
+    if not factura_data.confirmar:
+        raise HTTPException(409, "Requiere confirmar=true; prepare primero /borradores")
+    if factura_data.total != factura_data.subtotal + (factura_data.iva or 0):
+        raise HTTPException(422, "El total debe coincidir con subtotal más IVA")
+    ids = [i.id for i in factura_data.items if i.id is not None]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(422, "Renglones de remito duplicados")
+    for item in factura_data.items:
+        if item.id is not None:
+            linea = db.query(Venta).filter(Venta.id == item.id).first()
+            if not linea or linea.cliente != factura_data.cliente or linea.idfactura:
+                raise HTTPException(409, "Renglón inexistente, de otro cliente o ya facturado")
+        elif item.codigo is None or item.cantidad is None or not math.isfinite(item.cantidad) or item.cantidad <= 0:
+            raise HTTPException(422, "Cada renglón nuevo requiere producto y cantidad positiva finita")
+        elif item.precio is not None and item.precio < 0:
+            raise HTTPException(422, "El precio no puede ser negativo")
     # El cliente tiene que existir. Antes esto no se validaba y la factura se
     # grababa igual con un CUIT cualquiera; ahora ademas hay una clave foranea
     # real contra `clientes`, asi que sin este control el usuario veria un error
@@ -131,9 +223,17 @@ def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db)):
     # suma es exacta.
     saldos.aplicar_a_cliente(db, new_factura.cliente, +(factura_data.total or 0))
 
-    db.commit()
-    db.refresh(new_factura)
+    if _commit:
+        db.commit()
+        db.refresh(new_factura)
+    else:
+        db.flush()
     return new_factura
+
+
+@router.post("/", response_model=FacturaResponse)
+def registrar_venta(datos: FacturaCreate, db: Session = Depends(get_db)):
+    return create_factura(datos, db)
 
 
 @router.delete("/{factura_num}")
@@ -142,6 +242,14 @@ def delete_factura(factura_num: int, db: Session = Depends(get_db)):
     factura = db.query(Factura).filter(Factura.facturanumero == factura_num).first()
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    if factura.cae or factura.resultado in ("A", "P"):
+        raise HTTPException(409, "Comprobante fiscal autorizado: no se elimina; corresponde nota de ajuste")
+    if db.query(EmisionFiscalEnCurso).filter_by(factura_numero=factura_num).first():
+        raise HTTPException(409, "Emisión en curso o incierta: concilie con ARCA antes de operar")
+    borrador = db.query(BorradorVenta).filter_by(factura_numero=factura_num).first()
+    if borrador:
+        borrador.estado = "anulado"
 
     # Los renglones facturados sin remito no existen fuera de esta factura: se
     # eliminan y se devuelve el stock. Los que vienen de un remito solo se
