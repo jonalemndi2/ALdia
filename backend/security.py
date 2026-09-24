@@ -24,7 +24,7 @@ import stat
 import threading
 
 from errores import ErrorDeNegocio
-from database import get_db
+from database import DB_PATH, get_db
 from tiempo import ahora_utc
 from models import Modulo, Usuario
 
@@ -94,6 +94,15 @@ def _cargar_o_crear_secret() -> str:
 
 
 SECRET_KEY = _cargar_o_crear_secret()
+
+# Donde queda anotada la clave inicial de `admin` hasta que la cambie: al lado
+# de la BASE, no del codigo. La clave es de esa base; y asi una base temporal
+# (las pruebas, ALDIA_DB apuntando a otro lado) nunca pisa ni borra el archivo
+# de la instalacion real. Permisos solo del dueno, igual que .aldia_secret.
+# La escribe main.avisar_clave_inicial y la borra routers/auth.cambiar_password.
+ARCHIVO_CLAVE_INICIAL = os.path.join(
+    os.path.dirname(os.path.abspath(DB_PATH)), ".aldia_clave_inicial"
+)
 
 
 # ─────────────────────────────────────────────────────────────

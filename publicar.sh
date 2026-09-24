@@ -29,10 +29,10 @@ git diff --cached --quiet || fallar "Hay cambios preparados sin commit."
 [ -z "$(git ls-files --others --exclude-standard)" ] || fallar "Hay archivos nuevos sin clasificar."
 
 # No alcanza con .gitignore: este control mira lo que Git publicaría realmente.
-PROHIBIDOS="$(git ls-files | grep -E '(^|/)(tests?|fixtures?|private|privado)(/|$)|(^|/)requirements-dev\.txt$|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)"
+PROHIBIDOS="$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)"
 [ -z "$PROHIBIDOS" ] || {
     echo "$PROHIBIDOS" | sed 's/^/  /' >&2
-    fallar "Hay pruebas o archivos privados rastreados por Git."
+    fallar "Hay material privado rastreado por Git."
 }
 
 # Patrones de credenciales de alta confianza. Sólo se muestran nombres de
@@ -58,9 +58,9 @@ if [ -s .publicar-privado ]; then
     fi
 fi
 
-# Las pruebas viven en el equipo de desarrollo, pero no forman parte del árbol
-# público. Publicar sin tenerlas o sin ejecutarlas queda prohibido.
-[ -d tests ] || fallar "No está disponible la suite privada local."
+# Las pruebas públicas están en tests/; si existe tests/privado/ (material real,
+# ignorado por Git) pytest la recorre también. Publicar sin correrlas queda prohibido.
+[ -d tests ] || fallar "No está la carpeta tests/."
 if [ -x .venv/bin/python ]; then
     PYTHON=.venv/bin/python
 elif [ -x .venv/Scripts/python.exe ]; then
@@ -79,7 +79,7 @@ if command -v node >/dev/null 2>&1; then
     done
 fi
 
-echo "Publicación verificada: pruebas privadas y controles de privacidad aprobados."
+echo "Publicación verificada: pruebas y controles de privacidad aprobados."
 
 if [ "$MODO" = "--publicar" ]; then
     git fetch origin master

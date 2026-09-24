@@ -456,12 +456,14 @@ def seed_data(db: Session = Depends(get_db), _: Usuario = Depends(require_admin)
     # (personas, estancias, cooperativas con telefono y correo) parecian clientes
     # reales de un comercio y no corresponde publicarlos ni que alguien los
     # confunda con su propia cartera. Los CUIT tienen digito verificador valido
-    # porque el sistema los valida de verdad.
+    # porque el sistema los valida de verdad, y cuerpo de ceros a proposito: un
+    # CUIT "realista" con verificador correcto puede ser el de alguien (el
+    # anterior 30-50001091-2 parecia ser el de un banco).
     clientes = [
         {"cuit": "20123456786", "nombre": "EJEMPLO - Cliente de mostrador",
          "domicilio": "Calle 1 N° 100", "localidad": "Ciudad", "provincia": "Provincia",
          "cp": "1000", "telefono": "", "mail": "", "condicion_iva": "consumidor_final"},
-        {"cuit": "30500010912", "nombre": "EJEMPLO - Comercio S.A.",
+        {"cuit": "30000000015", "nombre": "EJEMPLO - Comercio S.A.",
          "domicilio": "Av. Principal 500", "localidad": "Ciudad", "provincia": "Provincia",
          "cp": "1000", "telefono": "", "mail": "", "condicion_iva": "responsable_inscripto"},
     ]
@@ -473,10 +475,10 @@ def seed_data(db: Session = Depends(get_db), _: Usuario = Depends(require_admin)
     
     # Proveedores de ejemplo (mismo criterio que los clientes).
     proveedores = [
-        {"cuit": "30710120338", "nombre": "EJEMPLO - Distribuidora S.R.L.",
+        {"cuit": "30000000023", "nombre": "EJEMPLO - Distribuidora S.R.L.",
          "domicilio": "Parque Industrial", "localidad": "Ciudad", "provincia": "Provincia",
          "cp": "1000", "telefono": "", "mail": ""},
-        {"cuit": "27230938607", "nombre": "EJEMPLO - Mayorista",
+        {"cuit": "27000000030", "nombre": "EJEMPLO - Mayorista",
          "domicilio": "Ruta 1 Km 10", "localidad": "Ciudad", "provincia": "Provincia",
          "cp": "1000", "telefono": "", "mail": ""},
     ]

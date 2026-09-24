@@ -122,7 +122,16 @@ haya publicado cada proyecto ese día:
 .venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt   # Windows
 ```
 
-El script muestra la dirección para conectarse desde otras PCs:
+Por defecto el servidor escucha **sólo en esta PC** (`127.0.0.1`). Para que
+entren las otras cajas de la red, abrilo a propósito — y después de haber
+cambiado la contraseña de admin:
+
+```bash
+ALDIA_HOST=0.0.0.0 ./iniciar_web.sh          # Linux y macOS
+set ALDIA_HOST=0.0.0.0 && iniciar_web.bat    # Windows
+```
+
+Ahí el script muestra la dirección para conectarse desde otras PCs:
 
 ```
 En esta computadora:     http://localhost:8000
@@ -134,17 +143,20 @@ Desde otras terminales:  http://192.168.0.10:8000
 | Variable | Para qué sirve |
 |---|---|
 | `ALDIA_PORT` | Usar otro puerto: `ALDIA_PORT=8080 ./iniciar_web.sh` |
-| `ALDIA_HOST` | Escuchar sólo local: `ALDIA_HOST=127.0.0.1 ./iniciar_web.sh` |
+| `ALDIA_HOST` | Abrir a la red local: `ALDIA_HOST=0.0.0.0 ./iniciar_web.sh` (por defecto `127.0.0.1`) |
+| `ALDIA_ADMIN_PASSWORD` | Clave inicial de `admin` en una base nueva (instalaciones automatizadas) |
 | `ALDIA_SIN_NAVEGADOR` | `=1` para no abrir el navegador (servidor sin pantalla) |
 | `ALDIA_PYTHON` | Forzar un intérprete si hay varios instalados |
 
 ### Primer ingreso
 
-- **Usuario:** `admin` · **Contraseña:** `admin123`
+- **Usuario:** `admin` · **Contraseña:** una **aleatoria** que se genera en el
+  primer arranque. El script la muestra en pantalla y queda en
+  `backend/.aldia_clave_inicial` (sólo legible por tu usuario) hasta que la cambies.
 
-El sistema **te obliga a cambiarla** antes de dejarte hacer nada: esta contraseña
-es pública (está en este README), así que una instalación que la conserve tiene un
-acceso conocido por cualquiera. Lo mismo vale para cada empleado que des de alta:
+No hay contraseña de fábrica: una clave publicada más el cambio obligatorio es una
+carrera que gana el primero que entra. El sistema **te obliga a cambiarla** antes
+de dejarte hacer nada, y al hacerlo el archivo se borra solo. Lo mismo vale para cada empleado que des de alta:
 la contraseña que le pongas es provisoria y él la reemplaza al entrar, así el
 registro de auditoría refleja a personas y no a una clave compartida.
 
@@ -469,10 +481,11 @@ certificados/       certificados de AFIP (ignorado por git)
 
 ## Validación
 
-Cada versión pública pasa una validación funcional privada antes de publicarse.
-GitHub comprueba además la instalación y las dependencias en Windows, Linux y
-macOS, y rechaza bases, credenciales, certificados y material de prueba dentro
-del árbol público.
+La suite de pruebas está en [`tests/`](tests/) y corre en GitHub en cada push y
+cada pull request: Windows, Linux y macOS, Python 3.10 y 3.13. GitHub comprueba
+además la instalación del backend y del servidor MCP con sus versiones fijadas, y
+rechaza bases, credenciales, certificados y material de validación real
+(`tests/privado/`) dentro del árbol público.
 
 ## Construido con
 

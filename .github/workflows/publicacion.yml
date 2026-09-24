@@ -32,6 +32,62 @@ jobs:
           ALDIA_DB: validacion-publica.db
         run: python -c "import main; print('backend importado')"
 
+  pruebas:
+    name: Pruebas · ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 3.10 es el mínimo que promete el README: el lock tiene marcadores
+          # para < 3.11 que sin esta fila nunca se ejecutarían.
+          - { os: ubuntu-latest,  python: '3.10' }
+          - { os: ubuntu-latest,  python: '3.13' }
+          - { os: windows-latest, python: '3.13' }
+          - { os: macos-latest,   python: '3.13' }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock.txt
+            mcp/requirements.lock.txt
+      - name: Instalar dependencias verificadas y pytest
+        shell: bash
+        # El SDK de MCP se instala en el mismo entorno para que corran las
+        # pruebas de mcp/ (ver backend/requirements-dev.txt), en la versión
+        # exacta de su lock.
+        run: python -m pip install -r backend/requirements.lock.txt pytest "$(grep '^mcp==' mcp/requirements.lock.txt)"
+      - name: Correr la suite
+        run: python -m pytest tests/ -q
+
+  mcp:
+    name: Servidor MCP · lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - name: Instalar el lock del MCP en un entorno propio
+        run: python -m pip install -r mcp/requirements.lock.txt
+      - name: Importar el servidor
+        working-directory: mcp
+        run: python -c "import aldia_mcp.server; print('servidor MCP importado')"
+
+  frontend:
+    name: Sintaxis del frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: node --check sobre Web/js
+        run: find Web/js -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
   privacidad:
     name: Sin material privado
     runs-on: ubuntu-latest
@@ -39,10 +95,10 @@ jobs:
       - uses: actions/checkout@v5
       - name: Verificar árbol público
         run: |
-          prohibidos=$(git ls-files | grep -E '(^|/)(tests?|fixtures?|private|privado)(/|$)|(^|/)requirements-dev\.txt$|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)
+          prohibidos=$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)
           if [ -n "$prohibidos" ]; then
             echo "$prohibidos" | sed 's/^/  /'
-            echo "Hay pruebas o archivos privados versionados."
+            echo "Hay material privado versionado (tests/privado, fixtures, bases, claves)."
             exit 1
           fi
           sensibles=$(git grep -IlE '(-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{24,}|AKIA[A-Z0-9]{16})' -- . || true)

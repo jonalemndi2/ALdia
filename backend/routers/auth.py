@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
+import os
 import bcrypt
 import jwt
 
@@ -17,6 +18,7 @@ from schemas import (
     TokenResponse, UsuarioCreate, UsuarioResponse,
 )
 from security import (
+    ARCHIVO_CLAVE_INICIAL,
     SECRET_KEY,
     verificar_bloqueo_login,
     registrar_login_fallido,
@@ -237,8 +239,18 @@ def login(login_data: LoginRequest, request: Request, db: Session = Depends(get_
 
     registrar_login_exitoso(request, login_data.username)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Un login con la clave NUEVA en el mismo segundo del cambio recibia un token
+    # con `iat` truncado al segundo, anterior al corte de _token_anterior_al_cambio:
+    # nacia invalido y el primer pedido fallaba con credenciales correctas. Le
+    # pasa a un cliente automatico (el MCP) que cambia la clave y reingresa de
+    # inmediato. Se fecha igual que el token que entrega cambiar-password.
+    emitido = ahora_utc()
+    cambiada = getattr(user, "password_cambiada_en", None)
+    if cambiada is not None:
+        emitido = max(emitido, _proximo_segundo(cambiada))
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user.username}, expires_delta=access_token_expires,
+        emitido=emitido,
     )
 
     return TokenResponse(
@@ -293,6 +305,14 @@ def cambiar_password(
     user.debe_cambiar_password = False
     user.password_cambiada_en = cambiada_en
     db.commit()
+
+    # La clave inicial anotada en disco ya no sirve para nada: que no quede un
+    # archivo con una contrasena, aunque sea vieja, al lado de la base.
+    if user.username == "admin":
+        try:
+            os.remove(ARCHIVO_CLAVE_INICIAL)
+        except OSError:
+            pass
 
     nuevo_token = create_access_token(
         data={"sub": user.username},

@@ -2,7 +2,7 @@
 
 Documento escrito **después** de construir una rebanada vertical de Estados
 Unidos sobre el motor existente, no antes. Todo lo que dice está verificado
-contra el código y la validación privada del proyecto.
+contra el código y las pruebas de `tests/`.
 
 La decisión de fondo: **un núcleo comercial común con paquetes de país**, no un
 fork "ALdía USA". Argentina y Estados Unidos corren sobre el mismo motor.

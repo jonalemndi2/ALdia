@@ -167,7 +167,7 @@ diagnóstico de escritorio (este documento incluido) acertó.
 ### Etapas 1 a 3 — hechas
 
 Identidad y trazabilidad, idempotencia y confirmaciones con estado están
-implementadas y cubiertas por la validación privada del proyecto.
+implementadas y cubiertas por las pruebas de `tests/`.
 
 ### Etapa 4 — Errores con código de máquina — hecha
 

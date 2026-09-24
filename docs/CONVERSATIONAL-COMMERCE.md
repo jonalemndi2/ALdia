@@ -88,7 +88,7 @@ Also: `cantidad` is a float, because a shop sells kilos and litres. Reservations
 have to work on fractional quantities.
 
 The concurrency itself is the *easy* part here — the infrastructure already
-serialises writes. The private validation suite already exercises concurrent
+serialises writes. The test suite (`tests/`) already exercises concurrent
 writes and provides the pattern for this scenario.
 
 ### 3. Orders

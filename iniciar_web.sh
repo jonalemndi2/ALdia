@@ -2,13 +2,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # ALdia - Servidor de gestión (Linux y macOS)
 #
-# Equivalente de iniciar_web.bat. Levanta el backend y deja el sistema
-# disponible en esta computadora y en la red local.
+# Equivalente de iniciar_web.bat. Levanta el backend en esta computadora.
 #
-#     ./iniciar_web.sh
+#     ./iniciar_web.sh                      solo esta computadora
+#     ALDIA_HOST=0.0.0.0 ./iniciar_web.sh   tambien las otras terminales de la red
 #
 # Variables que reconoce (todas opcionales):
-#     ALDIA_HOST            interfaz donde escuchar     (por defecto 0.0.0.0)
+#     ALDIA_HOST            interfaz donde escuchar     (por defecto 127.0.0.1)
 #     ALDIA_PORT            puerto                       (por defecto 8000)
 #     ALDIA_PYTHON          intérprete a usar si no hay .venv
 #     ALDIA_SIN_NAVEGADOR   =1 para no abrir el navegador (servidor sin pantalla)
@@ -20,7 +20,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 RAIZ="$(pwd)"
 
-HOST="${ALDIA_HOST:-0.0.0.0}"
+# Solo esta computadora por defecto: abrirlo a la red local es una decision, no
+# el estado de fabrica (ver backend/main.py).
+HOST="${ALDIA_HOST:-127.0.0.1}"
 PORT="${ALDIA_PORT:-8000}"
 
 # Validar el puerto ACA y no mas abajo. Si ALDIA_PORT trae cualquier cosa, la
@@ -135,19 +137,23 @@ direcciones_locales() {
 echo "  Intérprete:  $PYTHON"
 echo "               ($ORIGEN)"
 echo
-echo "  El sistema estará disponible en esta computadora y en la red local."
-echo
 echo "  En esta computadora:     http://localhost:$PORT"
 if [ "$HOST" = "0.0.0.0" ] || [ "$HOST" = "::" ]; then
     direcciones_locales | while IFS= read -r ip; do
         [ -n "$ip" ] && echo "  Desde otras terminales:  http://$ip:$PORT"
     done
 else
-    echo "  (escuchando sólo en $HOST)"
+    echo "  (sólo esta computadora; para las otras terminales de la red:"
+    echo "   ALDIA_HOST=0.0.0.0 ./iniciar_web.sh)"
 fi
 echo
-echo "  Usuario inicial:  admin    Contraseña:  admin123"
-echo "  (El sistema le exige cambiarla antes de dejarlo operar)"
+if [ -f backend/.aldia_clave_inicial ]; then
+    echo "  Usuario inicial:  admin    Contraseña:  $(cat backend/.aldia_clave_inicial)"
+    echo "  (El sistema le exige cambiarla antes de dejarlo operar)"
+elif [ ! -f backend/aldia.db ] && [ -z "${ALDIA_DB:-}" ]; then
+    echo "  Primer arranque: la contraseña inicial de admin se muestra abajo"
+    echo "  y queda en backend/.aldia_clave_inicial hasta que la cambie."
+fi
 echo
 
 # ── Abrir el navegador ───────────────────────────────────────────────────────

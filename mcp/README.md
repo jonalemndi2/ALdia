@@ -71,7 +71,7 @@ El servidor MCP vive en su propio entorno, aparte del backend.
 ```bash
 cd "/ruta/a/ALdia/mcp"
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.lock.txt
 ```
 
 **Windows**
@@ -79,7 +79,7 @@ python3 -m venv .venv
 ```bat
 cd "ruta\a\ALdia\mcp"
 python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\pip install -r requirements.lock.txt
 ```
 
 ## Variables de entorno

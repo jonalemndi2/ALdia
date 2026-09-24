@@ -23,7 +23,7 @@ from routers import (
     pendientes, tesoreria,
 )
 from routers.auth import current_user_dep
-from security import require_modulo
+from security import ARCHIVO_CLAVE_INICIAL, require_modulo
 
 # Copia de seguridad del dia, ANTES de tocar nada.
 #
@@ -55,6 +55,51 @@ aplicar_claves_foraneas(engine)
 aplicar_identidad_subrogada(engine)
 
 
+def clave_inicial_del_admin() -> str:
+    """La contrasena con la que nace `admin` en una base nueva.
+
+    ALDIA_ADMIN_PASSWORD si viene definida (instalaciones automatizadas y las
+    pruebas); si no, una aleatoria. Nunca una fija: una clave conocida mas el
+    cambio obligatorio es una carrera que gana el primero que llega.
+    """
+    desde_entorno = (os.getenv("ALDIA_ADMIN_PASSWORD") or "").strip()
+    if desde_entorno:
+        return desde_entorno
+    import secrets
+    return secrets.token_urlsafe(9)
+
+
+def avisar_clave_inicial(clave: str) -> None:
+    """Muestra la clave inicial UNA vez y la deja en un archivo privado.
+
+    El archivo existe porque la consola se pierde: en Windows se cierra la
+    ventana, en un servicio va a un log que nadie abre. Se borra solo cuando
+    admin define su propia clave (routers/auth.py, cambiar-password).
+    Si la clave vino por variable de entorno, quien la puso ya la sabe: no se
+    escribe en ningun lado.
+    """
+    if (os.getenv("ALDIA_ADMIN_PASSWORD") or "").strip():
+        return
+    try:
+        descriptor = os.open(
+            ARCHIVO_CLAVE_INICIAL, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as fh:
+            fh.write(clave + "\n")
+        donde = f"Queda anotada en {ARCHIVO_CLAVE_INICIAL} hasta que la cambie."
+    except OSError:
+        donde = "No se pudo guardar en disco: anótela ahora."
+    print(
+        "\n  ============================================\n"
+        "  PRIMER ARRANQUE: usuario inicial  admin\n"
+        f"  Contraseña inicial:  {clave}\n"
+        f"  {donde}\n"
+        "  El sistema le exige cambiarla al entrar.\n"
+        "  ============================================\n",
+        file=sys.stderr, flush=True,
+    )
+
+
 def inicializar_datos():
     """Sembrar módulos, configuración y usuario admin por defecto en el primer arranque."""
     from models import Usuario
@@ -68,17 +113,23 @@ def inicializar_datos():
         seed_config(db)
         # Crear usuario administrador por defecto si no existe ninguno.
         # Nace con debe_cambiar_password=True: puede iniciar sesion, pero el
-        # sistema no lo deja operar hasta definir una contrasena propia. La de
-        # fabrica esta publicada en el README, asi que dejarla puesta equivale
-        # a no tener contrasena.
+        # sistema no lo deja operar hasta definir una contrasena propia.
+        #
+        # La clave inicial ya NO es una fija publicada en el README. El cambio
+        # obligatorio no protegia nada contra quien la conocia: el primero que
+        # entraba con "admin123" la cambiaba y se quedaba con la cuenta, y con el
+        # servidor escuchando en la red local ese primero podia ser cualquiera.
+        # Ver clave_inicial_del_admin().
         if db.query(Usuario).count() == 0:
+            clave = clave_inicial_del_admin()
             db.add(Usuario(
                 username="admin",
-                password_hash=hash_password("admin123"),
+                password_hash=hash_password(clave),
                 rol="administrador",
                 debe_cambiar_password=True,
             ))
             db.commit()
+            avisar_clave_inicial(clave)
     finally:
         db.close()
 
@@ -404,6 +455,10 @@ app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="static")
 
 
 if __name__ == "__main__":
-    host = os.getenv("ALDIA_HOST", "0.0.0.0")
+    # Solo esta computadora por defecto. Abrirlo a la red local es una decision
+    # (ALDIA_HOST=0.0.0.0, ver iniciar_web.sh/.bat), no el estado de fabrica:
+    # antes de cambiar la clave inicial, cualquiera de la red podia intentar
+    # entrar primero.
+    host = os.getenv("ALDIA_HOST", "127.0.0.1")
     port = int(os.getenv("ALDIA_PORT", "8000"))
     uvicorn.run("main:app", host=host, port=port, reload=False)

@@ -7,7 +7,7 @@ pocas reglas, pero las tres primeras no se negocian.
 
 ### 1. Nada de datos reales de ningún comercio
 
-Ni en el código, ni en material de validación, ni en una captura de pantalla, ni en la
+Ni en el código, ni en las pruebas, ni en una captura de pantalla, ni en la
 descripción de un issue. Sin CUIT reales, sin nombres de clientes, sin importes
 facturados, y por supuesto sin el archivo `backend/aldia.db` ni certificados de
 AFIP. El `.gitignore` los excluye y hay un job de CI que lo verifica en cada
@@ -56,9 +56,22 @@ servidor: `./iniciar_web.sh` (o `iniciar_web.bat`). La base se crea sola en el
 primer arranque, vacía, y el usuario `admin` te obliga a cambiar la contraseña
 antes de dejarte operar.
 
-La validación funcional completa se ejecuta en el entorno privado del proyecto
-antes de publicar. GitHub verifica además que el paquete público instale en los
-tres sistemas y que no contenga material de prueba ni información sensible.
+Para correr las pruebas:
+
+```bash
+.venv/bin/python -m pip install -r backend/requirements-dev.txt
+.venv/bin/python -m pytest tests/ -q
+```
+
+(En Windows, `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.)
+
+GitHub corre la misma suite en Linux, macOS y Windows, y en Python 3.10 y 3.13,
+en cada push y en cada pull request. También verifica que el paquete instale y que
+no se cuele información sensible.
+
+Las pruebas usan **sólo datos ficticios** y una base temporal. Si para validar
+algo necesitás material real de un comercio, eso va en `tests/privado/`: Git lo
+ignora y el CI rechaza cualquier archivo de esa carpeta que llegue a un commit.
 
 ## Sobre los comentarios
 
@@ -76,8 +89,8 @@ y los mensajes que se imprimen en pantalla con tildes.
 
 ## Al abrir el pull request
 
-Contá qué problema resuelve y cómo lo verificaste, sin adjuntar datos reales ni
-material privado de validación.
+Contá qué problema resuelve y cómo lo verificaste. Si tocás dinero, stock o
+permisos, sumá la prueba que lo demuestra. Sin datos reales ni material privado.
 
 ## Licencia
 

@@ -34,8 +34,10 @@ comprobantes salen con el tipo equivocado y AFIP los rechaza.
 
 ## Paso 2 — Cambiar la contraseña de admin
 
-La contraseña inicial (`admin123`) es pública: está en la documentación del
-proyecto. Insista en cambiarla antes de cargar nada real.
+La contraseña inicial de `admin` es aleatoria: se muestra en la consola del
+primer arranque y queda en `backend/.aldia_clave_inicial` hasta que se cambia.
+Insista en cambiarla antes de cargar nada real y antes de abrir el sistema a la
+red local (`ALDIA_HOST=0.0.0.0`).
 
 ## Paso 3 — Un usuario por persona
 

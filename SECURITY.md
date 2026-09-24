@@ -49,14 +49,16 @@ Estas son decisiones tomadas a propósito y documentadas:
 
 - **Que el sistema en HTTP plano sea interceptable.** El README lo dice sin
   vueltas: para exponerlo a internet **hace falta HTTPS** con un proxy inverso.
-  La instalación por defecto es para una red local.
+  La instalación por defecto escucha sólo en la propia PC (`127.0.0.1`); abrirla
+  a la red local es una decisión explícita (`ALDIA_HOST=0.0.0.0`).
 - **Que quien tenga acceso al archivo `backend/aldia.db` pueda editarlo por
   fuera de la aplicación.** Está explicado en la sección "Límites honestos" del
   README: ahí la protección son los permisos del sistema operativo y las copias
   de seguridad, no la aplicación.
-- **Que la contraseña inicial `admin`/`admin123` sea pública.** Es pública a
-  propósito, está en el README, y el sistema **no deja operar** hasta que se
-  cambie. Si encontrás una forma de saltear esa obligación, eso sí es un
+- **Que la contraseña inicial de `admin` se pueda leer en la consola o en
+  `backend/.aldia_clave_inicial`.** Es aleatoria por instalación, el archivo es
+  sólo del dueño y se borra al cambiarla, y el sistema **no deja operar** hasta
+  que se cambie. Si encontrás una forma de saltear esa obligación, eso sí es un
   reporte válido y nos interesa mucho.
 - Un usuario administrador haciendo cosas de administrador. El rol tiene acceso
   total por diseño; lo que sí importa es que **quede auditado**.

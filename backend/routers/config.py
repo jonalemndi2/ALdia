@@ -16,7 +16,7 @@ from idiomas import CLAVE_CONFIG_IDIOMA, idioma_configurado, olvidar_idioma
 from paises import (CLAVE_CONFIG_PAIS, PaisNoSoportado, fijar_pais,
                     pais_configurado, reglas)
 from schemas import ConfigItem
-from routers.auth import require_admin
+from routers.auth import current_user_dep, require_admin
 
 router = APIRouter()
 
@@ -64,8 +64,19 @@ def seed_config(db: Session) -> int:
 
 
 @router.get("/")
-def obtener_config(db: Session = Depends(get_db)) -> Dict[str, str]:
-    """Obtener toda la configuración del negocio como diccionario (público para la UI)."""
+def obtener_config(
+    db: Session = Depends(get_db),
+    _: Usuario = Depends(current_user_dep),
+) -> Dict[str, str]:
+    """Obtener toda la configuración del negocio como diccionario.
+
+    Exige sesion. Antes respondia a cualquiera que llegara al puerto: CUIT,
+    domicilio, telefono, entorno de AFIP y la ruta del certificado, todo a un
+    GET anonimo desde la red local. El frontend la pide recien despues del
+    login (Auth.onLoginSuccess), asi que no pierde nada. Lo que si hace falta
+    antes de entrar -- idioma y pais para rotular la pantalla -- sale de
+    /api/config/pais, que sigue publico y no expone datos del comercio.
+    """
     items = db.query(Configuracion).all()
     return {item.clave: item.valor for item in items}
 

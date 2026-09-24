@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title ALdia - Servidor (Red Local)
+title ALdia - Servidor
 color 0A
 echo ============================================
 echo     ALDIA - Servidor de Gestion
@@ -53,23 +53,34 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Mostrar la direccion IP local para conexion desde otras PCs
-echo  El sistema estara disponible en esta PC y en la red local.
-echo.
-echo  En esta PC (servidor):   http://localhost:8000
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
-    for /f "tokens=* delims= " %%b in ("%%a") do echo  Desde otras PCs:         http://%%b:8000
+REM Solo esta PC por defecto: abrirlo a la red local es una decision, no el
+REM estado de fabrica (ver backend\main.py). Para las otras cajas:
+REM     set ALDIA_HOST=0.0.0.0  antes de ejecutar este archivo.
+if not defined ALDIA_HOST set "ALDIA_HOST=127.0.0.1"
+if not defined ALDIA_PORT set "ALDIA_PORT=8000"
+
+echo  En esta PC (servidor):   http://localhost:%ALDIA_PORT%
+if "%ALDIA_HOST%"=="0.0.0.0" (
+    for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+        for /f "tokens=* delims= " %%b in ("%%a") do echo  Desde otras PCs:         http://%%b:%ALDIA_PORT%
+    )
+) else (
+    echo  ^(solo esta PC; para las otras cajas: set ALDIA_HOST=0.0.0.0^)
 )
 echo.
-echo  Usuario inicial:  admin    Contrasena:  admin123
-echo  (Cambie la contrasena del administrador tras el primer ingreso)
+if exist "%~dp0backend\.aldia_clave_inicial" (
+    set /p CLAVE_INICIAL=<"%~dp0backend\.aldia_clave_inicial"
+    call echo  Usuario inicial:  admin    Contrasena:  %%CLAVE_INICIAL%%
+    echo  ^(El sistema le exige cambiarla antes de dejarlo operar^)
+) else if not exist "%~dp0backend\aldia.db" (
+    echo  Primer arranque: la contrasena inicial de admin se muestra abajo
+    echo  y queda en backend\.aldia_clave_inicial hasta que la cambie.
+)
 echo.
 echo  Abriendo navegador...
-start "" http://localhost:8000
+start "" http://localhost:%ALDIA_PORT%
 
 echo  Servidor activo. Cierre esta ventana para detener el sistema.
 echo ============================================
-set ALDIA_HOST=0.0.0.0
-set ALDIA_PORT=8000
 "%PYTHON%" main.py
 pause

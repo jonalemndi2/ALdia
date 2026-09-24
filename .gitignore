@@ -8,6 +8,10 @@
 backend/.aldia_secret
 .aldia_secret
 
+# Clave inicial de admin: existe solo hasta que se cambia en el primer ingreso.
+backend/.aldia_clave_inicial
+.aldia_clave_inicial
+
 # Certificados de AFIP: son la identidad fiscal del comercio.
 # Con la clave privada, un tercero puede facturar en tu nombre.
 # Se versiona la carpeta con su instructivo, NUNCA el material criptografico.
@@ -81,9 +85,11 @@ mcp/.venv/
 # Caché de pytest
 .pytest_cache/
 
-# Validación privada: existe en el equipo de desarrollo, no en GitHub.
-tests/
-backend/requirements-dev.txt
+# Validación con material REAL (listas de proveedores, casos de un comercio):
+# existe sólo en el equipo de desarrollo. Las pruebas con datos ficticios de
+# tests/ son públicas y corren en CI; lo que necesite datos reales va en
+# tests/privado/ y nunca sale de acá.
+tests/privado/
 .publicar-privado
 .private/
 private/

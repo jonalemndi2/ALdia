@@ -67,7 +67,7 @@ Hay dos casos distintos y conviene preguntar cuál es:
 **a) Cheque propio** (el comerciante libra un cheque de su chequera):
 
 ```
-record_vendor_payment(proveedor="30500010912", monto=45000, tipo="cheque",
+record_vendor_payment(proveedor="30000000015", monto=45000, tipo="cheque",
                referencia="CH-99887", banco="Banco Nación",
                vencimiento="2026-11-30")
 ```
@@ -77,7 +77,7 @@ dieron a él). Primero identifique el cheque en la cartera y pase su `cheque_id`
 
 ```
 list_checks(solo_pendientes=true)          # elegir el cheque
-record_vendor_payment(proveedor="30500010912", monto=45000,
+record_vendor_payment(proveedor="30000000015", monto=45000,
                tipo="cheque tercero", cheque_id=4)
 ```
 

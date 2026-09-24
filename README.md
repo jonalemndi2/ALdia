@@ -114,7 +114,8 @@ it. Not even for the administrator.
 ## Runs on your machine. No cloud, no subscription.
 
 ALdía is a single Python process and one SQLite file. It installs on the shop's
-own PC and the terminals reach it over the local network.
+own PC; the other terminals reach it over the local network once you open it
+with `ALDIA_HOST=0.0.0.0` (by default it listens only on the PC itself).
 
 **It works with the internet down.** Nothing is loaded from a CDN — that was a
 deliberate fix, not an accident. A store that loses connectivity keeps invoicing.
@@ -199,9 +200,16 @@ For a production install, pin the exact verified versions instead of the
 compatibility ranges: `./instalar.sh --lock` (or, on Windows,
 `.venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt`).
 
-Then open `http://localhost:8000`. First login is `admin` / `admin123`, and the
-system **refuses to let you operate until you change it** — that password is
-published in this file, so an installation that keeps it has a known way in.
+Then open `http://localhost:8000`. On first start ALdía creates the user `admin`
+with a **random password**, prints it in the console and keeps it in
+`backend/.aldia_clave_inicial` (readable only by the owner) until you change it.
+The system **refuses to let you operate until you do**. There is no default
+password: a published one plus a forced change is just a race won by whoever logs
+in first. For automated installs, set `ALDIA_ADMIN_PASSWORD` before the first start.
+
+By default the server listens **only on this PC** (`127.0.0.1`). To let the other
+terminals in, start it with `ALDIA_HOST=0.0.0.0` (on Windows,
+`set ALDIA_HOST=0.0.0.0` before `iniciar_web.bat`) — after changing the admin password.
 
 To connect an assistant, see [`mcp/README.md`](mcp/README.md). Give it a
 **limited-role account**, not the administrator's: a connected agent can create
@@ -262,10 +270,11 @@ lock out the entire store.
 
 ## Verified
 
-Every public release passes private functional validation before publication.
-GitHub additionally verifies installation and dependency integrity on Windows,
-Linux and macOS, and rejects databases, credentials, certificates and test
-material from the public tree.
+The test suite lives in [`tests/`](tests/) and runs on GitHub on every push and
+pull request: Windows, Linux and macOS, Python 3.10 and 3.13. GitHub also checks
+that the backend and the MCP server install from their pinned versions, and
+rejects databases, credentials, certificates and real-data validation material
+(`tests/privado/`) from the public tree.
 
 ## Documentation
 
