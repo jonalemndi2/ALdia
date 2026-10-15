@@ -22,8 +22,9 @@ completar:
 - **Nombre del comercio** — aparece en la barra superior y en los comprobantes.
 - **CUIT** del negocio.
 - **Condición frente al IVA** — la más importante: **decide si emite facturas
-  A/B o C**. Un monotributista emite siempre C; un responsable inscripto emite A
-  a otros responsables inscriptos y B al resto.
+  A/B o C**. Un monotributista (común, social o promovido) emite siempre C; un
+  responsable inscripto emite A a responsables inscriptos y monotributistas, y B
+  al resto (consumidor final, exento, no alcanzado...).
 - **Punto de venta** — el habilitado en AFIP. Si va a usar factura electrónica,
   tiene que ser un punto de venta **de tipo Web Services**, no el de
   Comprobantes en Línea.

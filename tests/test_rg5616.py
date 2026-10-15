@@ -125,3 +125,69 @@ class TestEndpoint:
         from models import EmisionFiscalEnCurso
         with SessionLocal() as db:
             assert db.query(EmisionFiscalEnCurso).count() == 0
+
+
+class TestCondicionesCompletas:
+    """Las nueve condiciones de la tabla de ARCA, iguales en backend, API y MCP."""
+
+    ESPERADAS = {
+        "responsable_inscripto": (1, "A"), "monotributo": (6, "A"),
+        "monotributo_social": (13, "A"), "monotributo_promovido": (16, "A"),
+        "exento": (4, "B"), "consumidor_final": (5, "B"), "no_responsable": (15, "B"),
+        "no_categorizado": (7, "B"), "iva_liberado": (10, "B"),
+    }
+
+    def test_backend_tiene_las_nueve_con_su_codigo(self):
+        from schemas import CONDICIONES_IVA
+        assert {k: v["afip_id"] for k, v in CONDICIONES_IVA.items()} == \
+               {k: v[0] for k, v in self.ESPERADAS.items()}
+
+    @pytest.mark.parametrize("condicion,clase", [(k, v[1]) for k, v in ESPERADAS.items()])
+    def test_clase_que_emite_un_responsable_inscripto(self, condicion, clase):
+        assert ws.clase_comprobante("responsable_inscripto", condicion) == clase
+
+    @pytest.mark.parametrize("emisor", ["monotributo", "Monotributista Social",
+                                        "Monotributo Trabajador Independiente Promovido"])
+    def test_todo_monotributista_emite_c(self, emisor):
+        assert ws.clase_comprobante(emisor, "responsable_inscripto") == "C"
+
+    @pytest.mark.parametrize("texto,clave", [
+        ("Monotributista Social", "monotributo_social"),
+        ("promovido", "monotributo_promovido"),
+        ("Sujeto No Categorizado", "no_categorizado"),
+        ("ley 19640", "iva_liberado"),
+    ])
+    def test_sinonimos(self, texto, clave):
+        assert ws._normalizar_condicion(texto) == clave
+
+    def test_la_api_informa_codigo_y_clases(self, admin):
+        r = admin.get("/api/afip/condiciones-iva")
+        assert r.status_code == 200
+        filas = {f["clave"]: f for f in r.json()}
+        assert set(filas) == set(self.ESPERADAS)
+        for clave, (codigo, clase) in self.ESPERADAS.items():
+            assert filas[clave]["afip_id"] == codigo
+            assert filas[clave]["clase_si_el_negocio_es_ri"] == clase
+            assert clase in filas[clave]["clases_validas_rg5616"]
+
+    @pytest.mark.parametrize("condicion", ["monotributo_social", "monotributo_promovido",
+                                           "no_categorizado", "iva_liberado"])
+    def test_alta_de_cliente_con_condicion_nueva(self, admin, condicion):
+        c = cuit_valido("27", uuid.uuid4().int % 10**8)
+        r = admin.post("/api/clientes/", json={"cuit": c, "nombre": f"Ficticio {condicion}",
+                                               "condicion_iva": condicion})
+        assert r.status_code == 200, r.text
+        assert r.json()["condicion_iva"] == condicion
+
+    def test_el_mcp_coincide_con_el_backend(self):
+        pytest.importorskip("mcp.server", reason="el SDK mcp no está instalado")
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+        import aldia_mcp.server as srv
+        from schemas import CONDICIONES_IVA
+        assert set(srv.CONDICIONES_IVA) == set(CONDICIONES_IVA)
+        for emisor in CONDICIONES_IVA:
+            for receptor in CONDICIONES_IVA:
+                assert srv._clase_comprobante(emisor, receptor) == \
+                       ws.clase_comprobante(emisor, receptor), (emisor, receptor)

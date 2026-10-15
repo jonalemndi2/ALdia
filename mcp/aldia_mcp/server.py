@@ -334,6 +334,11 @@ CONDICIONES_IVA = {
     "exento": "IVA Sujeto Exento",
     "consumidor_final": "Consumidor Final",
     "no_responsable": "IVA No Alcanzado",
+    # RG 5616 (tabla FEParamGetCondicionIvaReceptor de ARCA).
+    "monotributo_social": "Monotributista Social",
+    "monotributo_promovido": "Monotributo Trabajador Independiente Promovido",
+    "no_categorizado": "Sujeto No Categorizado",
+    "iva_liberado": "IVA Liberado - Ley N° 19.640",
 }
 
 # Sinonimos que dice la gente o que muestra la pantalla, hacia la clave interna.
@@ -354,10 +359,28 @@ _SINONIMOS_CONDICION = {
     "no_responsable": "no_responsable",
     "iva_no_alcanzado": "no_responsable",
     "no_alcanzado": "no_responsable",
+    "monotributo_social": "monotributo_social",
+    "monotributista_social": "monotributo_social",
+    "monotributo_promovido": "monotributo_promovido",
+    "monotributo_trabajador_independiente_promovido": "monotributo_promovido",
+    "trabajador_independiente_promovido": "monotributo_promovido",
+    "promovido": "monotributo_promovido",
+    "no_categorizado": "no_categorizado",
+    "sujeto_no_categorizado": "no_categorizado",
+    "iva_liberado": "iva_liberado",
+    "liberado": "iva_liberado",
+    "ley_19640": "iva_liberado",
+    "ley_19.640": "iva_liberado",
 }
 
 # Condiciones del EMISOR que obligan a emitir comprobantes clase C.
-_EMISOR_CLASE_C = {"monotributo", "exento", "no_responsable"}
+_EMISOR_CLASE_C = {"monotributo", "monotributo_social", "monotributo_promovido",
+                   "exento", "no_responsable"}
+
+# Receptores a los que un responsable inscripto les emite clase A (igual que
+# backend/afip.py RECEPTOR_CLASE_A).
+_RECEPTOR_CLASE_A = {"responsable_inscripto", "monotributo", "monotributo_social",
+                     "monotributo_promovido"}
 
 # Codigos AFIP por clase y naturaleza del comprobante.
 COMPROBANTES_POR_CLASE = {
@@ -407,7 +430,7 @@ def _clase_comprobante(condicion_emisor: str | None, condicion_receptor: str | N
     if emisor in _EMISOR_CLASE_C:
         return "C"
     # Al monotributista le corresponde A (RG 5003 y RG 5616), igual que en backend/afip.py.
-    return "A" if receptor in ("responsable_inscripto", "monotributo") else "B"
+    return "A" if receptor in _RECEPTOR_CLASE_A else "B"
 
 
 def _condicion_del_negocio() -> str:
@@ -1073,11 +1096,14 @@ def update_product(
         "- nombre: razon social o nombre del cliente (obligatorio).\n"
         "- condicion_iva: condicion frente al IVA. Es un dato FISCAL, no administrativo: "
         "decide que comprobante se le emite y si el IVA va discriminado. Validas: "
-        "responsable_inscripto, monotributo, exento, consumidor_final, no_responsable. "
+        "responsable_inscripto, monotributo, monotributo_social, monotributo_promovido, "
+        "exento, consumidor_final, no_responsable, no_categorizado, iva_liberado. "
         "Por defecto consumidor_final.\n"
-        "  Con un negocio responsable inscripto: cliente responsable inscripto o "
-        "monotributista -> FACTURA A; exento o consumidor final -> FACTURA B. Si el negocio "
-        "es monotributista o exento, siempre FACTURA C.\n"
+        "  Con un negocio responsable inscripto: cliente responsable inscripto o cualquier "
+        "monotributista (comun, social o promovido) -> FACTURA A; exento, consumidor final, "
+        "no alcanzado, no categorizado o IVA liberado -> FACTURA B. Si el negocio es "
+        "monotributista o exento, siempre FACTURA C. ARCA recibe esta condicion en cada "
+        "comprobante (RG 5616) y rechaza la que no corresponde a la clase.\n"
         "  Preguntele al usuario que dice la constancia de inscripcion del cliente. No lo "
         "adivine: cargarlo mal hace que despues AFIP rechace el comprobante.\n"
         "- domicilio, localidad, provincia, cp, telefono, mail: opcionales. El telefono "
@@ -2933,8 +2959,9 @@ def configure_module(
         "La condicion del negocio, cruzada con la del cliente, decide que clase de "
         "comprobante hay que emitirle:\n"
         "- Negocio responsable inscripto + cliente responsable inscripto o "
-        "monotributista -> FACTURA A.\n"
-        "- Negocio responsable inscripto + cliente exento o consumidor final -> FACTURA B.\n"
+        "monotributista (comun, social o promovido) -> FACTURA A.\n"
+        "- Negocio responsable inscripto + cliente exento, consumidor final, no "
+        "alcanzado, no categorizado o IVA liberado -> FACTURA B.\n"
         "- Negocio monotributista o exento -> siempre FACTURA C, sin IVA discriminado.\n\n"
         "Estos datos se cambian desde Administracion en el sistema, no desde el asistente."
     ),

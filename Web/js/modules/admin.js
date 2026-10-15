@@ -497,7 +497,7 @@ const Admin = {
                     <div class="col-md-4">
                         <label class="form-label-sm">Condición IVA</label>
                         <select class="form-select" id="cfg_negocio_iva">
-                            ${['Responsable Inscripto', 'Monotributo', 'Exento', 'Consumidor Final'].map(o => `<option ${cfg.negocio_iva === o ? 'selected' : ''}>${o}</option>`).join('')}
+                            ${['Responsable Inscripto', 'Monotributo', 'Monotributista Social', 'Monotributo Trabajador Independiente Promovido', 'Exento', 'Consumidor Final'].map(o => `<option ${cfg.negocio_iva === o ? 'selected' : ''}>${o}</option>`).join('')}
                         </select>
                     </div>
                     <div class="col-md-4">

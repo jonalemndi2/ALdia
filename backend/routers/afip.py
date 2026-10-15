@@ -229,11 +229,25 @@ def _condicion_receptor_id(db: Session, factura: Factura, doc_tipo: int) -> Opti
 
 @router.get("/condiciones-iva")
 def condiciones_iva():
-    """Condiciones frente al IVA validas, para el formulario de clientes."""
+    """Condiciones frente al IVA validas, para el formulario de clientes.
+
+    Ademas del codigo de ARCA (RG 5616), informa que comprobante le emite un
+    responsable inscripto y en que clases ARCA acepta esa condicion: es la misma
+    regla que aplica el pedido de CAE, para que nadie la tenga que copiar.
+    """
     from schemas import CONDICIONES_IVA
 
     return [
-        {"clave": clave, "nombre": datos["nombre"], "afip_id": datos["afip_id"]}
+        {
+            "clave": clave,
+            "nombre": datos["nombre"],
+            "afip_id": datos["afip_id"],
+            "clase_si_el_negocio_es_ri": ws.clase_comprobante("responsable_inscripto", clave),
+            "clases_validas_rg5616": sorted(
+                clase for clase, ids in ws.CONDICIONES_RECEPTOR_POR_CLASE.items()
+                if datos["afip_id"] in ids
+            ),
+        }
         for clave, datos in CONDICIONES_IVA.items()
     ]
 

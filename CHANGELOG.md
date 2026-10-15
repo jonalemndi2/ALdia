@@ -11,6 +11,24 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.2.0 — 2026-10-15
+
+- **Todas las condiciones frente al IVA de ARCA (RG 5616).** Se suman
+  *Monotributista Social* (13), *Monotributo Trabajador Independiente Promovido*
+  (16), *Sujeto No Categorizado* (7) e *IVA Liberado – Ley N° 19.640* (10). Se
+  eligen en la ficha del cliente y viajan en cada pedido de CAE.
+- **Clase de comprobante.** Un responsable inscripto emite clase A a cualquier
+  monotributista (común, social o promovido) y B al resto. Un negocio
+  monotributista social o promovido emite clase C, igual que el monotributo común.
+- **API.** `GET /api/afip/condiciones-iva` informa, para cada condición, el código
+  de ARCA, la clase que emite un responsable inscripto
+  (`clase_si_el_negocio_es_ri`) y las clases en que ARCA la acepta
+  (`clases_validas_rg5616`).
+- **Asistente (MCP y skills).** Reconoce las condiciones nuevas y sus sinónimos
+  ("monotributista social", "promovido", "ley 19.640"...), y las skills traen la
+  tabla completa de ARCA. Una prueba verifica que el MCP y el backend apliquen
+  exactamente la misma regla.
+
 ## 2.1.1 — 2026-10-15
 
 - **RG 5616 (ARCA).** Cada pedido de CAE informa la condición frente al IVA del

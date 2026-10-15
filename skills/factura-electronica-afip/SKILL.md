@@ -48,9 +48,12 @@ Lo determinan las condiciones frente al IVA del **negocio** y del **cliente**:
 
 | Negocio | Cliente | Comprobante | Código AFIP |
 | --- | --- | --- | --- |
-| Responsable inscripto | Responsable inscripto o monotributo | Factura A | 1 |
-| Responsable inscripto | Exento / consumidor final / no alcanzado | Factura B | 6 |
-| Monotributista o exento | cualquiera | Factura C | 11 |
+| Responsable inscripto | Responsable inscripto o monotributo (común, social o promovido) | Factura A | 1 |
+| Responsable inscripto | Exento / consumidor final / no alcanzado / no categorizado / IVA liberado | Factura B | 6 |
+| Monotributista (cualquier variante) o exento | cualquiera | Factura C | 11 |
+
+Códigos de condición del receptor que ARCA acepta por clase (RG 5616):
+**A** → 1, 6, 13, 16 · **B** → 4, 5, 7, 8, 9, 10, 15 · **C** → todos.
 
 **RG 5616:** cada pedido de CAE informa la condición frente al IVA del cliente
 (sale de su ficha). Desde el 01/12/2026 ARCA rechaza el comprobante si falta o si
@@ -132,7 +135,8 @@ Cada error significa algo distinto y se resuelve distinto:
 Causas típicas de un **rechazo 422**, en orden de frecuencia:
 
 1. **Tipo de comprobante equivocado** — factura A a un cliente que no es
-   responsable inscripto, o nota de débito pedida como factura. Revise la
+   responsable inscripto ni monotributista, factura B a un monotributista, o
+   nota de débito pedida como factura. Revise la
    condición frente al IVA del cliente y vuelva a pedirlo con el tipo correcto.
 2. **CUIT del receptor inválido o inexistente para AFIP** — el CUIT valida el
    dígito verificador pero no está inscripto. Hay que confirmarlo con el

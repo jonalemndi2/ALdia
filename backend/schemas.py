@@ -69,6 +69,11 @@ CONDICIONES_IVA = {
     "exento":                {"nombre": "IVA Sujeto Exento",     "afip_id": 4},
     "consumidor_final":      {"nombre": "Consumidor Final",      "afip_id": 5},
     "no_responsable":        {"nombre": "IVA No Alcanzado",      "afip_id": 15},
+    # Agregadas por la RG 5616 (tabla FEParamGetCondicionIvaReceptor de ARCA).
+    "monotributo_social":    {"nombre": "Monotributista Social", "afip_id": 13},
+    "monotributo_promovido": {"nombre": "Monotributo Trabajador Independiente Promovido", "afip_id": 16},
+    "no_categorizado":       {"nombre": "Sujeto No Categorizado", "afip_id": 7},
+    "iva_liberado":          {"nombre": "IVA Liberado - Ley N° 19.640", "afip_id": 10},
 }
 
 

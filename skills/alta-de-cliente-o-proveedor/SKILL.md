@@ -40,7 +40,7 @@ una cobranza que no se puede hacer.
 
 Si el usuario le está leyendo una constancia de inscripción de AFIP, ahí están
 todos: CUIT, razón social, domicilio fiscal e "impuestos" (que dicen si es
-responsable inscripto o monotributista).
+responsable inscripto, monotributista, exento...).
 
 ## Paso 2 — La condición frente al IVA (sólo clientes)
 
@@ -49,13 +49,28 @@ determina qué comprobante hay que emitirle:
 
 | Negocio | Cliente | Comprobante |
 | --- | --- | --- |
-| Responsable inscripto | Responsable inscripto o monotributista | **Factura A** (IVA discriminado) |
-| Responsable inscripto | Exento o consumidor final | **Factura B** (IVA incluido) |
-| Monotributista o exento | cualquiera | **Factura C** (sin IVA discriminado) |
+| Responsable inscripto | Responsable inscripto o monotributista (común, social o promovido) | **Factura A** (IVA discriminado) |
+| Responsable inscripto | Exento, consumidor final, no alcanzado, no categorizado o IVA liberado | **Factura B** (IVA incluido) |
+| Monotributista (cualquier variante) o exento | cualquiera | **Factura C** (sin IVA discriminado) |
 
-Valores válidos: `responsable_inscripto`, `monotributo`, `exento`,
-`consumidor_final`, `no_responsable`. Si el usuario dice "RI", "monotributista"
-o "consumidor final", la herramienta lo traduce sola.
+Valores válidos (son los de la tabla de ARCA que exige la **RG 5616**; el código
+viaja en cada pedido de CAE):
+
+| Valor | Condición | Código ARCA |
+| --- | --- | --- |
+| `responsable_inscripto` | IVA Responsable Inscripto | 1 |
+| `monotributo` | Responsable Monotributo | 6 |
+| `monotributo_social` | Monotributista Social | 13 |
+| `monotributo_promovido` | Monotributo Trabajador Independiente Promovido | 16 |
+| `exento` | IVA Sujeto Exento | 4 |
+| `consumidor_final` | Consumidor Final | 5 |
+| `no_responsable` | IVA No Alcanzado | 15 |
+| `no_categorizado` | Sujeto No Categorizado | 7 |
+| `iva_liberado` | IVA Liberado – Ley N° 19.640 (Tierra del Fuego) | 10 |
+
+Si el usuario dice "RI", "monotributista", "monotributista social" o
+"consumidor final", la herramienta lo traduce sola. La constancia de inscripción
+de ARCA dice cuál es: no la deduzca del nombre o del rubro.
 
 Para saber cómo está inscripto el negocio:
 
@@ -121,7 +136,7 @@ Otros errores frecuentes:
 | --- | --- | --- |
 | `El CUIT debe tener 11 digitos` | faltan o sobran cifras | releer el CUIT completo |
 | `El nombre del cliente es obligatorio` | vino vacío | preguntar la razón social |
-| `Condicion frente al IVA invalida` | condición mal escrita | usar una de las cinco válidas |
+| `Condicion frente al IVA invalida` | condición mal escrita | usar una de las nueve válidas de la tabla |
 | `PERMISO DENEGADO (403)` | el rol no tiene el módulo `clientes` / `proveedores` | decírselo al usuario y no reintentar |
 | El CUIT ya existe | la ficha estaba cargada | buscarla y usarla; no duplicar |
 

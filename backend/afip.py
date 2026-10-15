@@ -1085,7 +1085,32 @@ COMPROBANTES_POR_CLASE = {
 }
 
 # Condiciones del EMISOR que obligan a emitir clase C.
-EMISOR_CLASE_C = {"monotributo", "exento", "no_responsable"}
+EMISOR_CLASE_C = {"monotributo", "monotributo_social", "monotributo_promovido",
+                  "exento", "no_responsable"}
+
+# Receptores a los que un responsable inscripto les emite clase A: los inscriptos
+# y todas las variantes de monotributo (RG 5003; por la RG 5616 sus codigos 6, 13
+# y 16 solo valen en clase A). El resto recibe clase B.
+RECEPTOR_CLASE_A = {"responsable_inscripto", "monotributo", "monotributo_social",
+                    "monotributo_promovido"}
+
+
+# Como se dicen las condiciones agregadas por la RG 5616 (la pantalla, la gente).
+SINONIMOS_RG5616 = {
+    "monotributo_social": "monotributo_social",
+    "monotributista_social": "monotributo_social",
+    "monotributo_promovido": "monotributo_promovido",
+    "monotributo_trabajador_independiente_promovido": "monotributo_promovido",
+    "trabajador_independiente_promovido": "monotributo_promovido",
+    "promovido": "monotributo_promovido",
+    "no_categorizado": "no_categorizado",
+    "sujeto_no_categorizado": "no_categorizado",
+    "iva_liberado": "iva_liberado",
+    "iva_liberado_-_ley_n°_19.640": "iva_liberado",
+    "liberado": "iva_liberado",
+    "ley_19640": "iva_liberado",
+    "ley_19.640": "iva_liberado",
+}
 
 
 def _normalizar_condicion(valor: str) -> str:
@@ -1103,6 +1128,7 @@ def _normalizar_condicion(valor: str) -> str:
         "cf": "consumidor_final",
         "no_responsable": "no_responsable",
         "iva_no_alcanzado": "no_responsable",
+        **SINONIMOS_RG5616,
     }
     return equivalencias.get(texto, texto)
 
@@ -1117,7 +1143,7 @@ def clase_comprobante(condicion_emisor: str, condicion_receptor: str) -> str:
     # Emisor responsable inscripto (o desconocido: se asume el caso mas comun).
     # Al monotributista le corresponde clase A (RG 5003); ademas, por la RG 5616
     # su codigo de condicion (6) no es valido en un comprobante B.
-    return "A" if receptor in ("responsable_inscripto", "monotributo") else "B"
+    return "A" if receptor in RECEPTOR_CLASE_A else "B"
 
 
 def tipo_comprobante_sugerido(
