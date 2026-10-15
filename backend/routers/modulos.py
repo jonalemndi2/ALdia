@@ -13,6 +13,7 @@ from database import get_db
 from models import Modulo, Usuario
 from schemas import ModuloResponse, ModuloUpdate, ModuloBase
 from routers.auth import current_user_dep, require_admin
+from security import ROL_AGENTE, ROL_SOLO_LECTURA
 
 router = APIRouter()
 
@@ -56,7 +57,13 @@ def modulos_activos(db: Session = Depends(get_db), user: Usuario = Depends(curre
     modulos = db.query(Modulo).filter(Modulo.habilitado == True).order_by(Modulo.orden).all()  # noqa: E712
     if rol == "administrador":
         return modulos
-    return [m for m in modulos if rol in [r.strip().lower() for r in (m.roles or "").split(",")]]
+
+    def visible(m) -> bool:
+        roles = [r.strip().lower() for r in (m.roles or "").split(",")]
+        # El agente consulta lo mismo que el auditor (ver security.ROL_AGENTE).
+        return rol in roles or (rol == ROL_AGENTE and ROL_SOLO_LECTURA in roles)
+
+    return [m for m in modulos if visible(m)]
 
 
 @router.put("/{clave}", response_model=ModuloResponse)

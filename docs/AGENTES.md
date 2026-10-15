@@ -109,7 +109,7 @@ la corrección en el cuerpo original y **reejecuta la misma petición**.
 Se guarda la petición y no una llamada a una función a propósito: al reejecutarse
 pasa de nuevo por permisos, validaciones, auditoría e idempotencia, en vez de
 abrir un camino paralelo con reglas propias que se desincronice. Y funciona para
-las 60 herramientas sin que ninguna tenga que saber que esto existe.
+las 61 herramientas sin que ninguna tenga que saber que esto existe.
 
 ---
 

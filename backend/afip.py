@@ -515,6 +515,30 @@ def _traducir_fault_wsaa(texto: str) -> str:
     return f"AFIP (WSAA) rechazó el pedido de ticket de acceso: {texto}"
 
 
+def _sesion_ssl_arca():
+    """Sesion requests con SECLEVEL=1 para ARCA.
+
+    ARCA todavia negocia un diffie-hellman de 1024 bits, que OpenSSL 3 rechaza
+    por defecto (dh key too small). Esto baja el nivel de seguridad SOLO para
+    las llamadas a AFIP, sin tocar el resto del sistema.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.ssl_ import create_urllib3_context
+
+    ctx = create_urllib3_context()
+    ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+
+    class _AdapterArca(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["ssl_context"] = ctx
+            return super().init_poolmanager(*args, **kwargs)
+
+    sesion = requests.Session()
+    sesion.mount("https://", _AdapterArca())
+    return sesion
+
+
 def _cliente_soap(url: str):
     """Cliente zeep contra el WSDL de `url`, con timeouts razonables."""
     try:
@@ -525,7 +549,15 @@ def _cliente_soap(url: str):
             "Falta la librería 'zeep' para hablar con los web services de AFIP. "
             "Ejecute instalar.bat o: pip install -r backend/requirements.txt"
         ) from exc
-    transporte = Transport(timeout=TIMEOUT_SEGUNDOS, operation_timeout=TIMEOUT_SEGUNDOS)
+    try:
+        _sesion = _sesion_ssl_arca()
+    except Exception:
+        _sesion = None
+    transporte = Transport(
+        timeout=TIMEOUT_SEGUNDOS,
+        operation_timeout=TIMEOUT_SEGUNDOS,
+        session=_sesion,
+    )
     try:
         return zeep.Client(wsdl=url + "?WSDL", transport=transporte)
     except Exception as exc:

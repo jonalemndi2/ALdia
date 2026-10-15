@@ -1,6 +1,7 @@
 > **Piloto comercial:** `create_invoice` prepara un borrador sin efectos.
 > `confirm_invoice_draft` confirma stock/deuda; no solicita CAE.
-> Emisión fiscal deshabilitada por defecto y no disponible desde MCP.
+> Emisión fiscal deshabilitada por defecto; desde MCP solo con un código de un solo uso
+> que recibe la persona responsable ([cómo habilitarla](docs/EMISION_POR_AGENTE.md)).
 > [Alcance, soporte y recuperación](docs/PILOTO_COMERCIAL.md).
 
 # ALdía — Motor de gestión comercial operable por agentes
@@ -51,6 +52,7 @@ hoja de ruta.
 - [Facturación electrónica AFIP](#facturación-electrónica-afip)
 - [Integración con asistentes de IA](#integración-con-asistentes-de-ia)
 - [Seguridad](#seguridad)
+- [Versiones y actualización](#versiones-y-actualización)
 - [Registro de auditoría](#registro-de-auditoría)
 - [Copias de seguridad](#copias-de-seguridad)
 - [Validación](#validación)
@@ -209,6 +211,7 @@ firewall del servidor:
 | `encargado_deposito` | Stock / inventario |
 | `finanzas` | Caja, cuentas corrientes, IVA, gastos |
 | `auditor` | Consulta de todos los módulos, **sin poder modificar nada** |
+| `agente` | Cuenta de un asistente de IA: consulta como el auditor y escribe **solo** en los módulos que el administrador le habilite |
 
 Los permisos se validan en el servidor contra la tabla `modulos`, la misma que edita el
 administrador desde **Menú → Módulos del Sistema**. Ocultar un menú no alcanza: un rol
@@ -235,7 +238,7 @@ consultar stock y saldos, registrar ventas, cobros y gastos, cerrar la caja del 
 
 ### Guía rápida: Claude Code, OpenClaw o Hermes
 
-Los tres clientes usan el mismo puente MCP y descubren las mismas **60 herramientas**.
+Los tres clientes usan el mismo puente MCP y descubren las mismas **61 herramientas**.
 Antes de conectarlos:
 
 1. Iniciá ALdía con `./iniciar_web.sh` en Linux/macOS o `iniciar_web.bat` en Windows.
@@ -421,6 +424,24 @@ existir:
 > protege contra un borrado accidental o una base corrupta, no contra un incendio ni
 > contra ransomware. Sincronizá `backend/copias/` a un pendrive o a la nube — ahora es
 > una sola carpeta, y el sistema te lo recuerda por consola en cada arranque.
+
+## Versiones y actualización
+
+La versión instalada está en el archivo [`VERSION`](VERSION) y se ve al pie de la
+pantalla. Las novedades de cada versión están en [`CHANGELOG.md`](CHANGELOG.md).
+
+- **Administración → Actualizar Sistema** muestra si hay una versión nueva y sus
+  novedades. Si ALdía se instaló con `git clone`, el botón *Actualizar* hace una
+  copia de seguridad de la base, descarga la versión nueva y, si cambiaron,
+  instala las dependencias. Nunca pisa cambios locales: si los hay, se niega.
+- Para que se reinicie solo al terminar, configure el comando de reinicio, por
+  ejemplo `ALDIA_COMANDO_REINICIO="systemctl --user restart --no-block aldia-web"`.
+- El asistente de IA se entera solo: la herramienta `get_system_version` informa
+  la versión y la primera respuesta después de una actualización trae un aviso
+  con las novedades.
+- Para buscar versiones nuevas, ALdía solo descarga `VERSION` y `CHANGELOG.md` del
+  repositorio público: no envía ningún dato del comercio. Se desactiva con
+  `ALDIA_BUSCAR_ACTUALIZACIONES=no`.
 
 ## Registro de auditoría
 

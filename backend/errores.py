@@ -169,6 +169,20 @@ CATALOGO: dict[str, tuple[int, str, str]] = {
         "MISMO X-Operation-Id, porque puede que AFIP si lo haya procesado."),
     "AFIP_RECHAZO": (400, CORREGIR,
         "AFIP rechazo el comprobante. El mensaje trae el motivo que devolvio."),
+    "CODIGO_DE_AUTORIZACION_REQUERIDO": (409, PREGUNTAR,
+        "Se envio un codigo de un solo uso a la persona responsable. Pedirle ese "
+        "codigo al usuario y repetir el pedido con codigo=<el codigo>. Nunca "
+        "inventarlo ni adivinarlo."),
+    "CODIGO_DE_AUTORIZACION_INVALIDO": (403, PREGUNTAR,
+        "El codigo no coincide, vencio, ya se uso o la factura cambio desde que se "
+        "pidio. Pedirle el codigo de nuevo al usuario; si vencio, repetir el pedido "
+        "SIN codigo para que se envie uno nuevo."),
+    "ACTUALIZACION_NO_POSIBLE": (409, ABORTAR,
+        "El sistema no se pudo actualizar solo (cambios locales, instalacion sin "
+        "git, sin conexion). El mensaje explica que hacer; lo resuelve una persona."),
+    "EMISION_FISCAL_DEL_AGENTE_DESHABILITADA": (403, ABORTAR,
+        "Esta instalacion no permite que un agente pida CAE. La emision la hace un "
+        "administrador desde la WebUI."),
 
     # ── Operaciones repetidas (ver idempotencia.py) ───────────────────────
     "OPERACION_EN_CURSO": (409, REINTENTAR,

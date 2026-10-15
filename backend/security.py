@@ -112,6 +112,18 @@ ARCHIVO_CLAVE_INICIAL = os.path.join(
 # Rol que puede leer todo pero no debe escribir nada.
 ROL_SOLO_LECTURA = "auditor"
 
+# Rol de la cuenta de servicio de un asistente de IA (servidor MCP).
+#
+# LEE lo mismo que el auditor, para poder contestar cualquier consulta, pero
+# ESCRIBE solo en los modulos que lo nombran explicitamente en la tabla
+# `modulos`. De fabrica no escribe en ninguno: el administrador decide, modulo
+# por modulo, desde "Modulos del Sistema" (lo habitual es ventas y clientes).
+#
+# Por que un rol propio y no reusar auditor o un encargado: el auditor no puede
+# escribir nada, y un encargado es una persona con su propio perimetro. Un
+# agente necesita el perimetro mas chico que le permita trabajar.
+ROL_AGENTE = "agente"
+
 
 def _roles_del_modulo(db: Session, clave: str) -> list[str]:
     modulo = db.query(Modulo).filter(Modulo.clave == clave).first()
@@ -200,7 +212,12 @@ def _verificar_acceso(user: Usuario, clave: str, metodo: str, db: Session) -> No
             usuario=user.username,
         )
 
-    if rol not in _roles_del_modulo(db, clave):
+    roles = _roles_del_modulo(db, clave)
+    if (rol == ROL_AGENTE and metodo not in METODOS_DE_ESCRITURA
+            and ROL_SOLO_LECTURA in roles):
+        return
+
+    if rol not in roles:
         raise ErrorDeNegocio(
             "SIN_PERMISO",
             f"{user.username} ({rol or 'sin rol'}) no tiene acceso al modulo '{clave}'",

@@ -68,11 +68,27 @@ importe positivo, así que el sistema la tomaría por una factura. En ese caso
 indique el tipo a mano (2, 7 o 12). Las notas de crédito se detectan solas
 porque su importe es negativo.
 
-## Paso 3 — Pedir el CAE
+## Paso 3 — Pedir el CAE (dos pasos, con código)
+
+Antes de llamar, confirme con el usuario **número, cliente e importe** de la factura.
 
 ```
-request_fiscal_authorization(numero=<n>)
+request_fiscal_authorization(numero=<n>, confirmar=true)
 ```
+
+ALdía **no emite** en esta primera llamada: le manda a la persona responsable un
+código de 6 dígitos por Telegram y responde `CODIGO_DE_AUTORIZACION_REQUERIDO`.
+Pídale el código al usuario ("¿Me pasás el código que te llegó?") y repita:
+
+```
+request_fiscal_authorization(numero=<n>, confirmar=true, codigo="<el código>")
+```
+
+- **Nunca** invente, adivine ni reutilice un código.
+- `CODIGO_DE_AUTORIZACION_INVALIDO`: el código no coincide, venció (10 minutos),
+  se usó o la factura cambió. Pídalo de nuevo; si venció, repita la primera llamada.
+- `EMISION_FISCAL_DEL_AGENTE_DESHABILITADA`: esta instalación no deja emitir al
+  asistente; el CAE lo pide un administrador desde la WebUI.
 
 Parámetros opcionales: `tipo_comprobante`, `punto_venta`, `concepto`
 (1 = productos, 2 = servicios, 3 = ambos), `doc_tipo` / `doc_nro` del receptor
@@ -105,7 +121,7 @@ Cada error significa algo distinto y se resuelve distinto:
 | **422 — rechazo de AFIP** | AFIP **miró** el comprobante y lo rechazó | leer el motivo, corregir la causa y volver a pedirlo. El rechazo queda guardado en la factura (`resultado = R`) |
 | **409 — ya tiene CAE** | el comprobante ya estaba autorizado | no volver a pedirlo: duplicaría la declaración. Mostrar el CAE existente |
 | **502 — AFIP no responde** | red, certificado o WSAA caídos | AFIP **no llegó a evaluar** el comprobante: no cambió nada, se reintenta más tarde |
-| **403 — permiso denegado** | el rol no tiene el módulo `ventas` | decírselo al usuario; pedir un CAE es emitir un comprobante fiscal |
+| **403 — permiso denegado** | el rol no tiene escritura en `ventas` | decírselo al usuario; pedir un CAE es emitir un comprobante fiscal |
 
 Causas típicas de un **rechazo 422**, en orden de frecuencia:
 

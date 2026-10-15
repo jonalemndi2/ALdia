@@ -291,6 +291,12 @@ const API = {
         }
     },
 
+    // ==================== SISTEMA ====================
+    sistema: {
+        version(refrescar = false) { return API.get('/sistema/version', refrescar ? { refrescar: true } : {}); },
+        actualizar() { return API.post('/sistema/actualizar', {}); }
+    },
+
     // ==================== MÓDULOS ====================
     modulos: {
         getAll() { return API.get('/modulos/'); },

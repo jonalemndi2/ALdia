@@ -38,6 +38,13 @@ backend/aldia.db-journal
 backend/aldia.db-wal
 backend/aldia.db-shm
 *.bak
+# Copias a mano antes de editar (archivo.py.bak-FECHA, aldia.db.bak-motivo):
+# son las que se olvidan en la carpeta y terminan subidas con un `git add -A`.
+*.bak-*
+*.bak.*
+*.orig
+*.db-*
+*.db.*
 *.sqlite
 *.sqlite3
 

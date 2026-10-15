@@ -1,5 +1,6 @@
 > **Commercial pilot:** draft → explicit commercial confirmation; fiscal emission
-> is disabled by default and unavailable from MCP. See [scope and rollout](docs/PILOTO_COMERCIAL.md).
+> is disabled by default; from MCP it requires a one-time code sent to the person in charge
+> ([how to enable it](docs/EMISION_POR_AGENTE.md)). See [scope and rollout](docs/PILOTO_COMERCIAL.md).
 
 # ALdía
 
@@ -9,7 +10,7 @@
 
 Instead of handing an agent database access, ALdía exposes the business itself —
 invoicing, payments, customers, vendors, inventory, checks, expenses, cash — as
-**60 permission-controlled MCP tools**, with identity, idempotency, structured
+**61 permission-controlled MCP tools**, with identity, idempotency, structured
 errors and an immutable audit trail already built in.
 
 *[Léeme en español](README.es.md)*
@@ -244,7 +245,7 @@ hermes mcp add aldia \
 hermes mcp test aldia
 ```
 
-All three clients discover the same 60 tools. For a safe first check, ask the
+All three clients discover the same 61 tools. For a safe first check, ask the
 agent to find a customer, read a balance, or show today's cash; require an
 explicit review before issuing a document or moving money.
 
@@ -303,7 +304,7 @@ matrix that verifies ALdía on Linux, macOS and Windows.
 
 **Built to be driven by** — any [MCP](https://modelcontextprotocol.io/) client.
 [OpenClaw](https://github.com/openclaw) is the assistant this engine was shaped
-around, but nothing here depends on it: the 60 tools are plain MCP, and the
+around, but nothing here depends on it: the 61 tools are plain MCP, and the
 server never assumes which client is on the other end.
 
 That's deliberate. An engine that only works with one assistant isn't

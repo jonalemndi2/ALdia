@@ -105,6 +105,7 @@ const App = {
             home.innerHTML = html;
             Utils.showHome();
             this.bindDataActions();
+            if (window.Admin && Admin.revisarVersion) Admin.revisarVersion();
         } catch (err) {
             console.error('Error al cargar el dashboard:', err);
             Utils.toast('No se pudo cargar el panel de control: ' + (err.message || err), 'Dashboard', 'error');

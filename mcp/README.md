@@ -1,6 +1,7 @@
 > **Piloto comercial:** `create_invoice` prepara un borrador sin efectos.
 > `confirm_invoice_draft` confirma stock/deuda; no solicita CAE.
-> Emisión fiscal deshabilitada por defecto y no disponible desde MCP.
+> Emisión fiscal deshabilitada por defecto; desde MCP solo con un código de un solo uso
+> ([docs/EMISION_POR_AGENTE.md](../docs/EMISION_POR_AGENTE.md)).
 > [Alcance, soporte y recuperación](../docs/PILOTO_COMERCIAL.md).
 
 # Servidor MCP de ALdia
@@ -47,6 +48,7 @@ Recomendaciones:
 | Rol en ALdia       | Puede consultar                   | Puede registrar                             |
 | ------------------- | --------------------------------- | ------------------------------------------- |
 | `auditor`           | todo                              | nada (sólo lectura, forzado por el backend) |
+| `agente`            | todo lo que consulta el auditor   | solo los módulos que el administrador le habilite |
 | `caja`              | clientes, cuentas corrientes, caja| cobros, movimientos de caja                 |
 | `encargado_ventas`  | stock, clientes, ventas           | remitos, facturas, altas de cliente         |
 | `encargado_compras` | stock, proveedores, gastos        | compras, pagos, gastos                      |

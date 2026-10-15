@@ -26,6 +26,8 @@ from routers.auth import current_user_dep
 
 import afip as ws
 from errores import ErrorDeNegocio
+import autorizacion_fiscal as af
+from security import ROL_AGENTE
 from paises import pais_configurado
 from database import get_db
 from dinero import a_pesos, aplicar_alicuota, multiplicar, porcentaje_desde_importes
@@ -435,7 +437,21 @@ def solicitar_cae(
 
     if os.getenv("ALDIA_EMISION_FISCAL", "no").lower() != "si":
         raise HTTPException(409, "Emisión fiscal deshabilitada para el piloto; requiere habilitación del administrador")
-    if usuario.rol.lower() != "administrador":
+    # Quien puede pedir un CAE: el administrador (confirma con un clic en la
+    # WebUI) y, si la instalacion lo habilita, la cuenta de un agente. El agente
+    # ademas necesita un codigo que solo recibe la persona responsable: su
+    # `confirmar=true` lo escribe el modelo y no prueba nada (ver
+    # autorizacion_fiscal.py).
+    rol = (usuario.rol or "").lower()
+    es_agente = rol == ROL_AGENTE
+    if es_agente:
+        if not af.emision_del_agente_habilitada():
+            raise ErrorDeNegocio(
+                "EMISION_FISCAL_DEL_AGENTE_DESHABILITADA",
+                "Esta instalacion no permite que un agente pida CAE "
+                "(ALDIA_EMISION_FISCAL_AGENTE). La emision la hace un administrador desde la WebUI.",
+            )
+    elif rol != "administrador":
         raise HTTPException(403, "La emisión fiscal requiere un administrador")
     if not datos.confirmar:
         raise HTTPException(409, "Revise el comprobante y confirme expresamente la emisión fiscal")
@@ -452,6 +468,9 @@ def solicitar_cae(
             f"(vence {factura.cae_vencimiento or 's/d'}). Pedir otro CAE para el mismo "
             "comprobante duplicaría la declaración ante AFIP.",
         )
+
+    if es_agente and not (datos.codigo or "").strip():
+        af.emitir_codigo(db, factura, usuario.username)   # siempre corta aca
 
     # Tipo de comprobante: se deriva de las condiciones frente al IVA del emisor
     # (configuración del negocio) y del receptor (ficha del cliente). Elegirlo a
@@ -499,6 +518,10 @@ def solicitar_cae(
             alicuotas=importes["alicuotas"],
             concepto=datos.concepto or 1,
         )
+        # El codigo se consume recien aca, con el comprobante ya validado: un
+        # error de datos de mas arriba no le quema el codigo a la persona.
+        if es_agente:
+            af.verificar_codigo(db, factura, datos.codigo)
         # Reserva confirmada ANTES de la red: sobrevive a timeout, caída y a
         # nuevos X-Operation-Id. Serializa también la numeración entre facturas.
         reserva = EmisionFiscalEnCurso(id=1, factura_numero=factura_num,

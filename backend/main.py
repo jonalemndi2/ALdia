@@ -20,9 +20,10 @@ from migraciones import (aplicar_migraciones, aplicar_claves_foraneas,
 from routers import (
     auth, clientes, proveedores, stock, remitos, facturas,
     cobros, pagos, caja, gastos, iva, admin, modulos, config, compras, afip,
-    pendientes, tesoreria,
+    pendientes, tesoreria, sistema,
 )
 from routers.auth import current_user_dep
+from version import version_instalada
 from security import ARCHIVO_CLAVE_INICIAL, require_modulo
 
 # Copia de seguridad del dia, ANTES de tocar nada.
@@ -143,7 +144,7 @@ DOCS_PUBLICAS = os.getenv("ALDIA_DOCS", "").lower() in ("1", "true", "si")
 app = FastAPI(
     title="ALdia API",
     description="Sistema de Gestión Comercial - Backend",
-    version="2.0.0",
+    version=version_instalada(),
     docs_url="/docs" if DOCS_PUBLICAS else None,
     redoc_url="/redoc" if DOCS_PUBLICAS else None,
     openapi_url="/openapi.json" if DOCS_PUBLICAS else None,
@@ -366,6 +367,10 @@ app.include_router(
     dependencies=[Depends(current_user_dep)],
 )
 app.include_router(modulos.router, prefix="/api/modulos", tags=["Módulos"])
+# Version y actualizacion: la consulta es para cualquier usuario logueado (la
+# WebUI la muestra al pie y el agente la usa para enterarse de una version
+# nueva); instalar es solo del administrador (ver routers/sistema.py).
+app.include_router(sistema.router, prefix="/api/sistema", tags=["Sistema"])
 app.include_router(config.router, prefix="/api/config", tags=["Configuración"])
 app.include_router(
     compras.router, prefix="/api/compras", tags=["Compras"],

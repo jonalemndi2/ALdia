@@ -50,6 +50,9 @@ CLAVE_INICIAL_ADMIN = "clave-inicial-de-pruebas"
 os.environ["ALDIA_ADMIN_PASSWORD"] = CLAVE_INICIAL_ADMIN
 # Que ninguna prueba dispare la copia de seguridad del arranque.
 os.environ["ALDIA_SIN_RESPALDO"] = "1"
+# Ni consultar el repositorio publico buscando versiones nuevas: las pruebas no
+# dependen de internet (ver backend/version.py).
+os.environ["ALDIA_BUSCAR_ACTUALIZACIONES"] = "no"
 
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)

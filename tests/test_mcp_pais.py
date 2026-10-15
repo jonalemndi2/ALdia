@@ -100,9 +100,9 @@ class TestElCAENoSePideDondeNoExiste:
 
         monkeypatch.setattr(srv, "api", no_deberia_llamarse)
         with pytest.raises(Exception) as e:
-            _fn(srv.request_fiscal_authorization)(numero=1)
+            _fn(srv.request_fiscal_authorization)(numero=1, confirmar=True, codigo="123456")
         mensaje = str(e.value).lower()
-        assert "deshabilitada" in mensaje
+        assert "no aplica" in mensaje
 
 
 class TestNoQuedanReglasFiscalesEscritasAMano:

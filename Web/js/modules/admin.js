@@ -604,6 +604,108 @@ const Admin = {
         } catch (err) {
             Utils.toast('Error: ' + err.message, 'Error', 'error');
         }
+    },
+
+    /* ───────── Versión y actualización del sistema ───────── */
+
+    _esAdmin() {
+        const u = window.Auth && Auth.currentUser;
+        return !!u && String(u.rol || '').toLowerCase() === 'administrador';
+    },
+
+    _avisoVersionMostrado: false,
+
+    /** Pone la versión al pie y, al administrador, le avisa una vez si hay una nueva. */
+    async revisarVersion() {
+        try {
+            const v = await API.sistema.version();
+            const pie = document.getElementById('versionALdia');
+            if (pie) pie.textContent = `Versión ${v.version}`;
+            const act = v.actualizacion || {};
+            if (act.disponible && this._esAdmin() && !this._avisoVersionMostrado) {
+                this._avisoVersionMostrado = true;
+                Utils.toast(`Hay una versión nueva de ALdia (${act.ultima}). Administración → Actualizar Sistema.`,
+                    'Actualización disponible', 'info');
+            }
+        } catch (err) {
+            console.warn('No se pudo consultar la versión:', err.message);
+        }
+    },
+
+    _htmlNovedades(novedades) {
+        if (!novedades || !novedades.length) return '';
+        return novedades.map(n => `
+            <div class="mb-3">
+                <h6 class="mb-1">Versión ${Utils.escapeHtml(n.version)}
+                    <small class="text-muted">${Utils.escapeHtml(n.fecha || '')}</small></h6>
+                <pre class="small mb-0" style="white-space:pre-wrap">${Utils.escapeHtml(n.texto || '')}</pre>
+            </div>`).join('');
+    },
+
+    async showSistema() {
+        let v;
+        try {
+            v = await API.sistema.version(true);
+        } catch (err) {
+            Utils.toast('No se pudo consultar la versión: ' + err.message, 'Sistema', 'error');
+            return;
+        }
+        const act = v.actualizacion || {};
+        let estado;
+        if (act.disponible) {
+            estado = `<div class="alert alert-info"><i class="bi bi-cloud-arrow-down"></i>
+                Hay una versión nueva: <strong>${Utils.escapeHtml(act.ultima)}</strong>.</div>`;
+        } else if (act.consultada) {
+            estado = `<div class="alert alert-success"><i class="bi bi-check-circle"></i>
+                ALdia está en la última versión publicada.</div>`;
+        } else {
+            estado = `<div class="alert alert-warning"><i class="bi bi-wifi-off"></i>
+                ${Utils.escapeHtml(act.motivo || 'No se pudo consultar la versión publicada.')}</div>`;
+        }
+        let accion = '';
+        if (act.disponible && v.puede_autoactualizarse) {
+            accion = `<button class="btn btn-primary" data-action="Admin.actualizarSistema">
+                <i class="bi bi-cloud-arrow-down"></i> Actualizar a ${Utils.escapeHtml(act.ultima)}</button>
+                <p class="small text-muted mt-2">Antes de actualizar se hace una copia de seguridad de la base.
+                ${v.reinicio_automatico ? 'ALdia se reinicia solo al terminar.' : 'Al terminar hay que reiniciar ALdia.'}</p>`;
+        } else if (act.disponible) {
+            accion = `<p class="small text-muted">Esta instalación no se hizo con <code>git clone</code>:
+                descargue la versión nueva del repositorio y reemplace los archivos del programa
+                (nunca la base de datos ni la carpeta de copias).</p>`;
+        }
+        const html = `
+            <div class="section-header">
+                <h4><i class="bi bi-cloud-arrow-down"></i> Actualizar Sistema</h4>
+            </div>
+            <div class="form-card">
+                <p class="mb-2">Versión instalada: <strong>${Utils.escapeHtml(v.version)}</strong>
+                    ${v.commit ? `<small class="text-muted">(${Utils.escapeHtml(v.commit)})</small>` : ''}</p>
+                ${estado}
+                ${this._htmlNovedades(act.novedades)}
+                ${accion}
+            </div>`;
+        Utils.showView(html);
+    },
+
+    async actualizarSistema() {
+        const ok = await Utils.confirm('Actualizar ALdia',
+            'Se va a hacer una copia de seguridad de la base y se va a instalar la versión nueva. ' +
+            'Conviene hacerlo cuando nadie esté facturando. ¿Continuar?');
+        if (!ok) return;
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) overlay.classList.remove('d-none');
+        try {
+            const r = await API.sistema.actualizar();
+            const avisos = (r.avisos || []).map(a => `<li>${Utils.escapeHtml(a)}</li>`).join('');
+            await Utils.confirm('Actualización', `${Utils.escapeHtml(r.mensaje)}` +
+                (r.respaldo ? `<br><small>Copia de seguridad: ${Utils.escapeHtml(r.respaldo)}</small>` : '') +
+                (avisos ? `<ul class="mt-2">${avisos}</ul>` : ''));
+            if (r.reinicio === 'automatico') setTimeout(() => location.reload(), 8000);
+        } catch (err) {
+            Utils.toast(err.message, 'Actualización', 'error');
+        } finally {
+            if (overlay) overlay.classList.add('d-none');
+        }
     }
 };
 // Exponer Admin

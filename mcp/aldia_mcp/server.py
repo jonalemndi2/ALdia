@@ -22,8 +22,12 @@ que el usuario lo autorice explicitamente.
 
 from __future__ import annotations
 
+import functools
+import json
+import os
 import re
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -42,7 +46,11 @@ servidor = MCPServer(
         "usuarios, roles y modulos.\n\n"
         "Reglas de uso:\n"
         "- create_invoice prepara un borrador. Solo confirm_invoice_draft confirma stock/deuda. "
-        "La emision fiscal no esta disponible desde MCP.\n"
+        "La emision fiscal (CAE) desde MCP, si la instalacion la habilita, exige un codigo de un "
+        "solo uso que ALdia le envia a la persona responsable: pidaselo al usuario, nunca lo "
+        "invente.\n"
+        "- Si una respuesta trae '_aviso_aldia', ALdia cambio de version o hay una nueva: "
+        "contele al usuario las novedades una vez y siga con lo que estaba haciendo.\n"
         "- Fechas en formato YYYY-MM-DD; si el usuario dice 'hoy', omita la fecha.\n"
         "- Antes de registrar un cobro, un pago o una factura, identifique al cliente o "
         "proveedor con las herramientas de busqueda: no invente CUIT.\n"
@@ -59,6 +67,29 @@ servidor = MCPServer(
 )
 
 _cliente_api: ALdiaClient | None = None
+
+
+# Toda herramienta se registra envuelta para poder adjuntar, UNA vez, el aviso de
+# version nueva (ver _aviso_de_version). El decorador devuelve la funcion
+# original, asi que quien la importa o la prueba la sigue viendo igual.
+_registrar_herramienta = servidor.tool
+
+
+def _herramienta_con_aviso(*args: Any, **kwargs: Any):
+    registrar = _registrar_herramienta(*args, **kwargs)
+
+    def decorador(fn):
+        @functools.wraps(fn)
+        def envuelta(*a: Any, **k: Any):
+            return _adjuntar_aviso(fn(*a, **k))
+
+        registrar(envuelta)
+        return fn
+
+    return decorador
+
+
+servidor.tool = _herramienta_con_aviso  # type: ignore[method-assign]
 
 SOLO_LECTURA = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=True)
 ESCRITURA = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)
@@ -79,6 +110,100 @@ def api() -> ALdiaClient:
     if _cliente_api is None:
         _cliente_api = ALdiaClient()
     return _cliente_api
+
+
+# ─────────────────────────────────────────────────────────────
+# Aviso de version nueva
+#
+# Un asistente no lee el CHANGELOG por su cuenta: si ALdia se actualizo, sigue
+# operando con lo que sabia antes (herramientas que cambiaron, skills viejas).
+# Por eso la PRIMERA respuesta de cada proceso trae, si corresponde, un campo
+# `_aviso_aldia` con la version nueva y sus novedades. La ultima version vista
+# se guarda en un archivo propio del servidor MCP para no repetir el aviso.
+# ─────────────────────────────────────────────────────────────
+
+_aviso_revisado = False
+_aviso_pendiente: tuple[dict[str, Any], dict[str, Any]] | None = None
+
+
+def _archivo_version_vista() -> Path:
+    explicito = os.getenv("ALDIA_MCP_ESTADO", "").strip()
+    if explicito:
+        return Path(explicito)
+    base = os.getenv("XDG_STATE_HOME", "").strip() or os.path.join(Path.home(), ".local", "state")
+    agente = re.sub(r"[^A-Za-z0-9_.-]", "_", os.getenv("ALDIA_AGENTE", "") or "default")
+    return Path(base) / "aldia-mcp" / f"version-vista-{agente}.json"
+
+
+def _leer_vista() -> dict[str, Any]:
+    try:
+        return json.loads(_archivo_version_vista().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _guardar_vista(datos: dict[str, Any]) -> None:
+    try:
+        ruta = _archivo_version_vista()
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+    except OSError:
+        pass  # sin donde anotar, a lo sumo se repite el aviso: no es motivo de error
+
+
+def _aviso_de_version() -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """(aviso, estado a guardar al entregarlo), o None. Nunca lanza."""
+    try:
+        estado = api().get("/api/sistema/version") or {}
+    except Exception:  # noqa: BLE001
+        return None
+    instalada = str(estado.get("version") or "")
+    if not instalada:
+        return None
+    act = estado.get("actualizacion") or {}
+    vista = _leer_vista()
+    aviso: dict[str, Any] = {}
+
+    anterior = vista.get("version")
+    if anterior and anterior != instalada:
+        aviso["actualizado"] = {
+            "de": anterior,
+            "a": instalada,
+            "mensaje": (f"ALdia se actualizo de {anterior} a {instalada}. Avisele al usuario y "
+                        "llame a get_system_version para ver las novedades. Si sus skills de ALdia "
+                        "son una copia, conviene actualizarlas desde la carpeta skills/ del repositorio."),
+        }
+    if act.get("disponible") and vista.get("disponible_avisada") != act.get("ultima"):
+        aviso["disponible"] = {
+            "version": act.get("ultima"),
+            "novedades": [n.get("version") for n in act.get("novedades") or []],
+            "mensaje": (f"Hay una version nueva de ALdia ({act.get('ultima')}). La instala un "
+                        "administrador desde ALdia: Administracion > Actualizar Sistema."),
+        }
+
+    nueva_vista = {
+        "version": instalada,
+        "disponible_avisada": act.get("ultima") if act.get("disponible") else vista.get("disponible_avisada"),
+    }
+    if not aviso:
+        if nueva_vista != vista:
+            _guardar_vista(nueva_vista)   # primera vez: se anota sin avisar
+        return None
+    return aviso, nueva_vista
+
+
+def _adjuntar_aviso(resultado: Any) -> Any:
+    """Agrega el aviso a la primera respuesta que sea un objeto, una sola vez."""
+    global _aviso_revisado, _aviso_pendiente
+    if not _aviso_revisado:
+        _aviso_revisado = True
+        _aviso_pendiente = _aviso_de_version()
+    if _aviso_pendiente is None or not isinstance(resultado, dict):
+        return resultado
+    aviso, nueva_vista = _aviso_pendiente
+    _aviso_pendiente = None
+    _guardar_vista(nueva_vista)
+    return {**resultado, "_aviso_aldia": aviso}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2151,9 +2276,22 @@ def get_einvoicing_status() -> dict[str, Any]:
 
 
 @servidor.tool(
-    title="Emisión fiscal no disponible desde MCP",
-    annotations=SOLO_LECTURA,
-    description="No emite. Explica que la autorización fiscal está reservada a revisión administrativa en WebUI.",
+    title="Solicitar el CAE a ARCA (emisión fiscal)",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION DE DINERO] Pide a ARCA/AFIP el CAE de una factura ya emitida en ALdia. "
+        "Es una declaracion fiscal real y no tiene vuelta atras.\n\n"
+        "Funciona en DOS pasos, y el segundo lo habilita una persona:\n"
+        "1. Confirme con el usuario la factura (numero, cliente e importe) y llame con "
+        "confirmar=true y SIN codigo. ALdia NO emite: le envia a la persona responsable un "
+        "codigo de 6 digitos por Telegram y devuelve CODIGO_DE_AUTORIZACION_REQUERIDO.\n"
+        "2. Pidale el codigo al usuario y vuelva a llamar con confirmar=true y codigo=<el codigo>.\n\n"
+        "NUNCA invente, adivine ni reutilice un codigo. Si vence (10 minutos) o la factura cambia, "
+        "repita el paso 1. Si devuelve EMISION_FISCAL_DEL_AGENTE_DESHABILITADA, la emision la "
+        "hace un administrador desde la WebUI.\n\n"
+        "Parametros: numero (interno de ALdia); tipo_comprobante, punto_venta, concepto, "
+        "doc_tipo y doc_nro son opcionales."
+    ),
 )
 def request_fiscal_authorization(
     numero: int,
@@ -2162,8 +2300,52 @@ def request_fiscal_authorization(
     concepto: int | None = None,
     doc_tipo: int | None = None,
     doc_nro: str | None = None,
+    confirmar: bool = False,
+    codigo: str | None = None,
 ) -> dict[str, Any]:
-    raise ALdiaError("La emisión fiscal desde MCP está deshabilitada. Un administrador debe revisar y confirmar en la WebUI; no se emitió ningún comprobante ante ARCA.")
+    reglas = _reglas_del_pais()
+    if reglas.get("requiere_autorizacion_fiscal") is False:
+        raise ALdiaError(
+            f"Operacion no aplica: esta instalacion esta configurada para "
+            f"{reglas.get('nombre', 'un pais')}, donde los comprobantes no requieren "
+            "autorizacion previa de ningun organismo. La factura ya es valida tal como se emitio."
+        )
+    _exigir_confirmacion_financiera(confirmar, "Solicitar el CAE a ARCA")
+    datos: dict[str, Any] = {"confirmar": True}
+    for clave, valor in (
+        ("tipo_comprobante", tipo_comprobante),
+        ("punto_venta", punto_venta),
+        ("concepto", concepto),
+        ("doc_tipo", doc_tipo),
+        ("doc_nro", doc_nro),
+        ("codigo", codigo),
+    ):
+        if valor is not None:
+            datos[clave] = valor
+    return api().post(f"/api/afip/facturas/{int(numero)}/solicitar-cae", datos)
+
+
+@servidor.tool(
+    title="Version de ALdia y actualizaciones",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Version de ALdia instalada, si hay una version nueva publicada y sus novedades. "
+        "Usela cuando el usuario pregunte por la version o por novedades, o cuando una "
+        "respuesta traiga '_aviso_aldia'. La actualizacion la instala un administrador "
+        "desde la WebUI (Administracion > Actualizar Sistema); desde aca no se instala."
+    ),
+)
+def get_system_version() -> dict[str, Any]:
+    estado = api().get("/api/sistema/version") or {}
+    act = estado.get("actualizacion") or {}
+    return {
+        "version_instalada": estado.get("version"),
+        "commit": estado.get("commit"),
+        "hay_version_nueva": bool(act.get("disponible")),
+        "version_publicada": act.get("ultima"),
+        "novedades": act.get("novedades") or [],
+        "nota": act.get("motivo") or None,
+    }
 
 
 # ═════════════════════════════════════════════════════════════

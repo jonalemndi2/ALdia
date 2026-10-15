@@ -457,6 +457,9 @@ class SolicitudCAE(BaseModel):
     concepto: Optional[int] = None           # 1=Productos, 2=Servicios, 3=Ambos
     doc_tipo: Optional[int] = None           # 80=CUIT, 96=DNI, 99=Consumidor Final
     doc_nro: Optional[str] = None
+    # Codigo de un solo uso que exige ALdia cuando el pedido lo hace un agente
+    # (rol "agente"). Ver backend/autorizacion_fiscal.py.
+    codigo: Optional[str] = None
 
     @field_validator("concepto")
     @classmethod

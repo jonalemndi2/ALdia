@@ -682,3 +682,23 @@ class EmisionFiscalEnCurso(Base):
     id = Column(Integer, primary_key=True)
     factura_numero = Column(Integer, nullable=False)
     detalle = Column(Text, nullable=False)
+
+
+class AutorizacionFiscal(Base):
+    """Codigo de un solo uso con el que una PERSONA autoriza a un agente a pedir un CAE.
+
+    El agente no puede generarlo ni leerlo: ALdia lo crea, lo manda por un canal
+    que el agente no lee (ver autorizacion_fiscal.py) y guarda solo su hash.
+    Queda atado a la factura tal como estaba al pedirlo: si cambia el cliente o
+    el total, el codigo deja de valer.
+    """
+    __tablename__ = "autorizaciones_fiscales"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    factura_numero = Column(Integer, nullable=False, index=True)
+    codigo_hash = Column(String(64), nullable=False)
+    huella = Column(String(64), nullable=False)
+    solicitado_por = Column(String(60), nullable=False, default="")
+    creado_en = Column(DateTime, nullable=False)
+    vence_en = Column(DateTime, nullable=False)
+    intentos = Column(Integer, nullable=False, default=0)
+    usado_en = Column(DateTime, nullable=True)

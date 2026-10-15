@@ -7,6 +7,9 @@ lo muestra como no autorizado.
 **Estado actual: la integración está implementada y DESHABILITADA.** Falta lo único
 que no puede hacer un programador por usted: el **certificado digital** de su CUIT.
 
+Para que un asistente de IA pueda pedir el CAE (con código de un solo uso), ver
+[EMISION_POR_AGENTE.md](EMISION_POR_AGENTE.md).
+
 ---
 
 ## 1. Qué hace falta antes de facturar

@@ -94,6 +94,17 @@ MENSAJES: dict[str, dict[str, str]] = {
             "Esta instalación está configurada para {pais}, donde los comprobantes "
             "no requieren autorización previa de ningún organismo.",
         "PAIS_NO_SOPORTADO": "No hay reglas fiscales para el país {pais}.",
+        "CODIGO_DE_AUTORIZACION_REQUERIDO":
+            "No se emitió nada todavía. Se envió un código de autorización por Telegram "
+            "a la persona responsable para la factura {numero} ({cliente}, {total}). "
+            "Pídale el código al usuario y repita el pedido con codigo=<el código>. "
+            "Vence en {minutos} minutos.",
+        "CODIGO_DE_AUTORIZACION_INVALIDO":
+            "Código de autorización rechazado: {motivo}. No se emitió nada.",
+        "EMISION_FISCAL_DEL_AGENTE_DESHABILITADA":
+            "Esta instalación no permite que un agente pida CAE. La emisión la hace "
+            "un administrador desde la WebUI.",
+        "ACTUALIZACION_NO_POSIBLE": "No se actualizó: {detalle}",
     },
     "en-US": {
         "STOCK_INSUFICIENTE":
@@ -118,6 +129,17 @@ MENSAJES: dict[str, dict[str, str]] = {
             "This installation is configured for {pais}, where documents do not require "
             "prior authorization from any agency.",
         "PAIS_NO_SOPORTADO": "There are no tax rules for country {pais}.",
+        "CODIGO_DE_AUTORIZACION_REQUERIDO":
+            "Nothing was issued yet. A one-time authorization code was sent via Telegram "
+            "to the person in charge for invoice {numero} ({cliente}, {total}). Ask the "
+            "user for the code and repeat the request with codigo=<the code>. It expires "
+            "in {minutos} minutes.",
+        "CODIGO_DE_AUTORIZACION_INVALIDO":
+            "Authorization code rejected: {motivo}. Nothing was issued.",
+        "EMISION_FISCAL_DEL_AGENTE_DESHABILITADA":
+            "This installation does not allow an agent to request tax authorization. "
+            "An administrator issues it from the web interface.",
+        "ACTUALIZACION_NO_POSIBLE": "The system was not updated: {detalle}",
     },
 }
 

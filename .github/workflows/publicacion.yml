@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Verificar árbol público
         run: |
-          prohibidos=$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)
+          prohibidos=$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$|\.(db|sqlite|sqlite3)[.-]|\.bak([.-]|$)|\.orig$' | grep -vE '\.env\.example$' || true)
           if [ -n "$prohibidos" ]; then
             echo "$prohibidos" | sed 's/^/  /'
             echo "Hay material privado versionado (tests/privado, fixtures, bases, claves)."

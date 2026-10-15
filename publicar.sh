@@ -29,7 +29,7 @@ git diff --cached --quiet || fallar "Hay cambios preparados sin commit."
 [ -z "$(git ls-files --others --exclude-standard)" ] || fallar "Hay archivos nuevos sin clasificar."
 
 # No alcanza con .gitignore: este control mira lo que Git publicaría realmente.
-PROHIBIDOS="$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$' | grep -vE '\.env\.example$' || true)"
+PROHIBIDOS="$(git ls-files | grep -E '(^|/)(fixtures?|private|privado)(/|$)|(^|/)\.env($|\.)|\.(db|sqlite|sqlite3|pem|key|p12|pfx|crt|csr)$|\.(db|sqlite|sqlite3)[.-]|\.bak([.-]|$)|\.orig$' | grep -vE '\.env\.example$' || true)"
 [ -z "$PROHIBIDOS" ] || {
     echo "$PROHIBIDOS" | sed 's/^/  /' >&2
     fallar "Hay material privado rastreado por Git."
