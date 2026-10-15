@@ -48,9 +48,15 @@ Lo determinan las condiciones frente al IVA del **negocio** y del **cliente**:
 
 | Negocio | Cliente | Comprobante | Código AFIP |
 | --- | --- | --- | --- |
-| Responsable inscripto | Responsable inscripto | Factura A | 1 |
-| Responsable inscripto | Monotributo / exento / consumidor final | Factura B | 6 |
+| Responsable inscripto | Responsable inscripto o monotributo | Factura A | 1 |
+| Responsable inscripto | Exento / consumidor final / no alcanzado | Factura B | 6 |
 | Monotributista o exento | cualquiera | Factura C | 11 |
+
+**RG 5616:** cada pedido de CAE informa la condición frente al IVA del cliente
+(sale de su ficha). Desde el 01/12/2026 ARCA rechaza el comprobante si falta o si
+no corresponde a la clase (por ejemplo, Factura A a un consumidor final). ALdía lo
+controla antes de llamar a ARCA: si devuelve un 400 que menciona la RG 5616,
+corrija la condición del cliente o el tipo de comprobante; no reintente igual.
 
 Notas asociadas: **crédito** 3 (A), 8 (B), 13 (C); **débito** 2 (A), 7 (B),
 12 (C).

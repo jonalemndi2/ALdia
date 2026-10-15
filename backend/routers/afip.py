@@ -208,6 +208,25 @@ def _tipo_sugerido(db: Session, factura: Factura) -> Optional[int]:
         return None
 
 
+def _condicion_receptor_id(db: Session, factura: Factura, doc_tipo: int) -> Optional[int]:
+    """Codigo ARCA de la condicion frente al IVA del receptor (RG 5616).
+
+    Sale de la ficha del cliente. Un consumidor final sin identificar (doc 99)
+    es siempre 5. Sin ficha, no se inventa: devuelve None y el pedido se corta.
+    """
+    from models import Cliente
+    from schemas import CONDICIONES_IVA
+
+    if doc_tipo == 99:
+        return CONDICIONES_IVA["consumidor_final"]["afip_id"]
+    cliente = db.query(Cliente).filter(Cliente.cuit == factura.cliente).first()
+    if cliente is None:
+        return None
+    clave = ws._normalizar_condicion(getattr(cliente, "condicion_iva", None) or "consumidor_final")
+    datos = CONDICIONES_IVA.get(clave)
+    return datos["afip_id"] if datos else None
+
+
 @router.get("/condiciones-iva")
 def condiciones_iva():
     """Condiciones frente al IVA validas, para el formulario de clientes."""
@@ -505,6 +524,15 @@ def solicitar_cae(
 
     importes = _composicion_iva(db, factura, tipo)
 
+    # RG 5616: la condicion del receptor viaja en cada comprobante y tiene que
+    # corresponder a la clase. Se valida ACA, antes de la reserva y del codigo
+    # del agente: es un error de datos, no un resultado incierto de ARCA.
+    condicion_receptor = _condicion_receptor_id(db, factura, doc_tipo)
+    try:
+        ws.validar_condicion_receptor(tipo, condicion_receptor)
+    except ws.AfipError as exc:
+        raise HTTPException(status_code=400, detail=exc.mensaje)
+
     try:
         comprobante = ws.ComprobanteAFIP(
             punto_venta=punto_venta,
@@ -517,6 +545,7 @@ def solicitar_cae(
             imp_total=importes["total"],
             alicuotas=importes["alicuotas"],
             concepto=datos.concepto or 1,
+            condicion_iva_receptor=condicion_receptor,
         )
         # El codigo se consume recien aca, con el comprobante ya validado: un
         # error de datos de mas arriba no le quema el codigo a la persona.

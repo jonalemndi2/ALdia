@@ -406,7 +406,8 @@ def _clase_comprobante(condicion_emisor: str | None, condicion_receptor: str | N
     receptor = _normalizar_condicion(condicion_receptor)
     if emisor in _EMISOR_CLASE_C:
         return "C"
-    return "A" if receptor == "responsable_inscripto" else "B"
+    # Al monotributista le corresponde A (RG 5003 y RG 5616), igual que en backend/afip.py.
+    return "A" if receptor in ("responsable_inscripto", "monotributo") else "B"
 
 
 def _condicion_del_negocio() -> str:
@@ -1074,8 +1075,8 @@ def update_product(
         "decide que comprobante se le emite y si el IVA va discriminado. Validas: "
         "responsable_inscripto, monotributo, exento, consumidor_final, no_responsable. "
         "Por defecto consumidor_final.\n"
-        "  Con un negocio responsable inscripto: cliente responsable inscripto -> "
-        "FACTURA A; monotributista, exento o consumidor final -> FACTURA B. Si el negocio "
+        "  Con un negocio responsable inscripto: cliente responsable inscripto o "
+        "monotributista -> FACTURA A; exento o consumidor final -> FACTURA B. Si el negocio "
         "es monotributista o exento, siempre FACTURA C.\n"
         "  Preguntele al usuario que dice la constancia de inscripcion del cliente. No lo "
         "adivine: cargarlo mal hace que despues AFIP rechace el comprobante.\n"
@@ -2931,9 +2932,9 @@ def configure_module(
         "IVA.\n\n"
         "La condicion del negocio, cruzada con la del cliente, decide que clase de "
         "comprobante hay que emitirle:\n"
-        "- Negocio responsable inscripto + cliente responsable inscripto -> FACTURA A.\n"
-        "- Negocio responsable inscripto + cliente monotributista, exento o consumidor "
-        "final -> FACTURA B.\n"
+        "- Negocio responsable inscripto + cliente responsable inscripto o "
+        "monotributista -> FACTURA A.\n"
+        "- Negocio responsable inscripto + cliente exento o consumidor final -> FACTURA B.\n"
         "- Negocio monotributista o exento -> siempre FACTURA C, sin IVA discriminado.\n\n"
         "Estos datos se cambian desde Administracion en el sistema, no desde el asistente."
     ),

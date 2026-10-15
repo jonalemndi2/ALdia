@@ -11,6 +11,18 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.1.1 — 2026-10-15
+
+- **RG 5616 (ARCA).** Cada pedido de CAE informa la condición frente al IVA del
+  receptor (`CondicionIVAReceptorId`), tomada de la ficha del cliente. Desde el
+  01/12/2026 ARCA rechaza los comprobantes que no la traen. En moneda extranjera
+  se informa además si se cancela en esa moneda (`CanMisMonExt`).
+- **Control previo.** Si la condición del cliente no corresponde a la clase del
+  comprobante (por ejemplo, Factura A a un consumidor final), ALdía lo corta antes
+  de llamar a ARCA, sin bloquear las emisiones siguientes.
+- **Monotributista: Factura A.** Un responsable inscripto le emite clase A a un
+  monotributista (antes ALdía sugería B, que ARCA rechaza por la RG 5616).
+
 ## 2.1.0 — 2026-10-14
 
 - **Versionado y actualización del sistema.** Archivo `VERSION`, la versión

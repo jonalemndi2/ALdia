@@ -76,7 +76,8 @@ def test_timeout_bloquea_reintento_incluso_con_otro_id(admin, cuit, monkeypatch)
     num = admin.post('/api/facturas/', json={**datos(c), 'confirmar': True}).json()['facturanumero']
     monkeypatch.setenv('ALDIA_EMISION_FISCAL', 'si')
     monkeypatch.setattr(router, '_config_operativa', lambda db: SimpleNamespace(entorno='homologacion', tipo_comprobante=1, punto_venta=1))
-    monkeypatch.setattr(router, '_tipo_sugerido', lambda *a: 1)
+    # Cliente consumidor final: le corresponde Factura B (RG 5616 rechaza A a un CF).
+    monkeypatch.setattr(router, '_tipo_sugerido', lambda *a: 6)
     llamadas = []
     def timeout(*args):
         llamadas.append(1)

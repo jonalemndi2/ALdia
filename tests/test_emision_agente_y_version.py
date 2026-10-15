@@ -61,7 +61,8 @@ def _get_agente(admin, ruta, headers):
 
 def _factura(admin):
     c = cuit_valido("30", uuid.uuid4().int % 10**8)
-    assert admin.post("/api/clientes/", json={"cuit": c, "nombre": "Cliente ficticio de emision"}).status_code == 200
+    assert admin.post("/api/clientes/", json={"cuit": c, "nombre": "Cliente ficticio de emision",
+                                              "condicion_iva": "responsable_inscripto"}).status_code == 200
     r = admin.post("/api/facturas/", json={"cliente": c, "fecha": "2026-10-14", "subtotal": 100,
                                            "iva": 21, "total": 121, "items": [], "confirmar": True})
     assert r.status_code == 200, r.text

@@ -783,6 +783,49 @@ class ComprobanteAFIP:
     imp_trib: float = 0.0
     moneda: str = "PES"
     cotizacion: float = 1.0
+    # RG 5616: condicion frente al IVA del receptor (tabla FEParamGetCondicionIvaReceptor).
+    # Obligatoria: desde el 01/12/2026 ARCA rechaza el pedido que no la trae.
+    condicion_iva_receptor: int | None = None
+    # RG 5616: en moneda extranjera, si se cancela en esa misma moneda ('S'/'N').
+    cancela_misma_moneda: str = "N"
+
+
+# RG 5616 - Condicion frente al IVA del receptor, por clase de comprobante.
+# Fuente: FEParamGetCondicionIvaReceptor (manual WSFEv1 v4.x). Un codigo que no
+# corresponde a la clase hace que ARCA rechace el comprobante, asi que se valida
+# ANTES de llamar: un rechazo de ARCA queda registrado en la factura.
+CONDICIONES_RECEPTOR_CLASE_A = {1, 6, 13, 16}           # RI y monotributistas
+CONDICIONES_RECEPTOR_CLASE_B = {4, 5, 7, 8, 9, 10, 15}  # exento, CF, no categorizado...
+CONDICIONES_RECEPTOR_POR_CLASE = {
+    "A": CONDICIONES_RECEPTOR_CLASE_A,
+    "B": CONDICIONES_RECEPTOR_CLASE_B,
+    "C": CONDICIONES_RECEPTOR_CLASE_A | CONDICIONES_RECEPTOR_CLASE_B,
+}
+
+
+def clase_de_tipo(tipo_comprobante: int) -> str | None:
+    for clase, codigos in COMPROBANTES_POR_CLASE.items():
+        if tipo_comprobante in codigos.values():
+            return clase
+    return None
+
+
+def validar_condicion_receptor(tipo_comprobante: int, condicion: int | None) -> None:
+    """Corta antes de ARCA si la condicion del receptor falta o no va con la clase."""
+    if condicion is None:
+        raise AfipError(
+            "Falta la condicion frente al IVA del receptor, obligatoria por la RG 5616. "
+            "Complete la condicion en la ficha del cliente."
+        )
+    clase = clase_de_tipo(tipo_comprobante)
+    validas = CONDICIONES_RECEPTOR_POR_CLASE.get(clase or "")
+    if validas is not None and int(condicion) not in validas:
+        raise AfipError(
+            f"La condicion frente al IVA del receptor (codigo {condicion}) no es valida para un "
+            f"comprobante clase {clase} (RG 5616). Revise la condicion del cliente o el tipo de "
+            "comprobante: a un responsable inscripto o monotributista corresponde clase A; a un "
+            "consumidor final o exento, clase B."
+        )
 
 
 # Un pedido de CAE toma el numero siguiente al ultimo autorizado. Si dos pedidos
@@ -800,6 +843,7 @@ def solicitar_cae(cfg: AfipConfig, comp: ComprobanteAFIP) -> dict:
     texto de AFIP: nunca se devuelve un CAE que AFIP no otorgó.
     """
     exigir_operativa(cfg)
+    validar_condicion_receptor(comp.tipo_comprobante, comp.condicion_iva_receptor)
 
     with _lock_cae:
         ultimo = fe_comp_ultimo_autorizado(cfg, comp.punto_venta, comp.tipo_comprobante)
@@ -820,7 +864,10 @@ def solicitar_cae(cfg: AfipConfig, comp: ComprobanteAFIP) -> dict:
             "ImpIVA": round(comp.imp_iva, 2),
             "MonId": comp.moneda,
             "MonCotiz": comp.cotizacion,
+            "CondicionIVAReceptorId": int(comp.condicion_iva_receptor),
         }
+        if comp.moneda != "PES":
+            detalle["CanMisMonExt"] = comp.cancela_misma_moneda
         # Los comprobantes clase C (monotributo) no discriminan IVA: mandar el
         # array Iva en un comprobante C es motivo de rechazo de AFIP.
         if comp.tipo_comprobante not in TIPOS_CLASE_C and comp.alicuotas:
@@ -1068,7 +1115,9 @@ def clase_comprobante(condicion_emisor: str, condicion_receptor: str) -> str:
     if emisor in EMISOR_CLASE_C:
         return "C"
     # Emisor responsable inscripto (o desconocido: se asume el caso mas comun).
-    return "A" if receptor == "responsable_inscripto" else "B"
+    # Al monotributista le corresponde clase A (RG 5003); ademas, por la RG 5616
+    # su codigo de condicion (6) no es valido en un comprobante B.
+    return "A" if receptor in ("responsable_inscripto", "monotributo") else "B"
 
 
 def tipo_comprobante_sugerido(

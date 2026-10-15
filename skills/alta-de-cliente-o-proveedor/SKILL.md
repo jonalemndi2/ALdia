@@ -49,8 +49,8 @@ determina qué comprobante hay que emitirle:
 
 | Negocio | Cliente | Comprobante |
 | --- | --- | --- |
-| Responsable inscripto | Responsable inscripto | **Factura A** (IVA discriminado) |
-| Responsable inscripto | Monotributista, exento o consumidor final | **Factura B** (IVA incluido) |
+| Responsable inscripto | Responsable inscripto o monotributista | **Factura A** (IVA discriminado) |
+| Responsable inscripto | Exento o consumidor final | **Factura B** (IVA incluido) |
 | Monotributista o exento | cualquiera | **Factura C** (sin IVA discriminado) |
 
 Valores válidos: `responsable_inscripto`, `monotributo`, `exento`,
