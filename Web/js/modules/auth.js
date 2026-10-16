@@ -197,7 +197,7 @@ const Auth = {
             logoutLink.onclick = (e) => { e.preventDefault(); this.logout(); };
             rightMenu.appendChild(logoutLink);
         }
-        
+
         // Mostrar nombre/rol en status
         const statusEl = document.getElementById('dbStatus');
         if (statusEl && this.currentUser) {
@@ -239,6 +239,7 @@ const Auth = {
             'Clientes': 'clientes',
             'Remitos': 'ventas',
             'Facturas': 'ventas',
+            'Liquidaciones': 'liquidaciones_granos',
             'Proveedores': 'proveedores',
             'Pagos': 'proveedores',
             'Gastos': 'gastos',

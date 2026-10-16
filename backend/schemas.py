@@ -272,7 +272,7 @@ class ProveedorCreate(BaseModel):
     city: Optional[str] = ""
     region: Optional[str] = ""
     postal_code: Optional[str] = ""
-    country_code: Optional[str] = ""
+    country_code: Optional[str] = ""
     # Datos que el IRS pide de un proveedor estadounidense. Modelo preparado;
     # NO se genera ningun 1099 (ver la nota en models.py).
     legal_name: Optional[str] = ""
@@ -304,7 +304,7 @@ class ProveedorUpdate(BaseModel):
     city: Optional[str] = None
     region: Optional[str] = None
     postal_code: Optional[str] = None
-    country_code: Optional[str] = None
+    country_code: Optional[str] = None
     legal_name: Optional[str] = None
     dba: Optional[str] = None
     w9_recibido: Optional[bool] = None
@@ -332,7 +332,7 @@ class ProveedorResponse(BaseModel):
     city: Optional[str] = ""
     region: Optional[str] = ""
     postal_code: Optional[str] = ""
-    country_code: Optional[str] = ""
+    country_code: Optional[str] = ""
     legal_name: Optional[str] = ""
     dba: Optional[str] = ""
     w9_recibido: Optional[bool] = False
@@ -842,3 +842,131 @@ class ConfigItem(BaseModel):
 
 class ConfigUpdate(BaseModel):
     valor: str
+
+
+# ==================== LIQUIDACIONES (GRANOS / HACIENDA / RUBROS ESPECIALES) ====================
+RUBROS_LIQUIDACION = {"granos", "hacienda", "general"}
+OPERACIONES_LIQUIDACION = {"compra", "venta"}
+
+
+class LiquidacionItemCreate(BaseModel):
+    """Renglón de mercadería de una liquidación (ej. Soja con merma o Novillo con cabezas y desbaste)."""
+    codigo: Optional[int] = None
+    descripcion: str
+    cabezas: int = Field(default=0, ge=0)
+    cantidad_bruta: float = Field(default=0.0, ge=0)
+    merma_pct: float = Field(default=0.0, ge=0, lt=100)
+    merma_cantidad: float = Field(default=0.0, ge=0)
+    cantidad_neta: float = Field(default=0.0, ge=0)
+    unidad: str = "KG"
+    precio_unitario: DineroEntrada = Field(default=0, ge=0)
+    iva_alicuota: float = 10.5
+
+    @field_validator("descripcion")
+    @classmethod
+    def _desc(cls, v):
+        return validar_texto_obligatorio(v, "La descripción del renglón de liquidación")
+
+    @field_validator("iva_alicuota")
+    @classmethod
+    def _iva(cls, v):
+        return validar_iva(v)
+
+    @model_validator(mode="after")
+    def _calcular_cantidades(self):
+        # Si sólo enviaron cantidad_neta sin cantidad_bruta, asumimos sin merma
+        if self.cantidad_bruta == 0 and self.cantidad_neta > 0:
+            self.cantidad_bruta = self.cantidad_neta
+        if self.cantidad_bruta <= 0:
+            raise ValueError("La cantidad bruta (o neta) debe ser mayor a cero")
+        if self.merma_cantidad == 0 and self.merma_pct > 0:
+            self.merma_cantidad = round(self.cantidad_bruta * (self.merma_pct / 100.0), 4)
+        if self.merma_cantidad >= self.cantidad_bruta:
+            raise ValueError("La merma o desbaste no puede igualar o superar la cantidad bruta")
+        if self.cantidad_neta == 0:
+            self.cantidad_neta = round(self.cantidad_bruta - self.merma_cantidad, 4)
+        return self
+
+
+class LiquidacionDeduccionCreate(BaseModel):
+    """Gasto o servicio descontado en la liquidación (flete, secado, comisión, guía, SENASA)."""
+    concepto: str = "otro"
+    descripcion: str = ""
+    base_imponible: DineroEntrada = Field(default=0, ge=0)
+    iva_alicuota: float = 21.0
+
+    @field_validator("iva_alicuota")
+    @classmethod
+    def _iva(cls, v):
+        return validar_iva(v)
+
+
+class LiquidacionRetencionCreate(BaseModel):
+    """Retención o percepción impositiva (SISA/IVA, Ganancias, IIBB, Checkoff, etc.)."""
+    tipo: str = "iva"
+    descripcion: str = ""
+    base_calculo: DineroEntrada = Field(default=0, ge=0)
+    alicuota: float = Field(default=0.0, ge=0, le=100)
+    importe: DineroEntrada = Field(default=0, ge=0)
+    certificado: str = ""
+
+
+class LiquidacionCreate(BaseModel):
+    rubro: str = "granos"          # "granos" | "hacienda" | "general"
+    operacion: str = "compra"      # "compra" (a proveedor/productor) | "venta" (a cliente/comprador)
+    cliente: Optional[str] = None
+    proveedor: Optional[str] = None
+    tercero: Optional[str] = None  # alias práctico: se asigna a cliente o proveedor según `operacion`
+    fecha: str
+    num_comprobante: str = ""
+    codigo_autorizacion: Optional[str] = None
+    datos_dominio: Optional[dict] = Field(default_factory=dict)
+    observaciones: str = ""
+    estado: str = "borrador"       # "borrador" | "confirmada"
+    items: List[LiquidacionItemCreate] = Field(min_length=1)
+    deducciones: List[LiquidacionDeduccionCreate] = Field(default_factory=list)
+    retenciones: List[LiquidacionRetencionCreate] = Field(default_factory=list)
+
+    @field_validator("fecha")
+    @classmethod
+    def _fecha_valida(cls, v):
+        if not v or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError("La fecha debe tener formato YYYY-MM-DD")
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+    @model_validator(mode="after")
+    def _normalizar_liquidacion(self):
+        self.rubro = (self.rubro or "").strip().lower()
+        if self.rubro not in RUBROS_LIQUIDACION:
+            raise ValueError(f"rubro inválido ('{self.rubro}'). Válidos: {', '.join(sorted(RUBROS_LIQUIDACION))}")
+        self.operacion = (self.operacion or "").strip().lower()
+        if self.operacion not in OPERACIONES_LIQUIDACION:
+            raise ValueError(f"operacion inválida ('{self.operacion}'). Válidas: {', '.join(sorted(OPERACIONES_LIQUIDACION))}")
+        if self.estado not in {"borrador", "confirmada"}:
+            raise ValueError("estado debe ser 'borrador' o 'confirmada'")
+
+        if self.operacion == "venta":
+            if not self.cliente and self.tercero:
+                self.cliente = self.tercero
+            if not self.cliente:
+                raise ValueError("En una liquidación de venta se requiere 'cliente' (o 'tercero')")
+            limpio = re.sub(r"[^0-9]", "", str(self.cliente))
+            self.cliente = limpio if limpio else str(self.cliente).strip()
+            self.proveedor = None
+        else:
+            if not self.proveedor and self.tercero:
+                self.proveedor = self.tercero
+            if not self.proveedor:
+                raise ValueError("En una liquidación de compra se requiere 'proveedor' (o 'tercero')")
+            limpio = re.sub(r"[^0-9]", "", str(self.proveedor))
+            self.proveedor = limpio if limpio else str(self.proveedor).strip()
+            self.cliente = None
+        return self
+
+
+class AutorizacionCOE(BaseModel):
+    """Registro de Código de Operación Electrónica (COE) para liquidaciones en países con autorización fiscal."""
+    coe: str
+    punto_venta: Optional[int] = None
+    observaciones: str = ""

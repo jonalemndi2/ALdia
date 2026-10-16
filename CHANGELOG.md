@@ -11,6 +11,33 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.3.0 — 2026-10-16
+
+- **Perfiles de negocio y módulos verticales instalables.** Nuevos módulos
+  `liquidaciones_granos` y `liquidaciones_hacienda` (apagados por defecto en
+  comercios comunes) y selector de perfiles rápidos (`comercio`, `agro_granos`,
+  `agro_hacienda`, `agro_mixto`, `servicios`) en *Administración → Módulos* y
+  en `GET / POST /api/modulos/perfiles`.
+- **Motor multipaís de liquidaciones (Cereales, Hacienda y Consignación).**
+  Comprobantes con cálculo exacto en centavos enteros para peso bruto, porcentaje
+  de merma/humedad o desbaste, cabezas, deducciones gravadas (flete, secado,
+  zarandeo, comisión, gastos de feria/SENASA) y retenciones impositivas. Impacta
+  automáticamente el stock neto en el submayor (`MovimientoStock`), las cuentas
+  corrientes (`saldos.verificar()`) y el Libro IVA (`/api/iva/consulta`). En
+  Argentina permite registrar el **COE** (Código de Operación Electrónica); en
+  Estados Unidos opera como *Settlement Sheet* en USD con EIN.
+- **Bandeja de borradores e interfaz Web de Liquidaciones.** Pantallas de
+  *Liquidaciones → Cereales y Granos* y *Hacienda*, con bandeja de borradores
+  preparados por el asistente de IA para confirmar con un clic.
+- **Adopción con agentes de IA personales (MCP, skills embebidas y demo).**
+  Nuevas herramientas MCP (`create_settlement_draft`, `confirm_settlement_draft`,
+  `list_settlements`, `get_settlement`, `register_settlement_coe`,
+  `void_settlement`, `list_business_profiles`, `apply_business_profile`),
+  resumen matutino `get_daily_briefing`, manuales operativos consultables por
+  MCP (`list_operational_skills` y `get_operational_skill`), nueva skill
+  `liquidacion-cereales-y-hacienda`, paquete instalable `mcp/pyproject.toml` y
+  generador de base de demostración `scripts/crear_demo.py`.
+
 ## 2.2.0 — 2026-10-15
 
 - **Todas las condiciones frente al IVA de ARCA (RG 5616).** Se suman

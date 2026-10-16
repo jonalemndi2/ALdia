@@ -83,7 +83,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from models import (
-    Cobro, Factura, FacturaProveedor, GastoFactura, NCP, Pago, Remito, Secuencia,
+    Cobro, Factura, FacturaProveedor, GastoFactura, Liquidacion, NCP, Pago, Remito, Secuencia,
 )
 
 # tipo -> (modelo, columna que lleva el numero)
@@ -98,6 +98,7 @@ COMPROBANTES = {
     "gasto": (GastoFactura, GastoFactura.id),
     "compra": (FacturaProveedor, FacturaProveedor.id),
     "nota_credito_proveedor": (NCP, NCP.id),
+    "liquidacion": (Liquidacion, Liquidacion.id),
 }
 
 

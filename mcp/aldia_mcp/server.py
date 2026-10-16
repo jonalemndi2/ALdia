@@ -3041,6 +3041,535 @@ def cancel_pending_operation(operacion_id: str) -> dict[str, Any]:
     return api().post(f"/api/pendientes/{operacion_id}/cancelar", {})
 
 
+# ═════════════════════════════════════════════════════════════
+# 8. PERFILES DE NEGOCIO Y LIQUIDACIONES (GRANOS / HACIENDA)
+# ═════════════════════════════════════════════════════════════
+
+
+@servidor.tool(
+    title="Listar perfiles verticales de negocio",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve los perfiles verticales de negocio preconfigurados en ALdia "
+        "(comercio, agro_granos, agro_hacienda, agro_mixto, servicios), indicando "
+        "que modulos activa cada uno."
+    ),
+)
+def list_business_profiles() -> dict[str, Any]:
+    perfiles = api().get("/api/modulos/perfiles") or []
+    return {
+        "cantidad": len(perfiles),
+        "perfiles": perfiles,
+    }
+
+
+@servidor.tool(
+    title="Aplicar perfil vertical de negocio",
+    annotations=ESCRITURA,
+    description=(
+        "Activa los modulos correspondientes al perfil de negocio elegido "
+        "(comercio, agro_granos, agro_hacienda, agro_mixto, servicios) y oculta "
+        "los que no aplican. Requiere rol administrador y confirmacion explicita "
+        "del usuario (confirmar=true)."
+    ),
+)
+def apply_business_profile(perfil: str, confirmar: bool = False) -> dict[str, Any]:
+    clave = (perfil or "").strip().lower()
+    if not clave:
+        raise ALdiaError("Indique el perfil de negocio a aplicar (ej. 'comercio', 'agro_mixto').")
+    _exigir_confirmacion(confirmar, f"Aplicar el perfil de negocio '{clave}'")
+    res = api().post(f"/api/modulos/perfiles/{clave}", {}) or {}
+    return {"aplicado": True, **res}
+
+
+@servidor.tool(
+    title="Listar liquidaciones (granos, hacienda o generales)",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Lista las liquidaciones registradas en ALdia (Liquidacion Primaria de Granos LPG, "
+        "Liquidacion Pecuaria LSP o liquidaciones generales), filtrando por rubro "
+        "('granos', 'hacienda', 'general'), operacion ('compra' o 'venta'), tercero "
+        "(CUIT), estado ('borrador', 'confirmada', 'anulada') y rango de fechas."
+    ),
+)
+def list_settlements(
+    rubro: str = "",
+    operacion: str = "",
+    tercero: str = "",
+    estado: str = "",
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    limite: int = 20,
+) -> dict[str, Any]:
+    limite_val = max(1, min(int(limite or 20), 500))
+    filas = api().get(
+        "/api/liquidaciones/",
+        rubro=(rubro or "").strip().lower() or None,
+        operacion=(operacion or "").strip().lower() or None,
+        tercero=(tercero or "").strip() or None,
+        estado=(estado or "").strip().lower() or None,
+        fecha_desde=_fecha(fecha_desde) if fecha_desde else None,
+        fecha_hasta=_fecha(fecha_hasta) if fecha_hasta else None,
+        limite=limite_val,
+    ) or []
+    return {
+        "cantidad": len(filas),
+        "total_neto_liquidado": _redondear(
+            sum(float(f.get("neto_liquidado") or 0) for f in filas)
+        ),
+        "liquidaciones": filas,
+    }
+
+
+@servidor.tool(
+    title="Ver detalle de una liquidacion",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve el detalle completo de una liquidacion por su ID: cabecera, "
+        "renglones fisicos con merma o desbaste (items), deducciones comerciales "
+        "(flete, secado, zarandeo, comision, SENASA) y retenciones impositivas "
+        "(SISA, Ganancias, IIBB)."
+    ),
+)
+def get_settlement(liquidacion_id: int) -> dict[str, Any]:
+    return api().get(f"/api/liquidaciones/{int(liquidacion_id)}") or {}
+
+
+@servidor.tool(
+    title="Preparar borrador de liquidacion (granos, hacienda o general)",
+    annotations=ESCRITURA,
+    description=(
+        "Prepara una liquidacion en estado 'borrador' calculando mermas/desbaste, "
+        "bruto de la operacion, deducciones comerciales, retenciones y neto liquidado "
+        "en el servidor, SIN mover stock ni cuenta corriente todavia.\n\n"
+        "Parametros principales:\n"
+        "- tercero: CUIT o nombre del productor/proveedor (si operacion='compra') o "
+        "del acopio/frigorifico/cliente (si operacion='venta').\n"
+        "- rubro: 'granos' (LPG cereales/oleaginosas), 'hacienda' (LSP ganado) o 'general'.\n"
+        "- operacion: 'compra' o 'venta'.\n"
+        "- items: lista de renglones [{codigo, descripcion, cabezas, cantidad_bruta, "
+        "merma_pct, merma_cantidad, cantidad_neta, unidad, precio_unitario, iva_alicuota}].\n"
+        "- deducciones: lista opcional de gastos descontados [{concepto, descripcion, "
+        "base_imponible, iva_alicuota}].\n"
+        "- retenciones: lista opcional de retenciones [{tipo, descripcion, base_calculo, "
+        "alicuota, importe, certificado}].\n"
+        "- datos_dominio: diccionario opcional con metadatos del rubro (campana, carta_porte, "
+        "humedad_pct, factor, grado en granos; dte, renspa, tropa en hacienda).\n\n"
+        "Muestre al usuario el desglose calculado y, tras su aprobacion, confirme con "
+        "confirm_settlement_draft."
+    ),
+)
+def create_settlement_draft(
+    tercero: str,
+    items: list[dict[str, Any]],
+    rubro: str = "granos",
+    operacion: str = "compra",
+    deducciones: list[dict[str, Any]] | None = None,
+    retenciones: list[dict[str, Any]] | None = None,
+    datos_dominio: dict[str, Any] | None = None,
+    num_comprobante: str = "",
+    codigo_autorizacion: str | None = None,
+    observaciones: str = "",
+    fecha: str | None = None,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    cli = api()
+    rubro_limpio = (rubro or "granos").strip().lower()
+    if rubro_limpio not in {"granos", "hacienda", "general"}:
+        raise ALdiaError("rubro invalido. Use 'granos', 'hacienda' o 'general'.")
+    op_limpia = (operacion or "compra").strip().lower()
+    if op_limpia not in {"compra", "venta"}:
+        raise ALdiaError("operacion invalida. Use 'compra' o 'venta'.")
+    if not items:
+        raise ALdiaError("La liquidacion debe incluir al menos un item.")
+
+    if op_limpia == "venta":
+        ficha = cli.resolver_cliente(tercero)
+    else:
+        ficha = cli.resolver_proveedor(tercero)
+    cuit_tercero = ficha.get("cuit")
+
+    items_payload: list[dict[str, Any]] = []
+    for it in items:
+        codigo = int(it["codigo"]) if it.get("codigo") is not None else None
+        descripcion = str(it.get("descripcion") or "").strip()
+        unidad = str(it.get("unidad") or "").strip()
+        if codigo is not None and not descripcion:
+            art = cli.producto(codigo)
+            descripcion = str(art.get("producto") or f"Articulo {codigo}")
+            if not unidad:
+                unidad = str(art.get("unidad") or "KG")
+        if not descripcion:
+            raise ALdiaError(f"Falta 'descripcion' en el item de liquidacion: {it}")
+
+        alicuota_item = _validar_iva(
+            float(it.get("iva_alicuota") if it.get("iva_alicuota") is not None else it.get("iva", 10.5))
+        )
+        precio_unit = float(
+            it.get("precio_unitario")
+            if it.get("precio_unitario") is not None
+            else it.get("precio") or 0.0
+        )
+        cant_bruta = float(
+            it.get("cantidad_bruta")
+            if it.get("cantidad_bruta") is not None
+            else it.get("cantidad") or 0.0
+        )
+        items_payload.append(
+            {
+                "codigo": codigo,
+                "descripcion": descripcion,
+                "cabezas": int(it.get("cabezas") or 0),
+                "cantidad_bruta": cant_bruta,
+                "merma_pct": float(it.get("merma_pct") or 0.0),
+                "merma_cantidad": float(it.get("merma_cantidad") or 0.0),
+                "cantidad_neta": float(it.get("cantidad_neta") or 0.0),
+                "unidad": unidad or "KG",
+                "precio_unitario": precio_unit,
+                "iva_alicuota": alicuota_item,
+            }
+        )
+
+    deducciones_payload: list[dict[str, Any]] = []
+    for d in deducciones or []:
+        alicuota_ded = _validar_iva(
+            float(d.get("iva_alicuota") if d.get("iva_alicuota") is not None else d.get("iva", 21.0))
+        )
+        base_imp = float(
+            d.get("base_imponible")
+            if d.get("base_imponible") is not None
+            else d.get("monto") or 0.0
+        )
+        deducciones_payload.append(
+            {
+                "concepto": str(d.get("concepto") or "otro"),
+                "descripcion": str(d.get("descripcion") or ""),
+                "base_imponible": base_imp,
+                "iva_alicuota": alicuota_ded,
+            }
+        )
+
+    retenciones_payload: list[dict[str, Any]] = []
+    for r in retenciones or []:
+        imp_ret = float(
+            r.get("importe") if r.get("importe") is not None else r.get("monto") or 0.0
+        )
+        retenciones_payload.append(
+            {
+                "tipo": str(r.get("tipo") or "iva"),
+                "descripcion": str(r.get("descripcion") or ""),
+                "base_calculo": float(r.get("base_calculo") or 0.0),
+                "alicuota": float(r.get("alicuota") or 0.0),
+                "importe": imp_ret,
+                "certificado": str(r.get("certificado") or ""),
+            }
+        )
+
+    cuerpo: dict[str, Any] = {
+        "rubro": rubro_limpio,
+        "operacion": op_limpia,
+        "cliente": cuit_tercero if op_limpia == "venta" else None,
+        "proveedor": cuit_tercero if op_limpia == "compra" else None,
+        "tercero": cuit_tercero,
+        "fecha": _fecha(fecha),
+        "num_comprobante": num_comprobante,
+        "codigo_autorizacion": codigo_autorizacion,
+        "datos_dominio": datos_dominio or {},
+        "observaciones": observaciones,
+        "estado": "borrador",
+        "items": items_payload,
+        "deducciones": deducciones_payload,
+        "retenciones": retenciones_payload,
+    }
+    borrador = cli.post("/api/liquidaciones/", cuerpo, operation_id=operation_id) or {}
+    mensaje_nota = (
+        "Borrador de liquidacion guardado sin efectos en stock ni cuenta corriente. "
+        "Revise los importes con el usuario y confirme con confirm_settlement_draft."
+    )
+    return {
+        **borrador,
+        "tercero_nombre": ficha.get("nombre"),
+        "tercero_cuit": cuit_tercero,
+        "_nota": mensaje_nota,
+        "nota": mensaje_nota,
+    }
+
+
+@servidor.tool(
+    title="Confirmar borrador de liquidacion",
+    annotations=ESCRITURA,
+    description=(
+        "[OPERACION DE DINERO] Confirma una liquidacion en estado borrador. "
+        "Mueve el stock fisico por la cantidad neta (tras merma o desbaste) e "
+        "impacta la cuenta corriente del cliente o proveedor por el neto liquidado. "
+        "Requiere autorizacion explicita del usuario (confirmar=true)."
+    ),
+)
+def confirm_settlement_draft(
+    liquidacion_id: int,
+    confirmar: bool = False,
+    operation_id: str | None = None,
+) -> dict[str, Any]:
+    _exigir_confirmacion(confirmar, f"Confirmar la liquidacion #{liquidacion_id}")
+    res = api().post(
+        f"/api/liquidaciones/{int(liquidacion_id)}/confirmar",
+        {},
+        operation_id=operation_id,
+    ) or {}
+    return {
+        "confirmada": True,
+        **res,
+        "nota": "Liquidacion confirmada: stock neto y cuenta corriente actualizados.",
+    }
+
+
+@servidor.tool(
+    title="Registrar COE de una liquidacion",
+    annotations=ESCRITURA,
+    description=(
+        "Registra el Codigo de Operacion Electronica (COE de 12 digitos de ARCA/AFIP) "
+        "en una liquidacion agropecuaria. Solo aplica en instalaciones cuyo pais "
+        "utiliza autorizacion fiscal. Requiere confirmar=true."
+    ),
+)
+def register_settlement_coe(
+    liquidacion_id: int,
+    coe: str,
+    observaciones: str = "",
+    confirmar: bool = False,
+) -> dict[str, Any]:
+    reglas = _reglas_del_pais()
+    if reglas.get("requiere_autorizacion_fiscal") is False:
+        raise ALdiaError(
+            f"Operacion no aplica: esta instalacion esta configurada para "
+            f"{reglas.get('nombre', 'un pais')}, donde las liquidaciones no requieren COE."
+        )
+    _exigir_confirmacion(
+        confirmar, f"Registrar el COE {coe} en la liquidacion #{liquidacion_id}"
+    )
+    return api().post(
+        f"/api/liquidaciones/{int(liquidacion_id)}/coe",
+        {"coe": coe, "observaciones": observaciones},
+    ) or {}
+
+
+@servidor.tool(
+    title="Anular liquidacion",
+    annotations=DESTRUCTIVA,
+    description=(
+        "[DESTRUCTIVA] Anula una liquidacion. Si estaba confirmada, revierte los "
+        "movimientos de stock neto y el impacto en la cuenta corriente del cliente "
+        "o proveedor. Requiere autorizacion explicita del usuario (confirmar=true)."
+    ),
+)
+def void_settlement(liquidacion_id: int, confirmar: bool = False) -> dict[str, Any]:
+    _exigir_confirmacion(confirmar, f"Anular la liquidacion #{liquidacion_id}")
+    res = api().delete(f"/api/liquidaciones/{int(liquidacion_id)}") or {}
+    return {"anulada": True, "liquidacion_id": int(liquidacion_id), **res}
+
+
+# ═════════════════════════════════════════════════════════════
+# 9. ADOPCION CON AGENTES PERSONALES (RESUMEN Y SKILLS)
+# ═════════════════════════════════════════════════════════════
+
+
+def _carpeta_skills() -> Path:
+    explicita = os.getenv("ALDIA_SKILLS_DIR", "").strip()
+    if explicita:
+        return Path(explicita)
+    return Path(__file__).resolve().parent.parent.parent / "skills"
+
+
+def _extraer_frontmatter_skill(texto: str) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    lineas = texto.splitlines()
+    if not lineas or lineas[0].strip() != "---":
+        return meta
+    for linea in lineas[1:]:
+        if linea.strip() == "---":
+            break
+        if ":" in linea:
+            clave, valor = linea.split(":", 1)
+            meta[clave.strip()] = valor.strip()
+    return meta
+
+
+@servidor.tool(
+    title="Resumen matutino del negocio para el agente",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve un resumen ejecutivo del estado del dia para que un agente personal "
+        "(OpenClaw, Claude Desktop, WhatsApp, Telegram) salude al dueno con las cifras "
+        "clave sin hacer multiples consultas: saldo disponible en caja, principales "
+        "clientes deudores (cuentas por cobrar), principales proveedores acreedores "
+        "(cuentas por pagar), liquidaciones en borrador pendientes de confirmar y "
+        "operaciones que esperan aclaracion."
+    ),
+)
+def get_daily_briefing() -> dict[str, Any]:
+    cli = api()
+    hoy = date.today().isoformat()
+    caja = cli.get("/api/caja/saldo") or {}
+    clientes = cli.get("/api/clientes/") or []
+    proveedores = cli.get("/api/proveedores/") or []
+    try:
+        borradores = cli.get("/api/liquidaciones/", estado="borrador", limite=10) or []
+    except ALdiaError:
+        borradores = []
+    try:
+        pendientes_raw = cli.get("/api/pendientes/") or {}
+    except ALdiaError:
+        pendientes_raw = {}
+
+    deudores = sorted(
+        [c for c in clientes if float(c.get("saldo") or 0) > 0],
+        key=lambda x: float(x.get("saldo") or 0),
+        reverse=True,
+    )
+    acreedores = sorted(
+        [p for p in proveedores if float(p.get("saldo") or 0) > 0],
+        key=lambda x: float(x.get("saldo") or 0),
+        reverse=True,
+    )
+    if isinstance(pendientes_raw, dict):
+        pendientes = (
+            pendientes_raw.get("pendientes")
+            or pendientes_raw.get("operaciones")
+            or []
+        )
+    elif isinstance(pendientes_raw, list):
+        pendientes = pendientes_raw
+    else:
+        pendientes = []
+
+    return {
+        "fecha": hoy,
+        "caja": {
+            "saldo_disponible": _redondear(float(caja.get("saldo") or 0)),
+        },
+        "cuentas_por_cobrar": {
+            "cantidad_deudores": len(deudores),
+            "total_a_cobrar": _redondear(
+                sum(float(c.get("saldo") or 0) for c in deudores)
+            ),
+            "principales_deudores": [
+                {
+                    "cuit": c.get("cuit"),
+                    "nombre": c.get("nombre"),
+                    "saldo": _redondear(float(c.get("saldo") or 0)),
+                }
+                for c in deudores[:5]
+            ],
+        },
+        "cuentas_por_pagar": {
+            "cantidad_acreedores": len(acreedores),
+            "total_a_pagar": _redondear(
+                sum(float(p.get("saldo") or 0) for p in acreedores)
+            ),
+            "principales_acreedores": [
+                {
+                    "cuit": p.get("cuit"),
+                    "nombre": p.get("nombre"),
+                    "saldo": _redondear(float(p.get("saldo") or 0)),
+                }
+                for p in acreedores[:5]
+            ],
+        },
+        "liquidaciones_en_borrador": {
+            "cantidad": len(borradores),
+            "borradores": borradores,
+        },
+        "operaciones_pendientes_aclaracion": {
+            "cantidad": len(pendientes),
+            "pendientes": pendientes,
+        },
+    }
+
+
+@servidor.tool(
+    title="Listar manuales operativos (skills) de ALdia",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Lista todos los manuales operativos (SKILL.md) incluidos en ALdia con su "
+        "nombre y descripcion. Permite que cualquier agente conectado por MCP "
+        "descubra los procedimientos del negocio (facturacion, caja, liquidacion "
+        "de cereales y hacienda, IVA, etc.) sin copiar archivos manualmente."
+    ),
+)
+def list_operational_skills() -> dict[str, Any]:
+    carpeta = _carpeta_skills()
+    if not carpeta.is_dir():
+        return {"cantidad": 0, "skills": []}
+
+    catalogo: list[dict[str, str]] = []
+    for sub in sorted(carpeta.iterdir(), key=lambda p: p.name):
+        archivo = sub / "SKILL.md"
+        if sub.is_dir() and archivo.is_file():
+            try:
+                texto = archivo.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            meta = _extraer_frontmatter_skill(texto)
+            catalogo.append(
+                {
+                    "name": meta.get("name") or sub.name,
+                    "description": meta.get("description") or "",
+                }
+            )
+    return {
+        "cantidad": len(catalogo),
+        "guia_maestra_disponible": (carpeta / "README.md").is_file(),
+        "skills": catalogo,
+    }
+
+
+@servidor.tool(
+    title="Leer un manual operativo (skill) de ALdia",
+    annotations=SOLO_LECTURA,
+    description=(
+        "Devuelve el contenido completo en Markdown de un manual operativo (SKILL.md) "
+        "por su nombre (ej. 'liquidacion-cereales-y-hacienda', 'cierre-de-caja', "
+        "'facturacion', o 'README' para el contexto maestro)."
+    ),
+)
+def get_operational_skill(skill_name: str) -> dict[str, Any]:
+    carpeta = _carpeta_skills()
+    nombre = (skill_name or "").strip().lower()
+    if not nombre:
+        raise ALdiaError("Indique el nombre de la skill a consultar (ej. 'cierre-de-caja').")
+
+    if nombre in {"readme", "readme.md", "indice", "maestro", "contexto-maestro"}:
+        archivo = carpeta / "README.md"
+        if not archivo.is_file():
+            raise ALdiaError("No se encontro la guia maestra skills/README.md.")
+        contenido = archivo.read_text(encoding="utf-8")
+        return {
+            "name": "README",
+            "description": "Contexto maestro e indice de skills de ALdia",
+            "content": contenido,
+        }
+
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", nombre):
+        raise ALdiaError(f"Nombre de skill invalido: '{skill_name}'.")
+
+    archivo = carpeta / nombre / "SKILL.md"
+    if not archivo.is_file():
+        disponibles = [
+            p.name for p in sorted(carpeta.iterdir()) if p.is_dir() and (p / "SKILL.md").is_file()
+        ] if carpeta.is_dir() else []
+        raise ALdiaError(
+            f"No existe la skill '{nombre}'. Disponibles: {', '.join(disponibles)}."
+        )
+
+    contenido = archivo.read_text(encoding="utf-8")
+    meta = _extraer_frontmatter_skill(contenido)
+    return {
+        "name": meta.get("name") or nombre,
+        "description": meta.get("description") or "",
+        "content": contenido,
+    }
+
+
 def main() -> None:
     """Punto de entrada: arranca el servidor MCP sobre stdio."""
     servidor.run()

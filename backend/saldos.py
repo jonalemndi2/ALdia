@@ -71,7 +71,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models import (
-    Cliente, Cobro, Factura, FacturaProveedor, GastoFactura, NCP, Pago, Proveedor,
+    Cliente, Cobro, Factura, FacturaProveedor, GastoFactura, Liquidacion, NCP, Pago, Proveedor,
 )
 
 
@@ -87,8 +87,15 @@ def _suma(db: Session, columna, filtro) -> int:
 def recalcular_cliente(db: Session, cuit: str) -> int:
     """Saldo del cliente segun sus movimientos. En centavos."""
     facturado = _suma(db, Factura.total, Factura.cliente == cuit)
+    liquidado = _suma(
+        db,
+        Liquidacion.neto_liquidado,
+        (Liquidacion.cliente == cuit)
+        & (Liquidacion.operacion == "venta")
+        & (Liquidacion.estado == "confirmada"),
+    )
     cobrado = _suma(db, Cobro.monto, Cobro.cliente == cuit)
-    return facturado - cobrado
+    return facturado + liquidado - cobrado
 
 
 def recalcular_proveedor(db: Session, cuit: str) -> int:
@@ -96,10 +103,17 @@ def recalcular_proveedor(db: Session, cuit: str) -> int:
     comprado = _suma(db, FacturaProveedor.total,
                      (FacturaProveedor.proveedor == cuit) &
                      (FacturaProveedor.estado == "confirmada"))
+    liquidado = _suma(
+        db,
+        Liquidacion.neto_liquidado,
+        (Liquidacion.proveedor == cuit)
+        & (Liquidacion.operacion == "compra")
+        & (Liquidacion.estado == "confirmada"),
+    )
     gastado = _suma(db, GastoFactura.total, GastoFactura.proveedor == cuit)
     pagado = _suma(db, Pago.monto, Pago.proveedor == cuit)
     devuelto = _suma(db, NCP.monto, NCP.proveedor == cuit)
-    return comprado + gastado - pagado - devuelto
+    return comprado + liquidado + gastado - pagado - devuelto
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +164,11 @@ def _diferencias_clientes(db: Session) -> list[dict]:
         db.query(Factura.cliente, func.coalesce(func.sum(Factura.total), 0))
         .group_by(Factura.cliente).all()
     )
+    liquidado = dict(
+        db.query(Liquidacion.cliente, func.coalesce(func.sum(Liquidacion.neto_liquidado), 0))
+        .filter(Liquidacion.operacion == "venta", Liquidacion.estado == "confirmada")
+        .group_by(Liquidacion.cliente).all()
+    )
     cobrado = dict(
         db.query(Cobro.cliente, func.coalesce(func.sum(Cobro.monto), 0))
         .group_by(Cobro.cliente).all()
@@ -157,7 +176,11 @@ def _diferencias_clientes(db: Session) -> list[dict]:
 
     diferencias = []
     for c in db.query(Cliente).all():
-        calculado = int(facturado.get(c.cuit, 0) or 0) - int(cobrado.get(c.cuit, 0) or 0)
+        calculado = (
+            int(facturado.get(c.cuit, 0) or 0)
+            + int(liquidado.get(c.cuit, 0) or 0)
+            - int(cobrado.get(c.cuit, 0) or 0)
+        )
         guardado = int(c.saldo or 0)
         if calculado != guardado:
             diferencias.append({
@@ -178,6 +201,11 @@ def _diferencias_proveedores(db: Session) -> list[dict]:
         .filter(FacturaProveedor.estado == "confirmada")
         .group_by(FacturaProveedor.proveedor).all()
     )
+    liquidado = dict(
+        db.query(Liquidacion.proveedor, func.coalesce(func.sum(Liquidacion.neto_liquidado), 0))
+        .filter(Liquidacion.operacion == "compra", Liquidacion.estado == "confirmada")
+        .group_by(Liquidacion.proveedor).all()
+    )
     gastado = dict(
         db.query(GastoFactura.proveedor, func.coalesce(func.sum(GastoFactura.total), 0))
         .group_by(GastoFactura.proveedor).all()
@@ -195,6 +223,7 @@ def _diferencias_proveedores(db: Session) -> list[dict]:
     for p in db.query(Proveedor).all():
         calculado = (
             int(comprado.get(p.cuit, 0) or 0)
+            + int(liquidado.get(p.cuit, 0) or 0)
             + int(gastado.get(p.cuit, 0) or 0)
             - int(pagado.get(p.cuit, 0) or 0)
             - int(devuelto.get(p.cuit, 0) or 0)

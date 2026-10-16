@@ -37,17 +37,17 @@ const API = {
         Object.entries(params).forEach(([k, v]) => {
             if (v !== undefined && v !== null && v !== '') url.searchParams.append(k, v);
         });
-        
+
         const response = await fetch(url.toString(), {
             method: 'GET',
             headers: this.headers(false)
         });
-        
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
-        
+
         return response.json();
     },
 
@@ -58,15 +58,15 @@ const API = {
             headers: this.headers(true),
             body: JSON.stringify(data)
         });
-        
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
-        
+
         // Handle 204 No Content
         if (response.status === 204) return null;
-        
+
         return response.json();
     },
 
@@ -77,12 +77,12 @@ const API = {
             headers: this.headers(true),
             body: JSON.stringify(data)
         });
-        
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
-        
+
         return response.json();
     },
 
@@ -92,12 +92,12 @@ const API = {
             method: 'DELETE',
             headers: this.headers(false)
         });
-        
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ detail: 'Error desconocido' }));
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
-        
+
         return response.json();
     },
 
@@ -147,7 +147,7 @@ const API = {
 
     // ==================== FACTURAS ====================
     facturas: {
-        getAll(fecha, cliente) { 
+        getAll(fecha, cliente) {
             const params = {};
             if (fecha) params.fecha = fecha;
             if (cliente) params.cliente = cliente;
@@ -204,7 +204,7 @@ const API = {
 
     // ==================== COBROS ====================
     cobros: {
-        getAll(fecha, cliente) { 
+        getAll(fecha, cliente) {
             const params = {};
             if (fecha) params.fecha = fecha;
             if (cliente) params.cliente = cliente;
@@ -216,7 +216,7 @@ const API = {
 
     // ==================== PAGOS ====================
     pagos: {
-        getAll(fecha, proveedor) { 
+        getAll(fecha, proveedor) {
             const params = {};
             if (fecha) params.fecha = fecha;
             if (proveedor) params.proveedor = proveedor;
@@ -245,7 +245,7 @@ const API = {
 
     // ==================== IVA ====================
     iva: {
-        consultar(fechaDesde, fechaHasta) { 
+        consultar(fechaDesde, fechaHasta) {
             const params = {};
             if (fechaDesde) params.fecha_desde = fechaDesde;
             if (fechaHasta) params.fecha_hasta = fechaHasta;
@@ -255,7 +255,7 @@ const API = {
 
     // ==================== AUTH ====================
     auth: {
-        login(username, password) { 
+        login(username, password) {
             return API.post('/auth/login', { username, password });
         },
         getMe() { return API.get('/auth/me'); },
@@ -276,14 +276,14 @@ const API = {
         getDbInfo() { return API.get('/admin/db-info'); },
         resetDb() { return API.post('/admin/reset-db'); },
         seedData() { return API.post('/admin/seed-data'); },
-        buscarMov(tipo, numero) { 
+        buscarMov(tipo, numero) {
             const params = {};
             if (numero) params.numero = numero;
             return API.get(`/admin/movimientos/${tipo}`, params);
         },
         eliminarMov(tipo, id) { return API.delete(`/admin/movimientos/${tipo}/${id}`); },
         getMorosos() { return API.get('/admin/morosos'); },
-        getResumen(desde, hasta) { 
+        getResumen(desde, hasta) {
             const params = {};
             if (desde) params.fecha_desde = desde;
             if (hasta) params.fecha_hasta = hasta;
@@ -301,8 +301,21 @@ const API = {
     modulos: {
         getAll() { return API.get('/modulos/'); },
         getActivos() { return API.get('/modulos/activos'); },
+        getPerfiles: () => API.get('/modulos/perfiles'),
+        aplicarPerfil: (clave) => API.post('/modulos/perfiles/' + encodeURIComponent(clave), {}),
         update(clave, data) { return API.put(`/modulos/${clave}`, data); },
         seed() { return API.post('/modulos/seed'); }
+    },
+
+    // ==================== LIQUIDACIONES ====================
+    liquidaciones: {
+        getAll(params = {}) { return API.get('/liquidaciones/', params); },
+        getOne(id) { return API.get(`/liquidaciones/${encodeURIComponent(id)}`); },
+        getById(id) { return API.get(`/liquidaciones/${encodeURIComponent(id)}`); },
+        create(data) { return API.post('/liquidaciones/', data); },
+        confirmar(id) { return API.post(`/liquidaciones/${encodeURIComponent(id)}/confirmar`, {}); },
+        registrarCoe(id, data) { return API.post(`/liquidaciones/${encodeURIComponent(id)}/coe`, data); },
+        anular(id) { return API.delete(`/liquidaciones/${encodeURIComponent(id)}`); }
     },
 
     // ==================== AUDITORÍA ====================

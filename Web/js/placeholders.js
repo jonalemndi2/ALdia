@@ -15,7 +15,7 @@
  * este archivo. Debe seguir cargandose DESPUES de todos los modulos.
  */
 (function () {
-    const modules = ['Stock', 'Clientes', 'Proveedores', 'Remitos', 'Facturas', 'Cobros', 'Pagos', 'Caja', 'Gastos', 'IVA', 'Admin', 'Auditoria', 'App', 'Utils'];
+    const modules = ['Stock', 'Clientes', 'Proveedores', 'Remitos', 'Facturas', 'Liquidaciones', 'Cobros', 'Pagos', 'Caja', 'Gastos', 'IVA', 'Admin', 'Auditoria', 'App', 'Utils'];
     modules.forEach(name => {
         if (!window[name]) {
             window[name] = new Proxy({}, {

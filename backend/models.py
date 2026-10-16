@@ -702,3 +702,106 @@ class AutorizacionFiscal(Base):
     vence_en = Column(DateTime, nullable=False)
     intentos = Column(Integer, nullable=False, default=0)
     usado_en = Column(DateTime, nullable=True)
+
+
+class Liquidacion(Base):
+    """Liquidación comercial agropecuaria o de consignación (Cereales / Hacienda / Rubros especiales).
+
+    Por qué no vive en `facturas` ni `factprov`:
+    Una liquidación (LPG en granos, LSP en hacienda, o Settlement Sheet en EE.UU.)
+    compone tres bloques dentro del mismo comprobante:
+      1. Operación Bruta (mercadería liquidada tras merma/desbaste + IVA de la operación).
+      2. Deducciones comerciales descontadas en el propio documento (flete, secado,
+         zarandeo, comisión, guías, SENASA + su propio IVA).
+      3. Retenciones/percepciones impositivas (SISA, IVA, Ganancias, IIBB, Checkoff).
+
+    El importe que mueve la cuenta corriente (`saldos.py`) es el `neto_liquidado`:
+      neto_liquidado = (subtotal_bruto + iva_operacion)
+                       - (subtotal_deducciones + iva_deducciones)
+                       - total_retenciones
+    Todo expresado en CENTAVOS enteros (`Column(Integer)`).
+    """
+    __tablename__ = "liquidaciones"
+
+    id = Column(Integer, primary_key=True)
+    # "granos" | "hacienda" | "general"
+    rubro = Column(String(30), nullable=False, default="granos")
+    # "venta" (liquidación de venta a un cliente/acopio/frigorífico: nos deben el neto)
+    # "compra" (liquidación de compra/consignación a un productor/proveedor: le debemos el neto)
+    operacion = Column(String(20), nullable=False, default="compra")
+    cliente = Column(String(20), ForeignKey("clientes.cuit", ondelete="RESTRICT", onupdate="CASCADE"), nullable=True)
+    proveedor = Column(String(20), ForeignKey("proveedores.cuit", ondelete="RESTRICT", onupdate="CASCADE"), nullable=True)
+    fecha = Column(String(10), nullable=False)
+    num_comprobante = Column(String(80), default="")
+    # Autorización fiscal cuando el país la requiere (ej. COE de 12 dígitos en ARCA/AFIP).
+    codigo_autorizacion = Column(String(40), default=None)
+
+    # Todos los importes en CENTAVOS enteros
+    subtotal_bruto = Column(Integer, nullable=False, default=0)
+    iva_operacion = Column(Integer, nullable=False, default=0)
+    subtotal_deducciones = Column(Integer, nullable=False, default=0)
+    iva_deducciones = Column(Integer, nullable=False, default=0)
+    total_retenciones = Column(Integer, nullable=False, default=0)
+    neto_liquidado = Column(Integer, nullable=False, default=0)
+
+    # Metadatos específicos del rubro (JSON serializado):
+    # - granos: campana, especie, grado, factor, humedad_pct, carta_porte, procedencia, puerto
+    # - hacienda: dte, renspa, tropa, destino, consignatario
+    datos_dominio = Column(Text, nullable=False, default="{}")
+    observaciones = Column(String(500), default="")
+
+    # "borrador" | "confirmada" | "anulada"
+    estado = Column(String(20), nullable=False, default="borrador")
+    operation_id = Column(String(100), unique=True, nullable=True)
+    payload_fingerprint = Column(String(64), nullable=True)
+    anulada_en = Column(DateTime, default=None)
+
+
+class LiquidacionItem(Base):
+    """Renglón de mercadería de una liquidación (cereal con merma o hacienda con cabezas/desbaste)."""
+    __tablename__ = "liquidaciones_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    liquidacion_id = Column(Integer, ForeignKey("liquidaciones.id", ondelete="CASCADE"), nullable=False)
+    # Opcional: si se vincula a un artículo de stockmercaderia, al confirmar mueve el subledger físico
+    # por `cantidad_neta`.
+    codigo = Column(Integer, ForeignKey("stockmercaderia.codigo", ondelete="RESTRICT"), nullable=True)
+    descripcion = Column(String(200), nullable=False)
+    cabezas = Column(Integer, nullable=False, default=0)
+    cantidad_bruta = Column(Float, nullable=False, default=0.0)
+    merma_pct = Column(Float, nullable=False, default=0.0)
+    merma_cantidad = Column(Float, nullable=False, default=0.0)
+    cantidad_neta = Column(Float, nullable=False, default=0.0)
+    unidad = Column(String(10), nullable=False, default="KG")
+    precio_unitario = Column(Integer, nullable=False, default=0)  # centavos por unidad neta
+    iva_alicuota = Column(Float, nullable=False, default=10.5)    # % de impuesto
+    subtotal = Column(Integer, nullable=False, default=0)         # centavos
+    iva_importe = Column(Integer, nullable=False, default=0)      # centavos
+
+
+class LiquidacionDeduccion(Base):
+    """Gasto o deducción descontado dentro de la liquidación (flete, secado, comisión, SENASA, etc.)."""
+    __tablename__ = "liquidaciones_deducciones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    liquidacion_id = Column(Integer, ForeignKey("liquidaciones.id", ondelete="CASCADE"), nullable=False)
+    concepto = Column(String(50), nullable=False, default="otro")
+    descripcion = Column(String(200), default="")
+    base_imponible = Column(Integer, nullable=False, default=0)   # centavos
+    iva_alicuota = Column(Float, nullable=False, default=21.0)    # %
+    iva_importe = Column(Integer, nullable=False, default=0)      # centavos
+    total = Column(Integer, nullable=False, default=0)            # centavos
+
+
+class LiquidacionRetencion(Base):
+    """Retención o percepción impositiva aplicada sobre la liquidación (SISA, Ganancias, IIBB, Checkoff)."""
+    __tablename__ = "liquidaciones_retenciones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    liquidacion_id = Column(Integer, ForeignKey("liquidaciones.id", ondelete="CASCADE"), nullable=False)
+    tipo = Column(String(50), nullable=False, default="iva")
+    descripcion = Column(String(200), default="")
+    base_calculo = Column(Integer, nullable=False, default=0)     # centavos
+    alicuota = Column(Float, nullable=False, default=0.0)         # %
+    importe = Column(Integer, nullable=False, default=0)          # centavos
+    certificado = Column(String(80), default="")

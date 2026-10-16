@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aldia-mcp"
+version = "2.3.0"
+description = "Servidor MCP de ALdia para asistentes e integraciones de IA (Claude Desktop, OpenClaw, Cursor, WhatsApp/Telegram)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+aldia-mcp = "aldia_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aldia_mcp*"]

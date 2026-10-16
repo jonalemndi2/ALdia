@@ -64,6 +64,7 @@ de intentarlo y chocar con un rechazo.
 | **alta-de-cliente-o-proveedor** | "Dame de alta a…", corregir una ficha, CUIT y condición frente al IVA |
 | **facturacion** | Emitir remitos, facturar con o sin entrega previa, circuito remito → factura |
 | **factura-electronica-afip** | Pedir el CAE, elegir tipo de comprobante, entender un rechazo de AFIP |
+| **liquidacion-cereales-y-hacienda** | Liquidaciones de granos (LPG: mermas, flete, secado, SISA, COE) y hacienda (LSP: cabezas, desbaste, DTE, RENSPA) |
 | **notas-de-credito-y-debito** | Devoluciones, facturas de más o de menos, bonificaciones, intereses |
 | **carga-de-comprobantes** | Llegó una factura de gasto o mercadería de un proveedor; pagos |
 | **control-de-stock** | Qué reponer, qué no rota, armar el pedido, remarcar precios |

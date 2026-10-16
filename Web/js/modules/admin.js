@@ -9,7 +9,7 @@ const Admin = {
                 <h4><i class="bi bi-trash"></i> Eliminar Movimientos</h4>
             </div>
             <div class="alert alert-warning">
-                <i class="bi bi-exclamation-triangle"></i> 
+                <i class="bi bi-exclamation-triangle"></i>
                 <strong>Precaución:</strong> Esta operación revierte el movimiento seleccionado y restaura saldos y stock.
             </div>
             <div class="row mb-3">
@@ -135,7 +135,7 @@ const Admin = {
                     <h4><i class="bi bi-exclamation-circle"></i> Clientes Morosos</h4>
                 </div>
                 <div class="alert alert-info">
-                    <strong>Total deuda:</strong> ${Utils.formatCurrency(totalDeuda)} | 
+                    <strong>Total deuda:</strong> ${Utils.formatCurrency(totalDeuda)} |
                     <strong>Clientes con saldo:</strong> ${clientes.length}
                 </div>
                 ${Utils.buildTable(columns, clientes)}
@@ -389,14 +389,55 @@ const Admin = {
     ROLES: ['administrador', 'caja', 'encargado_ventas', 'encargado_compras', 'encargado_deposito', 'auditor', 'finanzas'],
 
     // ==================== MÓDULOS DEL SISTEMA ====================
+    PERFILES_RAPIDOS: [
+        { clave: 'comercio', nombre: 'Comercio', icono: 'bi-shop', desc: 'Comercio / PyME / Supermercado' },
+        { clave: 'agro_granos', nombre: 'Agro Granos', icono: 'bi-moisture', desc: 'Cereales, Acopio y LPG' },
+        { clave: 'agro_hacienda', nombre: 'Agro Hacienda', icono: 'bi-tags', desc: 'Ganadería, Consignataria y LSP' },
+        { clave: 'agro_mixto', nombre: 'Agro Mixto', icono: 'bi-diagram-3', desc: 'Granos + Hacienda + Insumos' },
+        { clave: 'servicios', nombre: 'Servicios', icono: 'bi-briefcase', desc: 'Servicios Profesionales / Contratista' }
+    ],
+
     async showModulos() {
         let modulos = [];
+        let perfiles = this.PERFILES_RAPIDOS;
         try {
-            modulos = await API.modulos.getAll();
+            const [mods, perfs] = await Promise.all([
+                API.modulos.getAll(),
+                API.modulos.getPerfiles ? API.modulos.getPerfiles().catch(() => null) : Promise.resolve(null)
+            ]);
+            modulos = mods;
+            if (Array.isArray(perfs) && perfs.length) {
+                perfiles = this.PERFILES_RAPIDOS.map(base => {
+                    const remoto = perfs.find(p => p.clave === base.clave);
+                    return remoto ? Object.assign({}, base, { desc: remoto.descripcion || base.desc }) : base;
+                });
+            }
         } catch (err) {
             Utils.toast('No se pudieron cargar los módulos: ' + err.message, 'Error', 'error');
             return;
         }
+
+        const botonesPerfiles = perfiles.map(p => `
+            <button type="button" class="btn btn-sm btn-outline-primary me-2 mb-1" data-action="Admin.aplicarPerfil" data-arg="${Utils.escapeHtml(p.clave)}" title="${Utils.escapeHtml(p.desc || '')}">
+                <i class="bi ${Utils.escapeHtml(p.icono || 'bi-check2-circle')}"></i> ${Utils.escapeHtml(p.nombre)}
+            </button>
+        `).join('');
+
+        const barraPerfiles = `
+            <div class="card border-primary mb-3">
+                <div class="card-body py-2">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center">
+                        <div class="me-3 mb-1">
+                            <strong><i class="bi bi-sliders"></i> Perfiles Rápidos de Negocio</strong>
+                            <div class="small text-muted">Active con un clic los módulos recomendados para el rubro de su empresa:</div>
+                        </div>
+                        <div>
+                            ${botonesPerfiles}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
 
         const filas = modulos.map(m => {
             const rolesActuales = (m.roles || '').split(',').map(s => s.trim().toLowerCase());
@@ -439,9 +480,27 @@ const Admin = {
                 <h4><i class="bi bi-gear"></i> Módulos del Sistema</h4>
             </div>
             <p class="text-muted">Habilite o deshabilite los módulos disponibles en esta instalación y defina qué roles pueden acceder a cada uno.</p>
+            ${barraPerfiles}
             ${filas}
         `;
         Utils.showView(html);
+    },
+
+    async aplicarPerfil(claveOrEl, el) {
+        const clave = typeof claveOrEl === 'string'
+            ? claveOrEl
+            : (claveOrEl?.dataset?.arg || el?.dataset?.arg || '');
+        if (!clave) return;
+        try {
+            const res = await API.modulos.aplicarPerfil(clave);
+            if (window.Auth && typeof Auth.applyModulos === 'function') {
+                await Auth.applyModulos();
+            }
+            Utils.toast(`Perfil "${res.nombre || clave}" aplicado correctamente`, 'Perfiles de Negocio', 'success');
+            await this.showModulos();
+        } catch (err) {
+            Utils.toast('Error al aplicar perfil: ' + err.message, 'Error', 'error');
+        }
     },
 
     async guardarModulo(clave) {
@@ -452,6 +511,9 @@ const Admin = {
         });
         try {
             await API.modulos.update(clave, { habilitado, roles: roles.join(',') });
+            if (window.Auth && typeof Auth.applyModulos === 'function') {
+                await Auth.applyModulos();
+            }
             Utils.toast(`Módulo "${clave}" actualizado`, 'Módulos', 'success');
         } catch (err) {
             Utils.toast('Error al guardar: ' + err.message, 'Error', 'error');
