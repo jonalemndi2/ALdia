@@ -122,6 +122,7 @@ Y agregue lo que haya que hacer mañana: cheques a depositar
   explícita en formato `YYYY-MM-DD`.
 - Confundir `saldo_acumulado_de_caja` (histórico) con el neto del día.
 - Registrar el ajuste antes de buscar la causa.
-- Anular movimientos para "arreglar" el cierre. `delete_cash_movement` y
-  `void_payment` son destructivas: pida autorización explícita al usuario y
-  recién entonces pase `confirmar=true`.
+- Anular movimientos para "arreglar" el cierre. `void_payment` (y
+  `delete_cash_movement`, si está prendida la administración por chat) son
+  destructivas: pida autorización explícita al usuario y recién entonces pase
+  `confirmar=true`.

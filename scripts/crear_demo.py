@@ -57,7 +57,7 @@ def crear_base_demo(
 
     import models
     from routers.auth import hash_password
-    from routers.modulos import MODULOS_DEFAULT
+    from routers.modulos import MODULOS_DEFAULT, PERFILES_NEGOCIO
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     if destino.exists():
@@ -104,9 +104,10 @@ def crear_base_demo(
             )
         )
 
-        # 2. Modulos (perfil agro_mixto activo)
+        # 2. Modulos (perfil agro_mixto activo; la administracion por chat, no)
+        activos = set(PERFILES_NEGOCIO["agro_mixto"]["modulos_activos"])
         for m in MODULOS_DEFAULT:
-            db.add(models.Modulo(**{**m, "habilitado": True}))
+            db.add(models.Modulo(**{**m, "habilitado": m["clave"] in activos}))
 
         # 3. Configuracion del negocio ficticio
         configs = {

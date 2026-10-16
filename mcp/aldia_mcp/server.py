@@ -26,26 +26,54 @@ import functools
 import json
 import os
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import anyio.to_thread
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
 from aldia_mcp.client import ALdiaClient, ALdiaConfigError, ALdiaError
 
-servidor = MCPServer(
+class _ServidorPorModulos(MCPServer):
+    """Muestra y deja usar solo las herramientas de los modulos activos.
+
+    ALdia es modular: cada instalacion prende los modulos que usa, y el
+    asistente no tiene por que cargar en cada turno la descripcion de las
+    herramientas de un modulo apagado. El filtro se aplica al LISTAR (el
+    asistente ni las ve) y al LLAMAR (por si un cliente guardo la lista vieja).
+    Ver "Modulos" mas abajo.
+    """
+
+    async def list_tools(self):
+        herramientas = await super().list_tools()
+        permisos = await anyio.to_thread.run_sync(_permisos_vigentes)
+        return [h for h in herramientas if _herramienta_visible(h.name, permisos)]
+
+    async def call_tool(self, name, arguments, context=None):
+        permisos = await anyio.to_thread.run_sync(_permisos_vigentes)
+        if not _herramienta_visible(name, permisos):
+            raise ToolError(_motivo_oculta(name, permisos))
+        return await super().call_tool(name, arguments, context)
+
+
+servidor = _ServidorPorModulos(
     name="aldia",
     instructions=(
         "Herramientas para operar ALdia, un sistema de gestion comercial argentino "
         "(kiosco, almacen, supermercado, agro). Permite consultar stock, clientes, "
         "proveedores, saldos, caja, chequera, libro IVA y el registro de auditoria; "
         "registrar remitos, facturas, notas de credito y debito, cobros, pagos, compras, "
-        "devoluciones, gastos y movimientos de caja; preparar borradores sin CAE; y administrar "
-        "usuarios, roles y modulos.\n\n"
+        "devoluciones, gastos y movimientos de caja; y preparar borradores sin CAE.\n\n"
+        "ALdia es modular: solo ve las herramientas de los modulos prendidos en esta "
+        "instalacion, y de las de escritura solo las que su usuario puede usar.\n\n"
         "Reglas de uso:\n"
+        "- Si el usuario pide algo para lo que no tiene herramienta, llame a check_connection: "
+        "dice que modulo falta y como se prende. No lo intente por otro camino.\n"
         "- create_invoice prepara un borrador. Solo confirm_invoice_draft confirma stock/deuda. "
         "La emision fiscal (CAE) desde MCP, si la instalacion la habilita, exige un codigo de un "
         "solo uso que ALdia le envia a la persona responsable: pidaselo al usuario, nunca lo "
@@ -73,17 +101,28 @@ _cliente_api: ALdiaClient | None = None
 # Toda herramienta se registra envuelta para poder adjuntar, UNA vez, el aviso de
 # version nueva (ver _aviso_de_version). El decorador devuelve la funcion
 # original, asi que quien la importa o la prueba la sigue viendo igual.
+#
+# Y toda herramienta declara a que modulo de ALdia pertenece (`modulo=`, ver
+# "Modulos" mas abajo). Es obligatorio a proposito: una herramienta sin modulo
+# no se puede registrar, asi que ninguna nueva queda afuera del filtro.
 _registrar_herramienta = servidor.tool
 
+# nombre de la herramienta -> (modulos, es_de_escritura)
+_HERRAMIENTAS: dict[str, tuple[tuple[str, ...], bool]] = {}
 
-def _herramienta_con_aviso(*args: Any, **kwargs: Any):
+
+def _herramienta_con_aviso(*args: Any, modulo: str | tuple[str, ...], **kwargs: Any):
     registrar = _registrar_herramienta(*args, **kwargs)
+    modulos = (modulo,) if isinstance(modulo, str) else tuple(modulo)
+    anotaciones = kwargs.get("annotations")
+    escritura = not getattr(anotaciones, "read_only_hint", False)
 
     def decorador(fn):
         @functools.wraps(fn)
         def envuelta(*a: Any, **k: Any):
             return _adjuntar_aviso(fn(*a, **k))
 
+        _HERRAMIENTAS[kwargs.get("name") or fn.__name__] = (modulos, escritura)
         registrar(envuelta)
         return fn
 
@@ -111,6 +150,124 @@ def api() -> ALdiaClient:
     if _cliente_api is None:
         _cliente_api = ALdiaClient()
     return _cliente_api
+
+
+# ─────────────────────────────────────────────────────────────
+# Modulos
+#
+# Cada herramienta pertenece a un modulo de ALdia (las mismas claves que la
+# tabla `modulos` del backend) o al NUCLEO, que se ve siempre. El asistente ve
+# una herramienta de lectura si el usuario conectado puede LEER alguno de sus
+# modulos, y una de escritura si puede ESCRIBIR en alguno. Eso lo responde el
+# backend (GET /api/modulos/permisos) con el mismo control que aplica a cada
+# ruta: aca no hay una lista propia que se pueda desincronizar.
+#
+# Si el backend no contesta (o es anterior a 2.4.0) se muestra todo, como
+# antes de que hubiera modulos, MENOS la administracion por chat: crear y
+# borrar usuarios o prender modulos solo existe si alguien lo prendio a
+# conciencia, y en la duda queda cerrado.
+# ─────────────────────────────────────────────────────────────
+
+NUCLEO = "nucleo"
+# El registro de auditoria no es un modulo: sus lectores estan fijos en el
+# backend (administrador y auditor). /api/modulos/permisos lo informa aparte.
+AUDITORIA = "auditoria"
+ADMIN_POR_CHAT = "administracion_por_chat"
+LIQUIDACIONES = ("liquidaciones_granos", "liquidaciones_hacienda")
+
+# Los permisos cambian poco (los toca un administrador desde el panel). Un
+# minuto evita preguntarle al backend en cada llamada sin dejar al asistente
+# mucho tiempo con una lista vieja.
+_TTL_PERMISOS = 60.0
+_permisos_cache: tuple[float, dict[str, Any] | None] | None = None
+
+
+def _olvidar_permisos() -> None:
+    global _permisos_cache
+    _permisos_cache = None
+
+
+def _permisos_vigentes() -> dict[str, Any] | None:
+    """Permisos por modulo del usuario conectado, o None si no se pudieron saber."""
+    global _permisos_cache
+    ahora = time.monotonic()
+    if _permisos_cache is not None and ahora - _permisos_cache[0] < _TTL_PERMISOS:
+        return _permisos_cache[1]
+    try:
+        crudo = api().get("/api/modulos/permisos")
+    except Exception:  # noqa: BLE001 - sin respuesta, se decide sin permisos
+        crudo = None
+    permisos = None
+    if isinstance(crudo, dict) and isinstance(crudo.get("modulos"), list):
+        permisos = {
+            "modulos": {
+                m["clave"]: m for m in crudo["modulos"]
+                if isinstance(m, dict) and m.get("clave")
+            },
+            "auditoria": bool(crudo.get("auditoria")),
+            "fijados_por_entorno": bool(crudo.get("fijados_por_entorno")),
+        }
+    _permisos_cache = (ahora, permisos)
+    return permisos
+
+
+def _permite(modulos: tuple[str, ...], escritura: bool, permisos: dict[str, Any] | None) -> bool:
+    if NUCLEO in modulos:
+        return True
+    if permisos is None:
+        return ADMIN_POR_CHAT not in modulos
+    if AUDITORIA in modulos:
+        return permisos["auditoria"]
+    clave = "escritura" if escritura else "lectura"
+    return any(bool((permisos["modulos"].get(m) or {}).get(clave)) for m in modulos)
+
+
+def _herramienta_visible(nombre: str, permisos: dict[str, Any] | None) -> bool:
+    if nombre not in _HERRAMIENTAS:
+        return True
+    modulos, escritura = _HERRAMIENTAS[nombre]
+    return _permite(modulos, escritura, permisos)
+
+
+def _puede_leer(modulo: str | tuple[str, ...]) -> bool:
+    """Si conviene consultar un modulo. Sin datos del backend, se intenta igual."""
+    modulos = (modulo,) if isinstance(modulo, str) else modulo
+    return _permite(modulos, False, _permisos_vigentes())
+
+
+def _motivo_oculta(nombre: str, permisos: dict[str, Any] | None) -> str:
+    modulos, escritura = _HERRAMIENTAS[nombre]
+    if ADMIN_POR_CHAT in modulos:
+        return (
+            f"La herramienta {nombre} esta apagada a proposito: crear o borrar usuarios, "
+            "prender o apagar modulos y borrar movimientos de caja se hace desde el panel "
+            "de ALdia. Si el usuario quiere hacerlo por chat, tiene que prender el modulo "
+            "'Administracion por chat' en Administracion > Modulos."
+        )
+    if AUDITORIA in modulos:
+        return (
+            "El registro de auditoria solo lo puede leer un usuario con rol administrador "
+            "o auditor, y el asistente opera con otro rol."
+        )
+    nombres = " o ".join(modulos)
+    estados = [(permisos or {}).get("modulos", {}).get(m) or {} for m in modulos]
+    if not any(e.get("habilitado") for e in estados):
+        donde = (
+            "la variable ALDIA_MODULOS de la instalacion"
+            if (permisos or {}).get("fijados_por_entorno")
+            else "ALdia: Administracion > Modulos"
+        )
+        return (
+            f"La herramienta {nombre} es del modulo {nombres}, que esta apagado en esta "
+            f"instalacion. Se prende en {donde}; despues hay que reiniciar el asistente "
+            "para que aparezcan sus herramientas."
+        )
+    return (
+        f"El usuario con el que opera el asistente no tiene permiso de "
+        f"{'escritura' if escritura else 'lectura'} en el modulo {nombres}. Lo habilita un "
+        "administrador en Administracion > Modulos, agregando el rol del asistente "
+        "(normalmente 'agente') a ese modulo."
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -481,6 +638,7 @@ def _tipo_comprobante(clase: str, naturaleza: str) -> int:
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Ver las reglas fiscales de esta instalacion",
     annotations=SOLO_LECTURA,
     description=(
@@ -507,35 +665,63 @@ def get_country_rules() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Verificar conexion con ALdia",
     annotations=SOLO_LECTURA,
     description=(
         "Comprueba que el servidor de ALdia responda y que las credenciales configuradas "
-        "sean validas. Devuelve el usuario con el que opera el asistente, su rol y la lista "
-        "de modulos a los que ese rol tiene acceso (stock, ventas, caja, etc.).\n\n"
-        "Uselo al empezar una sesion, o cuando otra herramienta falle con un error de "
-        "permisos, para saber que puede y que no puede hacer este usuario."
+        "sean validas. Devuelve el usuario con el que opera el asistente, su rol, que "
+        "modulos puede consultar, en cuales puede registrar operaciones y cuales estan "
+        "apagados en esta instalacion.\n\n"
+        "Uselo al empezar una sesion, o cuando el usuario pida algo para lo que no ve una "
+        "herramienta o una herramienta falle por permisos: la respuesta dice que modulo "
+        "falta y como se prende."
     ),
 )
 def check_connection() -> dict[str, Any]:
     cli = api()
     usuario = cli.usuario_actual
-    try:
-        modulos = cli.get("/api/modulos/activos") or []
-        claves = [m.get("clave") for m in modulos]
-    except ALdiaError:
-        claves = []
-    return {
+    _olvidar_permisos()          # consulta explicita: siempre fresca
+    permisos = _permisos_vigentes()
+    respuesta: dict[str, Any] = {
         "servidor": cli.base_url,
         "conectado": True,
         "usuario": usuario.get("username"),
         "rol": usuario.get("rol"),
-        "modulos_accesibles": claves,
         "fecha_de_hoy": _hoy().isoformat(),
     }
+    if permisos is None:
+        try:
+            modulos = cli.get("/api/modulos/activos") or []
+            respuesta["modulos_accesibles"] = [m.get("clave") for m in modulos]
+        except ALdiaError:
+            respuesta["modulos_accesibles"] = []
+        respuesta["aviso_modulos"] = (
+            "No se pudo saber que modulos estan activos (ALdia anterior a 2.4.0?): se "
+            "muestran todas las herramientas menos la administracion por chat."
+        )
+    else:
+        modulos = permisos["modulos"]
+        respuesta["modulos_accesibles"] = [c for c, m in modulos.items() if m.get("lectura")]
+        respuesta["modulos_con_escritura"] = [c for c, m in modulos.items() if m.get("escritura")]
+        respuesta["modulos_apagados"] = [c for c, m in modulos.items() if not m.get("habilitado")]
+        respuesta["modulos_fijados_por_entorno"] = permisos["fijados_por_entorno"]
+    visibles = sum(1 for nombre in _HERRAMIENTAS if _herramienta_visible(nombre, permisos))
+    respuesta["herramientas_visibles"] = visibles
+    respuesta["herramientas_ocultas"] = len(_HERRAMIENTAS) - visibles
+    respuesta["como_habilitar"] = (
+        "Un modulo apagado se prende en ALdia: Administracion > Modulos"
+        + (" (en esta instalacion, con la variable ALDIA_MODULOS)"
+           if (permisos or {}).get("fijados_por_entorno") else "")
+        + ". Para que el asistente pueda registrar operaciones en un modulo, un "
+        "administrador agrega el rol del asistente a ese modulo. Despues hay que "
+        "reiniciar el asistente para que aparezcan las herramientas nuevas."
+    )
+    return respuesta
 
 
 @servidor.tool(
+    modulo="stock",
     title="Buscar producto y ver stock",
     annotations=SOLO_LECTURA,
     description=(
@@ -575,6 +761,7 @@ def find_product(
 
 
 @servidor.tool(
+    modulo="clientes",
     title="Buscar cliente",
     annotations=SOLO_LECTURA,
     description=(
@@ -603,6 +790,7 @@ def find_customer(texto: str | None = None) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Buscar proveedor",
     annotations=SOLO_LECTURA,
     description=(
@@ -632,6 +820,7 @@ def find_vendor(texto: str | None = None) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="cuentas_corrientes",
     title="Ver saldo y cuenta corriente de un cliente",
     annotations=SOLO_LECTURA,
     description=(
@@ -679,6 +868,7 @@ def get_customer_balance(cliente: str, limite: int = 10) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="cuentas_corrientes",
     title="Ver deudores (clientes con saldo pendiente)",
     annotations=SOLO_LECTURA,
     description=(
@@ -722,6 +912,7 @@ def list_debtors(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dic
 
 
 @servidor.tool(
+    modulo="caja",
     title="Ver saldo de caja",
     annotations=SOLO_LECTURA,
     description=(
@@ -736,6 +927,7 @@ def get_cash_balance() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="caja",
     title="Ver movimientos del dia (cierre de caja)",
     annotations=SOLO_LECTURA,
     description=(
@@ -757,10 +949,20 @@ def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
     dia = _fecha(fecha)
 
     caja = cli.get("/api/caja/", fecha=dia) or []
-    cobros = cli.get("/api/cobros/", fecha=dia) or []
-    pagos = cli.get("/api/pagos/", fecha=dia) or []
-    gastos = cli.get("/api/gastos/", fecha=dia) or []
-    facturas = cli.get("/api/facturas/", fecha=dia) or []
+    # Cobros, pagos, gastos y facturas son de otros modulos: si alguno esta
+    # apagado, se omite y se dice, en vez de hacer fallar todo el cierre.
+    no_incluido: dict[str, str] = {}
+
+    def del_dia(nombre: str, modulo: str, ruta: str) -> list[dict[str, Any]]:
+        if not _puede_leer(modulo):
+            no_incluido[nombre] = f"modulo {modulo} apagado o sin permiso de lectura"
+            return []
+        return cli.get(ruta, fecha=dia) or []
+
+    cobros = del_dia("cobros", "cuentas_corrientes", "/api/cobros/")
+    pagos = del_dia("pagos", "proveedores", "/api/pagos/")
+    gastos = del_dia("gastos", "gastos", "/api/gastos/")
+    facturas = del_dia("facturas", "ventas", "/api/facturas/")
 
     ingresos = _redondear(sum(float(m.get("debe") or 0) for m in caja))
     egresos = _redondear(sum(float(m.get("haber") or 0) for m in caja))
@@ -791,10 +993,12 @@ def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
         "gastos": gastos,
         "facturas": facturas,
         "saldo_acumulado_de_caja": (cli.get("/api/caja/saldo") or {}).get("saldo"),
+        **({"no_incluido": no_incluido} if no_incluido else {}),
     }
 
 
 @servidor.tool(
+    modulo="caja",
     title="Ver chequera",
     annotations=SOLO_LECTURA,
     description=(
@@ -821,6 +1025,7 @@ def list_checks(solo_pendientes: bool = False) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="iva",
     title="Consultar libro IVA de un periodo",
     annotations=SOLO_LECTURA,
     description=(
@@ -861,6 +1066,7 @@ def get_vat_book(
 
 
 @servidor.tool(
+    modulo="administracion",
     title="Resumen del negocio",
     annotations=SOLO_LECTURA,
     description=(
@@ -898,6 +1104,7 @@ def get_business_summary(fecha_desde: str | None = None, fecha_hasta: str | None
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Ver remitos sin facturar",
     annotations=SOLO_LECTURA,
     description=(
@@ -921,6 +1128,7 @@ def list_uninvoiced_delivery_notes(cliente: str | None = None) -> dict[str, Any]
 
 
 @servidor.tool(
+    modulo=AUDITORIA,
     title="Ver registro de auditoria (quien hizo que y cuando)",
     annotations=SOLO_LECTURA,
     description=(
@@ -1008,6 +1216,7 @@ def get_audit_log(
 
 
 @servidor.tool(
+    modulo="stock",
     title="Alta de producto",
     annotations=ESCRITURA,
     description=(
@@ -1048,6 +1257,7 @@ def create_product(
 
 
 @servidor.tool(
+    modulo="stock",
     title="Actualizar precio o datos de un producto",
     annotations=ESCRITURA,
     description=(
@@ -1112,6 +1322,7 @@ def update_product(
 
 
 @servidor.tool(
+    modulo="clientes",
     title="Alta de cliente",
     annotations=ESCRITURA,
     description=(
@@ -1208,6 +1419,7 @@ def create_customer(
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Alta de proveedor",
     annotations=ESCRITURA,
     description=(
@@ -1270,6 +1482,7 @@ def create_vendor(
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Registrar venta / remito (entrega de mercaderia)",
     annotations=ESCRITURA,
     description=(
@@ -1363,6 +1576,7 @@ def create_delivery_note(
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Preparar venta pendiente (sin efectos comerciales)",
     annotations=ESCRITURA,
     description="Crea un borrador inmutable sin mover stock, deuda ni emitir ante ARCA. "
@@ -1488,7 +1702,7 @@ def create_invoice(
     }
 
 
-@servidor.tool(title="Confirmar venta pendiente", annotations=ESCRITURA,
+@servidor.tool(modulo="ventas", title="Confirmar venta pendiente", annotations=ESCRITURA,
     description="Tras revisión y autorización del usuario, confirma un borrador por ID. "
                 "Mueve stock y deuda UNA vez. NO solicita CAE ni autoriza fiscalmente.")
 def confirm_invoice_draft(borrador_id: str, confirmar: bool = False) -> dict[str, Any]:
@@ -1497,6 +1711,7 @@ def confirm_invoice_draft(borrador_id: str, confirmar: bool = False) -> dict[str
 
 
 @servidor.tool(
+    modulo="cuentas_corrientes",
     title="Registrar cobro de un cliente",
     annotations=ESCRITURA,
     description=(
@@ -1570,6 +1785,7 @@ def record_payment(
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Registrar pago a un proveedor",
     annotations=ESCRITURA,
     description=(
@@ -1636,6 +1852,7 @@ def record_vendor_payment(
 
 
 @servidor.tool(
+    modulo="caja",
     title="Registrar movimiento de caja",
     annotations=ESCRITURA,
     description=(
@@ -1716,6 +1933,7 @@ def record_cash_movement(
 
 
 @servidor.tool(
+    modulo="gastos",
     title="Cargar factura de gasto",
     annotations=ESCRITURA,
     description=(
@@ -1798,6 +2016,7 @@ def record_expense(
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Registrar compra a proveedor (ingreso de mercaderia)",
     annotations=ESCRITURA,
     description=(
@@ -1887,6 +2106,7 @@ def record_purchase(
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Anular factura",
     annotations=DESTRUCTIVA,
     description=(
@@ -1911,6 +2131,7 @@ def void_invoice(numero: int, confirmar: bool = False) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="cuentas_corrientes",
     title="Anular cobro",
     annotations=DESTRUCTIVA,
     description=(
@@ -1929,6 +2150,7 @@ def void_payment(orden_de_cobro: int, confirmar: bool = False) -> dict[str, Any]
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Anular pago a proveedor",
     annotations=DESTRUCTIVA,
     description=(
@@ -1946,6 +2168,7 @@ def void_vendor_payment(orden_de_pago: int, confirmar: bool = False) -> dict[str
 
 
 @servidor.tool(
+    modulo=ADMIN_POR_CHAT,
     title="Borrar movimiento de caja",
     annotations=DESTRUCTIVA,
     description=(
@@ -1965,6 +2188,7 @@ def delete_cash_movement(movimiento_id: int, confirmar: bool = False) -> dict[st
 
 
 @servidor.tool(
+    modulo="gastos",
     title="Anular gasto",
     annotations=DESTRUCTIVA,
     description=(
@@ -1986,6 +2210,7 @@ def void_expense(gasto_id: int, confirmar: bool = False) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Ver una factura (renglones y estado fiscal)",
     annotations=SOLO_LECTURA,
     description=(
@@ -2049,6 +2274,7 @@ def get_invoice(numero: int) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Emitir nota de credito a un cliente",
     annotations=ESCRITURA,
     description=(
@@ -2206,6 +2432,7 @@ def create_credit_note(
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Emitir nota de debito a un cliente",
     annotations=ESCRITURA,
     description=(
@@ -2296,6 +2523,7 @@ def create_debit_note(
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Ver estado de la facturacion electronica AFIP",
     annotations=SOLO_LECTURA,
     description=(
@@ -2329,6 +2557,7 @@ def get_einvoicing_status() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="ventas",
     title="Solicitar el CAE a ARCA (emisión fiscal)",
     annotations=ESCRITURA,
     description=(
@@ -2379,6 +2608,7 @@ def request_fiscal_authorization(
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Version de ALdia y actualizaciones",
     annotations=SOLO_LECTURA,
     description=(
@@ -2407,6 +2637,7 @@ def get_system_version() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Ver saldo y cuenta corriente de un proveedor",
     annotations=SOLO_LECTURA,
     description=(
@@ -2440,6 +2671,7 @@ def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Ver compras registradas a proveedores",
     annotations=SOLO_LECTURA,
     description=(
@@ -2474,6 +2706,7 @@ def list_purchases(proveedor: str | None = None, limite: int = 20) -> dict[str, 
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Registrar devolucion de mercaderia a un proveedor",
     annotations=ESCRITURA,
     description=(
@@ -2580,6 +2813,7 @@ def record_vendor_return(
 
 
 @servidor.tool(
+    modulo="proveedores",
     title="Anular una compra a proveedor",
     annotations=DESTRUCTIVA,
     description=(
@@ -2614,13 +2848,13 @@ def void_purchase(compra_id: int, confirmar: bool = False) -> dict[str, Any]:
     }
 
 
-@servidor.tool(title="Ver detalle de una compra", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="proveedores", title="Ver detalle de una compra", annotations=SOLO_LECTURA)
 def get_purchase(compra_id: int) -> dict[str, Any]:
     """Devuelve cabecera, estado y renglones con sus compra_id de origen."""
     return api().get(f"/api/compras/{int(compra_id)}")
 
 
-@servidor.tool(title="Confirmar borrador de compra", annotations=ESCRITURA)
+@servidor.tool(modulo="proveedores", title="Confirmar borrador de compra", annotations=ESCRITURA)
 def confirm_purchase(
     compra_id: int,
     confirmar: bool = False,
@@ -2636,7 +2870,7 @@ def confirm_purchase(
     )
 
 
-@servidor.tool(title="Registrar nota de crédito financiera de proveedor", annotations=ESCRITURA)
+@servidor.tool(modulo="proveedores", title="Registrar nota de crédito financiera de proveedor", annotations=ESCRITURA)
 def record_vendor_credit_note(
     proveedor: str,
     monto: float,
@@ -2659,7 +2893,7 @@ def record_vendor_credit_note(
     )
 
 
-@servidor.tool(title="Listar cuentas corrientes de proveedores", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="proveedores", title="Listar cuentas corrientes de proveedores", annotations=SOLO_LECTURA)
 def list_vendor_accounts(
     texto: str | None = None, solo_pendientes: bool = False,
     pagina: int = 1, por_pagina: int = 50,
@@ -2671,27 +2905,27 @@ def list_vendor_accounts(
 
 
 # Tesorería multicuenta. Estas tools usan exclusivamente /api/tesoreria.
-@servidor.tool(title="Listar cuentas de tesorería", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="caja", title="Listar cuentas de tesorería", annotations=SOLO_LECTURA)
 def list_treasury_accounts(solo_activas: bool = True) -> dict[str, Any]:
     return {"cuentas": api().get("/api/tesoreria/cuentas", solo_activas=solo_activas) or []}
 
 
-@servidor.tool(title="Ver saldos por cuenta de tesorería", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="caja", title="Ver saldos por cuenta de tesorería", annotations=SOLO_LECTURA)
 def get_treasury_balances() -> dict[str, Any]:
     return {"saldos": api().get("/api/tesoreria/saldos") or []}
 
 
-@servidor.tool(title="Ver movimientos de tesorería", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="caja", title="Ver movimientos de tesorería", annotations=SOLO_LECTURA)
 def list_treasury_movements(cuenta_id: int | None = None) -> dict[str, Any]:
     return {"movimientos": api().get("/api/tesoreria/movimientos", cuenta_id=cuenta_id) or []}
 
 
-@servidor.tool(title="Listar cheques recibidos", annotations=SOLO_LECTURA)
+@servidor.tool(modulo="caja", title="Listar cheques recibidos", annotations=SOLO_LECTURA)
 def list_received_checks(solo_disponibles: bool = True) -> dict[str, Any]:
     return {"cheques": api().get("/api/tesoreria/cheques", disponibles=solo_disponibles) or []}
 
 
-@servidor.tool(title="Crear cuenta de tesorería", annotations=ESCRITURA)
+@servidor.tool(modulo="caja", title="Crear cuenta de tesorería", annotations=ESCRITURA)
 def create_treasury_account(
     nombre: str, clase: str, banco: str = "", alias_cbu: str = "", moneda: str = "ARS"
 ) -> dict[str, Any]:
@@ -2714,7 +2948,7 @@ def _operar_cheque(
     )
 
 
-@servidor.tool(title="Depositar cheque recibido", annotations=ESCRITURA)
+@servidor.tool(modulo="caja", title="Depositar cheque recibido", annotations=ESCRITURA)
 def deposit_received_check(
     cheque_id: int, cuenta_tesoreria_id: int, fecha: str | None = None,
     referencia: str = "", confirmar: bool = False, operation_id: str | None = None,
@@ -2724,7 +2958,7 @@ def deposit_received_check(
                           referencia, confirmar, operation_id)
 
 
-@servidor.tool(title="Marcar cheque propio debitado", annotations=ESCRITURA)
+@servidor.tool(modulo="caja", title="Marcar cheque propio debitado", annotations=ESCRITURA)
 def mark_own_check_debited(
     cheque_id: int, cuenta_tesoreria_id: int, fecha: str | None = None,
     referencia: str = "", confirmar: bool = False, operation_id: str | None = None,
@@ -2757,6 +2991,7 @@ def _modulos_del_rol(rol: str) -> list[str]:
 
 
 @servidor.tool(
+    modulo="administracion",
     title="Ver usuarios del sistema",
     annotations=SOLO_LECTURA,
     description=(
@@ -2785,6 +3020,7 @@ def list_users() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=ADMIN_POR_CHAT,
     title="Alta de usuario del sistema",
     annotations=ESCRITURA,
     description=(
@@ -2853,6 +3089,7 @@ def create_user(usuario: str, password: str, rol: str) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=ADMIN_POR_CHAT,
     title="Dar de baja un usuario del sistema",
     annotations=DESTRUCTIVA,
     description=(
@@ -2886,6 +3123,7 @@ def delete_user(user_id: int, confirmar: bool = False) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="administracion",
     title="Ver modulos del sistema y sus permisos",
     annotations=SOLO_LECTURA,
     description=(
@@ -2917,6 +3155,7 @@ def list_modules() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=ADMIN_POR_CHAT,
     title="Habilitar, deshabilitar o repermisar un modulo",
     annotations=ESCRITURA,
     description=(
@@ -2976,6 +3215,7 @@ def configure_module(
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Ver datos y condicion fiscal del negocio",
     annotations=SOLO_LECTURA,
     description=(
@@ -3042,13 +3282,13 @@ _D_CANCELAR = (
 )
 
 
-@servidor.tool(title="Ver operaciones pendientes de aclaracion",
+@servidor.tool(modulo=NUCLEO, title="Ver operaciones pendientes de aclaracion",
                annotations=SOLO_LECTURA, description=_D_VER)
 def list_pending_operations() -> dict[str, Any]:
     return api().get("/api/pendientes/")
 
 
-@servidor.tool(title="Confirmar una operacion pendiente",
+@servidor.tool(modulo=NUCLEO, title="Confirmar una operacion pendiente",
                annotations=ESCRITURA, description=_D_CONFIRMAR)
 def confirm_pending_operation(
     operacion_id: str,
@@ -3061,7 +3301,7 @@ def confirm_pending_operation(
                       {"correcciones": correcciones or {}})
 
 
-@servidor.tool(title="Descartar una operacion pendiente",
+@servidor.tool(modulo=NUCLEO, title="Descartar una operacion pendiente",
                annotations=ESCRITURA, description=_D_CANCELAR)
 def cancel_pending_operation(operacion_id: str) -> dict[str, Any]:
     return api().post(f"/api/pendientes/{operacion_id}/cancelar", {})
@@ -3073,6 +3313,7 @@ def cancel_pending_operation(operacion_id: str) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo="administracion",
     title="Listar perfiles verticales de negocio",
     annotations=SOLO_LECTURA,
     description=(
@@ -3090,6 +3331,7 @@ def list_business_profiles() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=ADMIN_POR_CHAT,
     title="Aplicar perfil vertical de negocio",
     annotations=ESCRITURA,
     description=(
@@ -3109,6 +3351,7 @@ def apply_business_profile(perfil: str, confirmar: bool = False) -> dict[str, An
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Listar liquidaciones (granos, hacienda o generales)",
     annotations=SOLO_LECTURA,
     description=(
@@ -3148,6 +3391,7 @@ def list_settlements(
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Ver detalle de una liquidacion",
     annotations=SOLO_LECTURA,
     description=(
@@ -3162,6 +3406,7 @@ def get_settlement(liquidacion_id: int) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Preparar borrador de liquidacion (granos, hacienda o general)",
     annotations=ESCRITURA,
     description=(
@@ -3322,6 +3567,7 @@ def create_settlement_draft(
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Confirmar borrador de liquidacion",
     annotations=ESCRITURA,
     description=(
@@ -3350,6 +3596,7 @@ def confirm_settlement_draft(
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Registrar COE de una liquidacion",
     annotations=ESCRITURA,
     description=(
@@ -3380,6 +3627,7 @@ def register_settlement_coe(
 
 
 @servidor.tool(
+    modulo=LIQUIDACIONES,
     title="Anular liquidacion",
     annotations=DESTRUCTIVA,
     description=(
@@ -3406,6 +3654,54 @@ def _carpeta_skills() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "skills"
 
 
+# Modulo de cada manual operativo (carpeta de skills/). Mismo criterio que las
+# herramientas: en un kiosco el asistente no necesita leer como se liquida
+# hacienda. El README (guia maestra) se ve siempre.
+_MODULOS_DE_SKILL: dict[str, tuple[str, ...]] = {
+    "alta-de-cliente-o-proveedor": ("clientes", "proveedores"),
+    "carga-de-comprobantes": ("gastos", "proveedores"),
+    "cierre-de-caja": ("caja",),
+    "cobranzas": ("cuentas_corrientes",),
+    "control-de-stock": ("stock",),
+    "control-interno": (AUDITORIA,),
+    "factura-electronica-afip": ("ventas",),
+    "facturacion": ("ventas",),
+    "libro-iva-y-contador": ("iva",),
+    "liquidacion-cereales-y-hacienda": LIQUIDACIONES,
+    "notas-de-credito-y-debito": ("ventas",),
+    "puesta-en-marcha": (NUCLEO,),
+    "us-customers-and-vendors": ("clientes", "proveedores"),
+    "us-sales-tax-and-1099": ("ventas", "proveedores"),
+    "us-setup": (NUCLEO,),
+    "usuarios-y-permisos": ("administracion",),
+    "valores-y-chequera": ("caja",),
+}
+
+# Manuales que solo valen en un pais (el `codigo` de GET /api/config/pais). Los
+# demas sirven igual en todos: ver skills/README.md.
+_PAIS_DE_SKILL: dict[str, str] = {
+    "puesta-en-marcha": "AR",
+    "alta-de-cliente-o-proveedor": "AR",
+    "factura-electronica-afip": "AR",
+    "libro-iva-y-contador": "AR",
+    "valores-y-chequera": "AR",
+    "us-setup": "US",
+    "us-customers-and-vendors": "US",
+    "us-sales-tax-and-1099": "US",
+}
+
+
+def _skill_visible(nombre: str, permisos: dict[str, Any] | None, pais: str) -> bool:
+    if pais and _PAIS_DE_SKILL.get(nombre, pais) != pais:
+        return False
+    return _permite(_MODULOS_DE_SKILL.get(nombre, (NUCLEO,)), False, permisos)
+
+
+def _pais_instalado() -> str:
+    """Codigo del pais de la instalacion, o "" si no se pudo saber (se muestra todo)."""
+    return str(_reglas_del_pais().get("codigo") or "").upper()
+
+
 def _extraer_frontmatter_skill(texto: str) -> dict[str, str]:
     meta: dict[str, str] = {}
     lineas = texto.splitlines()
@@ -3421,6 +3717,7 @@ def _extraer_frontmatter_skill(texto: str) -> dict[str, str]:
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Resumen matutino del negocio para el agente",
     annotations=SOLO_LECTURA,
     description=(
@@ -3429,93 +3726,79 @@ def _extraer_frontmatter_skill(texto: str) -> dict[str, str]:
         "clave sin hacer multiples consultas: saldo disponible en caja, principales "
         "clientes deudores (cuentas por cobrar), principales proveedores acreedores "
         "(cuentas por pagar), liquidaciones en borrador pendientes de confirmar y "
-        "operaciones que esperan aclaracion."
+        "operaciones que esperan aclaracion. Trae solo las secciones de los modulos "
+        "activos; `no_incluido` dice cuales quedaron afuera y por que."
     ),
 )
 def get_daily_briefing() -> dict[str, Any]:
     cli = api()
-    hoy = _hoy().isoformat()
-    caja = cli.get("/api/caja/saldo") or {}
-    clientes = cli.get("/api/clientes/") or []
-    proveedores = cli.get("/api/proveedores/") or []
-    # Si una consulta falla, se informa el error en vez de una lista vacia: si
-    # no, el agente le diria al usuario "no tenes nada pendiente" sin saberlo.
-    error_borradores = error_pendientes = None
-    try:
-        borradores = cli.get("/api/liquidaciones/", estado="borrador", limite=10) or []
-    except ALdiaError as e:
-        borradores, error_borradores = [], str(e)
-    try:
-        pendientes_raw = cli.get("/api/pendientes/") or {}
-    except ALdiaError as e:
-        pendientes_raw, error_pendientes = {}, str(e)
+    resumen: dict[str, Any] = {"fecha": _hoy().isoformat()}
+    no_incluido: dict[str, str] = {}
 
-    deudores = sorted(
-        [c for c in clientes if float(c.get("saldo") or 0) > 0],
+    def seccion(nombre: str, modulo: str | tuple[str, ...], armar) -> None:
+        # Un modulo apagado no es un error: la seccion no va. Una consulta que
+        # falla si lo es, y se informa en vez de devolver una lista vacia: si
+        # no, el agente le diria al usuario "no tenes nada pendiente" sin saberlo.
+        if not _puede_leer(modulo):
+            no_incluido[nombre] = "modulo apagado o sin permiso de lectura"
+            return
+        try:
+            resumen[nombre] = armar()
+        except ALdiaError as e:
+            resumen[nombre] = _seccion_o_error(str(e))
+
+    seccion("caja", "caja", lambda: {
+        "saldo_disponible": _redondear(float((cli.get("/api/caja/saldo") or {}).get("saldo") or 0)),
+    })
+    seccion("cuentas_por_cobrar", "clientes",
+            lambda: _con_saldo(cli.get("/api/clientes/") or [], "deudores", "a_cobrar"))
+    seccion("cuentas_por_pagar", "proveedores",
+            lambda: _con_saldo(cli.get("/api/proveedores/") or [], "acreedores", "a_pagar"))
+
+    def borradores() -> dict[str, Any]:
+        lista = cli.get("/api/liquidaciones/", estado="borrador", limite=10) or []
+        return {"cantidad": len(lista), "borradores": lista}
+
+    seccion("liquidaciones_en_borrador", LIQUIDACIONES, borradores)
+    seccion("operaciones_pendientes_aclaracion", NUCLEO,
+            lambda: _lista_de_pendientes(cli.get("/api/pendientes/") or {}))
+    if no_incluido:
+        resumen["no_incluido"] = no_incluido
+    return resumen
+
+
+def _con_saldo(fichas: list[dict[str, Any]], quienes: str, total: str) -> dict[str, Any]:
+    """Las fichas con saldo a favor, ordenadas de mayor a menor."""
+    con_saldo = sorted(
+        [f for f in fichas if float(f.get("saldo") or 0) > 0],
         key=lambda x: float(x.get("saldo") or 0),
         reverse=True,
     )
-    acreedores = sorted(
-        [p for p in proveedores if float(p.get("saldo") or 0) > 0],
-        key=lambda x: float(x.get("saldo") or 0),
-        reverse=True,
-    )
-    if isinstance(pendientes_raw, dict):
-        pendientes = (
-            pendientes_raw.get("pendientes")
-            or pendientes_raw.get("operaciones")
-            or []
-        )
-    elif isinstance(pendientes_raw, list):
-        pendientes = pendientes_raw
-    else:
-        pendientes = []
-
     return {
-        "fecha": hoy,
-        "caja": {
-            "saldo_disponible": _redondear(float(caja.get("saldo") or 0)),
-        },
-        "cuentas_por_cobrar": {
-            "cantidad_deudores": len(deudores),
-            "total_a_cobrar": _redondear(
-                sum(float(c.get("saldo") or 0) for c in deudores)
-            ),
-            "principales_deudores": [
-                {
-                    "cuit": c.get("cuit"),
-                    "nombre": c.get("nombre"),
-                    "saldo": _redondear(float(c.get("saldo") or 0)),
-                }
-                for c in deudores[:5]
-            ],
-        },
-        "cuentas_por_pagar": {
-            "cantidad_acreedores": len(acreedores),
-            "total_a_pagar": _redondear(
-                sum(float(p.get("saldo") or 0) for p in acreedores)
-            ),
-            "principales_acreedores": [
-                {
-                    "cuit": p.get("cuit"),
-                    "nombre": p.get("nombre"),
-                    "saldo": _redondear(float(p.get("saldo") or 0)),
-                }
-                for p in acreedores[:5]
-            ],
-        },
-        "liquidaciones_en_borrador": _seccion_o_error(
-            error_borradores, cantidad=len(borradores), borradores=borradores
-        ),
-        "operaciones_pendientes_aclaracion": _seccion_o_error(
-            error_pendientes, cantidad=len(pendientes), pendientes=pendientes
-        ),
+        f"cantidad_{quienes}": len(con_saldo),
+        f"total_{total}": _redondear(sum(float(f.get("saldo") or 0) for f in con_saldo)),
+        f"principales_{quienes}": [
+            {
+                "cuit": f.get("cuit"),
+                "nombre": f.get("nombre"),
+                "saldo": _redondear(float(f.get("saldo") or 0)),
+            }
+            for f in con_saldo[:5]
+        ],
     }
 
 
-def _seccion_o_error(error: str | None, **datos: Any) -> dict[str, Any]:
-    if error is None:
-        return datos
+def _lista_de_pendientes(crudo: Any) -> dict[str, Any]:
+    if isinstance(crudo, dict):
+        pendientes = crudo.get("pendientes") or crudo.get("operaciones") or []
+    elif isinstance(crudo, list):
+        pendientes = crudo
+    else:
+        pendientes = []
+    return {"cantidad": len(pendientes), "pendientes": pendientes}
+
+
+def _seccion_o_error(error: str) -> dict[str, Any]:
     return {
         "cantidad": None,
         "error": f"No se pudo consultar: {error}. No informar que no hay ninguno.",
@@ -3523,13 +3806,15 @@ def _seccion_o_error(error: str | None, **datos: Any) -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Listar manuales operativos (skills) de ALdia",
     annotations=SOLO_LECTURA,
     description=(
-        "Lista todos los manuales operativos (SKILL.md) incluidos en ALdia con su "
-        "nombre y descripcion. Permite que cualquier agente conectado por MCP "
-        "descubra los procedimientos del negocio (facturacion, caja, liquidacion "
-        "de cereales y hacienda, IVA, etc.) sin copiar archivos manualmente."
+        "Lista los manuales operativos (SKILL.md) de ALdia que aplican a esta "
+        "instalacion (sus modulos activos y su pais), con nombre y descripcion. "
+        "Permite que cualquier agente conectado por MCP descubra los procedimientos "
+        "del negocio (facturacion, caja, liquidacion de cereales y hacienda, IVA, "
+        "etc.) sin copiar archivos manualmente."
     ),
 )
 def list_operational_skills() -> dict[str, Any]:
@@ -3537,9 +3822,12 @@ def list_operational_skills() -> dict[str, Any]:
     if not carpeta.is_dir():
         return {"cantidad": 0, "skills": []}
 
+    permisos, pais = _permisos_vigentes(), _pais_instalado()
     catalogo: list[dict[str, str]] = []
     for sub in sorted(carpeta.iterdir(), key=lambda p: p.name):
         archivo = sub / "SKILL.md"
+        if not _skill_visible(sub.name, permisos, pais):
+            continue
         if sub.is_dir() and archivo.is_file():
             try:
                 texto = archivo.read_text(encoding="utf-8")
@@ -3560,6 +3848,7 @@ def list_operational_skills() -> dict[str, Any]:
 
 
 @servidor.tool(
+    modulo=NUCLEO,
     title="Leer un manual operativo (skill) de ALdia",
     annotations=SOLO_LECTURA,
     description=(
@@ -3588,13 +3877,19 @@ def get_operational_skill(skill_name: str) -> dict[str, Any]:
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", nombre):
         raise ALdiaError(f"Nombre de skill invalido: '{skill_name}'.")
 
+    permisos, pais = _permisos_vigentes(), _pais_instalado()
     archivo = carpeta / nombre / "SKILL.md"
-    if not archivo.is_file():
+    if not archivo.is_file() or not _skill_visible(nombre, permisos, pais):
         disponibles = [
-            p.name for p in sorted(carpeta.iterdir()) if p.is_dir() and (p / "SKILL.md").is_file()
+            p.name for p in sorted(carpeta.iterdir())
+            if p.is_dir() and (p / "SKILL.md").is_file() and _skill_visible(p.name, permisos, pais)
         ] if carpeta.is_dir() else []
+        motivo = (
+            "No aplica a esta instalacion (modulo apagado u otro pais)"
+            if archivo.is_file() else "No existe"
+        )
         raise ALdiaError(
-            f"No existe la skill '{nombre}'. Disponibles: {', '.join(disponibles)}."
+            f"{motivo}: la skill '{nombre}'. Disponibles: {', '.join(disponibles)}."
         )
 
     contenido = archivo.read_text(encoding="utf-8")

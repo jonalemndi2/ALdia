@@ -385,8 +385,11 @@ const Admin = {
         if (window.App && typeof App.bindDataActions === 'function') App.bindDataActions();
     },
 
-    // Roles disponibles en el sistema
-    ROLES: ['administrador', 'caja', 'encargado_ventas', 'encargado_compras', 'encargado_deposito', 'auditor', 'finanzas'],
+    // Roles disponibles en el sistema. 'agente' es la cuenta del asistente de IA
+    // (servidor MCP): lee lo mismo que el auditor y escribe solo en los módulos
+    // que lo nombran. Si faltara de esta lista, guardar un módulo le sacaría el
+    // permiso sin avisar.
+    ROLES: ['administrador', 'caja', 'encargado_ventas', 'encargado_compras', 'encargado_deposito', 'auditor', 'finanzas', 'agente'],
 
     // ==================== MÓDULOS DEL SISTEMA ====================
     PERFILES_RAPIDOS: [
@@ -400,12 +403,15 @@ const Admin = {
     async showModulos() {
         let modulos = [];
         let perfiles = this.PERFILES_RAPIDOS;
+        let fijados = false;
         try {
-            const [mods, perfs] = await Promise.all([
+            const [mods, perfs, permisos] = await Promise.all([
                 API.modulos.getAll(),
-                API.modulos.getPerfiles ? API.modulos.getPerfiles().catch(() => null) : Promise.resolve(null)
+                API.modulos.getPerfiles ? API.modulos.getPerfiles().catch(() => null) : Promise.resolve(null),
+                API.modulos.getPermisos().catch(() => null)
             ]);
             modulos = mods;
+            fijados = !!(permisos && permisos.fijados_por_entorno);
             if (Array.isArray(perfs) && perfs.length) {
                 perfiles = this.PERFILES_RAPIDOS.map(base => {
                     const remoto = perfs.find(p => p.clave === base.clave);
@@ -418,7 +424,7 @@ const Admin = {
         }
 
         const botonesPerfiles = perfiles.map(p => `
-            <button type="button" class="btn btn-sm btn-outline-primary me-2 mb-1" data-action="Admin.aplicarPerfil" data-arg="${Utils.escapeHtml(p.clave)}" title="${Utils.escapeHtml(p.desc || '')}">
+            <button type="button" class="btn btn-sm btn-outline-primary me-2 mb-1" data-action="Admin.aplicarPerfil" data-arg="${Utils.escapeHtml(p.clave)}" title="${Utils.escapeHtml(p.desc || '')}" ${fijados ? 'disabled' : ''}>
                 <i class="bi ${Utils.escapeHtml(p.icono || 'bi-check2-circle')}"></i> ${Utils.escapeHtml(p.nombre)}
             </button>
         `).join('');
@@ -457,7 +463,7 @@ const Admin = {
                             </div>
                             <div class="col-md-2">
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="mod_hab_${m.clave}" ${m.habilitado ? 'checked' : ''}>
+                                    <input class="form-check-input" type="checkbox" id="mod_hab_${m.clave}" ${m.habilitado ? 'checked' : ''} ${fijados ? 'disabled' : ''}>
                                     <label class="form-check-label" for="mod_hab_${m.clave}">Habilitado</label>
                                 </div>
                             </div>
@@ -480,6 +486,7 @@ const Admin = {
                 <h4><i class="bi bi-gear"></i> Módulos del Sistema</h4>
             </div>
             <p class="text-muted">Habilite o deshabilite los módulos disponibles en esta instalación y defina qué roles pueden acceder a cada uno.</p>
+            ${fijados ? `<div class="alert alert-info"><i class="bi bi-lock"></i> Los módulos activos los fija la variable <code>ALDIA_MODULOS</code> de esta instalación. Para prender o apagar uno, cámbiela y reinicie ALdia. Los roles sí se editan acá.</div>` : ''}
             ${barraPerfiles}
             ${filas}
         `;

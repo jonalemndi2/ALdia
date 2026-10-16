@@ -104,13 +104,14 @@ def avisar_clave_inicial(clave: str) -> None:
 def inicializar_datos():
     """Sembrar módulos, configuración y usuario admin por defecto en el primer arranque."""
     from models import Usuario
-    from routers.modulos import seed_modulos
+    from routers.modulos import aplicar_modulos_del_entorno, seed_modulos
     from routers.config import seed_config
     from routers.auth import hash_password
 
     db = SessionLocal()
     try:
         seed_modulos(db)
+        aplicar_modulos_del_entorno(db)
         seed_config(db)
         # Crear usuario administrador por defecto si no existe ninguno.
         # Nace con debe_cambiar_password=True: puede iniciar sesion, pero el

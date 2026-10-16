@@ -158,3 +158,20 @@ def cuit():
         return cuit_valido(prefijo, f"{uuid.uuid4().int % 10**6:06d}{contador['n']:02d}")
 
     return _siguiente
+
+
+@pytest.fixture(autouse=True)
+def _permisos_mcp_frescos():
+    """La cache de permisos del servidor MCP vive lo que el proceso.
+
+    Sin esto, los permisos falsos que arma una prueba (ver test_mcp_modulos.py)
+    se quedarian un minuto filtrando las herramientas de la siguiente.
+    """
+    def olvidar():
+        servidor = sys.modules.get("aldia_mcp.server")
+        if servidor is not None:
+            servidor._olvidar_permisos()
+
+    olvidar()
+    yield
+    olvidar()

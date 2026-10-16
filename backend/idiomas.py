@@ -94,6 +94,9 @@ MENSAJES: dict[str, dict[str, str]] = {
             "Esta instalación está configurada para {pais}, donde los comprobantes "
             "no requieren autorización previa de ningún organismo.",
         "PAIS_NO_SOPORTADO": "No hay reglas fiscales para el país {pais}.",
+        "MODULOS_FIJADOS_POR_ENTORNO":
+            "Los módulos activos los fija la variable ALDIA_MODULOS: se cambian ahí y se "
+            "reinicia ALdia. Desde acá solo se pueden editar los roles de cada módulo.",
         "CODIGO_DE_AUTORIZACION_REQUERIDO":
             "No se emitió nada todavía. Se envió un código de autorización por Telegram "
             "a la persona responsable para la factura {numero} ({cliente}, {total}). "
@@ -129,6 +132,9 @@ MENSAJES: dict[str, dict[str, str]] = {
             "This installation is configured for {pais}, where documents do not require "
             "prior authorization from any agency.",
         "PAIS_NO_SOPORTADO": "There are no tax rules for country {pais}.",
+        "MODULOS_FIJADOS_POR_ENTORNO":
+            "Active modules are set by the ALDIA_MODULOS variable: change it there and "
+            "restart ALdia. Only each module's roles can be edited here.",
         "CODIGO_DE_AUTORIZACION_REQUERIDO":
             "Nothing was issued yet. A one-time authorization code was sent via Telegram "
             "to the person in charge for invoice {numero} ({cliente}, {total}). Ask the "

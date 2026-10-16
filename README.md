@@ -208,6 +208,11 @@ The system **refuses to let you operate until you do**. There is no default
 password: a published one plus a forced change is just a race won by whoever logs
 in first. For automated installs, set `ALDIA_ADMIN_PASSWORD` before the first start.
 
+ALdía is modular: turn on only the modules you use from *Administración →
+Módulos*, or pin them with `ALDIA_MODULOS` (profiles and module keys, e.g.
+`ALDIA_MODULOS=comercio,liquidaciones_granos`). The assistant only sees the tools
+of the active modules; the agro modules ship turned off.
+
 By default the server listens **only on this PC** (`127.0.0.1`). To let the other
 terminals in, start it with `ALDIA_HOST=0.0.0.0` (on Windows,
 `set ALDIA_HOST=0.0.0.0` before `iniciar_web.bat`) — after changing the admin password.

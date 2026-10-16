@@ -301,6 +301,7 @@ const API = {
     modulos: {
         getAll() { return API.get('/modulos/'); },
         getActivos() { return API.get('/modulos/activos'); },
+        getPermisos() { return API.get('/modulos/permisos'); },
         getPerfiles: () => API.get('/modulos/perfiles'),
         aplicarPerfil: (clave) => API.post('/modulos/perfiles/' + encodeURIComponent(clave), {}),
         update(clave, data) { return API.put(`/modulos/${clave}`, data); },

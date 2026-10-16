@@ -43,9 +43,14 @@ En la primera operación de cada sesión:
 check_connection()
 ```
 
-Devuelve con qué usuario y rol está operando, y **a qué módulos tiene acceso**.
-Si una tarea necesita un módulo que ese rol no tiene, dígalo de entrada en vez
-de intentarlo y chocar con un rechazo.
+Devuelve con qué usuario y rol está operando, **a qué módulos tiene acceso** y
+cuáles están apagados. Si una tarea necesita un módulo que ese rol no tiene,
+dígalo de entrada en vez de intentarlo y chocar con un rechazo.
+
+ALdia es modular: **solo ve las herramientas y skills de los módulos prendidos**
+en esta instalación, y de las de escritura solo las que su usuario puede usar.
+Si el usuario pide algo para lo que no tiene herramienta, `check_connection` le
+dice qué módulo falta y cómo se prende: dígaselo en vez de buscar otro camino.
 
 ---
 
@@ -107,8 +112,9 @@ en regla cuando no lo está.
 ### 2. Confirme antes de destruir
 
 Las herramientas de anulación y borrado (`void_invoice`, `void_payment`,
-`void_vendor_payment`, `void_expense`, `void_purchase`, `delete_cash_movement`,
-`delete_user`) exigen `confirmar=true`. Ese parámetro representa una decisión
+`void_vendor_payment`, `void_expense`, `void_purchase` y, si está prendida la
+administración por chat, `delete_cash_movement` y `delete_user`) exigen
+`confirmar=true`. Ese parámetro representa una decisión
 **del usuario**, no suya:
 
 1. Explique qué se va a anular y qué efectos revierte (stock, saldo, caja).

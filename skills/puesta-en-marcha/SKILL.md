@@ -44,9 +44,12 @@ red local (`ALDIA_HOST=0.0.0.0`).
 
 Este es el paso que más se saltea y el que más caro sale después.
 
+Los usuarios se crean en el panel, en *Administración → Usuarios* (por chat solo
+si está prendida la administración por chat, con `create_user`). Para revisar
+quiénes hay:
+
 ```
 list_users()
-create_user(username="maria", password="...", rol="caja")
 ```
 
 Roles disponibles y para quién:
@@ -69,16 +72,24 @@ caja y no poder.
 Los permisos se validan en el servidor, así que un rol no puede hacer lo que no
 le corresponde ni aunque conozca el atajo.
 
+El asistente de IA va con **su propia cuenta, de rol `agente`**: consulta todo
+lo que consulta el auditor y solo registra operaciones en los módulos donde el
+administrador agregue ese rol (ver **usuarios-y-permisos**).
+
 ## Paso 4 — Habilitar solo lo que se usa
+
+Se hace en el panel, en *Administración → Módulos*: un perfil rápido
+(Comercio, Agro Granos, Agro Hacienda, Agro Mixto, Servicios) y después los
+ajustes de a uno. Para ver cómo quedó:
 
 ```
 list_modules()
-configure_module(clave="iva", habilitado=false)     # ejemplo: no lo usa
 ```
 
 Un kiosco quizá no necesite Remitos ni Cuentas Corrientes. Menos módulos =
-menos pantallas para el personal = menos errores. Se puede volver a habilitar en
-cualquier momento.
+menos pantallas para el personal, menos herramientas para el asistente y menos
+errores. Se puede volver a habilitar en cualquier momento. Si la instalación
+usa la variable `ALDIA_MODULOS`, los módulos se cambian ahí.
 
 ## Paso 5 — Cargar los datos iniciales
 

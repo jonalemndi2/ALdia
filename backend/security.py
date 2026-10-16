@@ -182,6 +182,25 @@ def exigir_modulo(request: Request, db: Session, credencial: Usuario, clave: str
         _verificar_acceso(quien, clave, request.method, db)
 
 
+def puede_en_modulo(request: Request, db: Session, credencial: Usuario, clave: str,
+                    metodo: str) -> bool:
+    """Si la credencial (y el actor que declare) pasaria el control de `clave`.
+
+    Responde la misma pregunta que exigir_modulo, pero sin hacer el pedido: lo
+    usa GET /api/modulos/permisos para que el servidor MCP le muestre al
+    asistente solo las herramientas que de verdad va a poder usar. Reusa
+    _verificar_acceso para que la respuesta y el control real no puedan
+    contradecirse.
+    """
+    actor = resolver_actor(request, db, credencial)
+    try:
+        for quien in _sujetos_a_verificar(credencial, actor):
+            _verificar_acceso(quien, clave, metodo, db)
+    except ErrorDeNegocio:
+        return False
+    return True
+
+
 def _sujetos_a_verificar(credencial: Usuario, actor: Usuario | None) -> list[Usuario]:
     """Los permisos efectivos son la INTERSECCION de la credencial y el actor.
 

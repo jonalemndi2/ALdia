@@ -13,6 +13,13 @@ devuelven `PERMISO DENEGADO (403)`: dígaselo y no insista.
 check_connection()   # con qué usuario y rol está operando
 ```
 
+**Por defecto, crear y borrar usuarios o prender y apagar módulos se hace desde
+el panel de ALdia** (*Administración → Usuarios* y *Administración → Módulos*).
+Las herramientas `create_user`, `delete_user` y `configure_module` solo existen
+si un administrador prendió el módulo *Administración por chat*. Si no las
+tiene, no busque otro camino: guíe al usuario por el panel con los mismos
+criterios de esta skill (qué rol, qué módulo, qué cambia y a quién afecta).
+
 ## Los roles de ALdia
 
 En ALdia el permiso no se da pantalla por pantalla: se da un **rol**, y cada
@@ -27,6 +34,7 @@ En ALdia el permiso no se da pantalla por pantalla: se da un **rol**, y cada
 | `caja` | cajeros | clientes, cuentas corrientes, caja: cobros y movimientos |
 | `finanzas` | administración | caja, cuentas corrientes, gastos, IVA |
 | `auditor` | contador, control | **consulta todo y no puede escribir nada** (lo bloquea el backend) |
+| `agente` | la cuenta del asistente de IA (servidor MCP) | consulta lo mismo que el auditor; registra operaciones solo en los módulos que lo nombran |
 
 Criterio para elegir: **el rol más chico con el que la persona pueda hacer su
 trabajo**. Un cajero no necesita facturar ni anular; un repositor no necesita
@@ -73,7 +81,7 @@ no ve nada. Corríjalo dando de baja y creando de nuevo con un rol válido.
 | Error | Qué hacer |
 | --- | --- |
 | `El nombre de usuario ya existe` | buscar el existente con `list_users`; ¿es la misma persona? |
-| `Rol invalido: '...'` | usar uno de los siete roles; preguntar qué tiene que poder hacer |
+| `Rol invalido: '...'` | usar uno de los ocho roles; preguntar qué tiene que poder hacer |
 | `La contrasena tiene que tener al menos 8 caracteres` | pedirle otra al usuario |
 | `El nombre de usuario no puede tener espacios` | proponer la versión con punto (`juan.perez`) |
 | `PERMISO DENEGADO (403)` | hace falta un administrador |
@@ -109,9 +117,10 @@ sistema.
 list_modules()
 ```
 
-Devuelve los nueve módulos (`stock`, `clientes`, `ventas`, `proveedores`,
-`gastos`, `cuentas_corrientes`, `caja`, `iva`, `administracion`) con si están
-habilitados y qué roles acceden a cada uno.
+Devuelve los módulos (`stock`, `clientes`, `ventas`, `liquidaciones_granos`,
+`liquidaciones_hacienda`, `proveedores`, `gastos`, `cuentas_corrientes`, `caja`,
+`iva`, `administracion`, `administracion_por_chat`) con si están habilitados y
+qué roles acceden a cada uno.
 
 **"A Fulano no le aparece tal pantalla"** se diagnostica acá, en este orden:
 
@@ -121,6 +130,12 @@ habilitados y qué roles acceden a cada uno.
 3. ¿El rol de Fulano figura en `roles_con_acceso` de ese módulo? Si no, es eso.
 
 ### Cambiar la configuración de un módulo
+
+Solo con *Administración por chat* prendido; si no, se hace en *Administración →
+Módulos*. Si la instalación fija los módulos con la variable `ALDIA_MODULOS`, ni
+el panel ni el chat pueden prenderlos o apagarlos (error
+`MODULOS_FIJADOS_POR_ENTORNO`): se cambian en esa variable y se reinicia ALdia.
+Los roles sí se pueden editar.
 
 ```
 configure_module(clave="iva", habilitado=false)

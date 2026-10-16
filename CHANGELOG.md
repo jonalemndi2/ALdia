@@ -11,6 +11,35 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.4.0 — 2026-10-16
+
+- **El asistente ve solo las herramientas de los módulos activos.** Cada
+  herramienta MCP declara su módulo, y el servidor MCP filtra la lista con
+  `GET /api/modulos/permisos`, un endpoint nuevo que dice en qué módulos puede
+  leer y en cuáles escribir el usuario conectado, con el mismo control que
+  aplica cada operación. Con el perfil Comercio, el administrador pasa de 72 a
+  61 herramientas y una cuenta `agente` recién creada a 30 (solo consultas). Las
+  skills se filtran igual, y además por país. Si el backend no responde, se
+  muestran todas menos la administración por chat.
+- **Administración por chat, apagada por defecto.** Crear y borrar usuarios,
+  prender o apagar módulos y borrar movimientos de caja pasan al módulo
+  `administracion_por_chat`. Eso se hace desde el panel salvo que alguien lo
+  prenda. Si usabas el asistente para crear usuarios, prendelo en
+  *Administración → Módulos*.
+- **`ALDIA_MODULOS`.** Variable del backend que fija los módulos activos en cada
+  arranque, con perfiles o claves: `ALDIA_MODULOS=comercio,liquidaciones_granos`.
+  Mientras está definida, el panel no los puede prender ni apagar.
+- **Los módulos agropecuarios nacen apagados** en las instalaciones nuevas, como
+  ya anunciaba la 2.3.0 (en realidad nacían prendidos). Las instalaciones
+  existentes no cambian: si los tenés prendidos y no los usás, apagalos.
+- **El panel reconoce el rol `agente`.** No aparecía en la pantalla de Módulos, y
+  guardar un módulo le sacaba al asistente el permiso de escritura sin avisar.
+  Ahora además se puede crear la cuenta del asistente desde *Usuarios*.
+- **Resumen del día y movimientos de caja por módulo.** `get_daily_briefing` y
+  `get_daily_cash_movements` traen solo las secciones de los módulos activos y
+  dicen en `no_incluido` cuáles quedaron afuera, en vez de fallar enteros.
+  `check_connection` informa qué módulos están apagados y cómo se prenden.
+
 ## 2.3.1 — 2026-10-16
 
 - **El resumen matutino ya no oculta fallas.** Si `get_daily_briefing` no

@@ -156,6 +156,12 @@ CATALOGO: dict[str, tuple[int, str, str]] = {
         "esta instalacion: pedir un CAE en un pais sin autorizacion previa de "
         "comprobantes, por ejemplo. No es un error a corregir ni a reintentar."),
 
+    # ── Configuracion de la instalacion ───────────────────────────────────
+    "MODULOS_FIJADOS_POR_ENTORNO": (409, ABORTAR,
+        "Los modulos activos los fija la variable de entorno ALDIA_MODULOS. Se "
+        "cambian ahi y se reinicia ALdia: ni el panel ni el chat pueden "
+        "prenderlos o apagarlos. Los roles de cada modulo si se pueden editar."),
+
     # ── Factura electronica ───────────────────────────────────────────────
     "CAE_YA_EMITIDO": (409, ABORTAR,
         "El comprobante ya tiene CAE. Pedir otro duplicaria la declaracion ante "

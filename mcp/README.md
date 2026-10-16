@@ -239,10 +239,55 @@ con el que se inicia Hermes; no las escriba en el comando ni en el repositorio.
 
 ### Skills
 
-En `skills/` (raíz del proyecto) hay cuatro skills que enseñan al asistente a
-usar estas herramientas para tareas reales: cierre de caja diario, control de
-stock, cobranzas y carga de comprobantes. Copiar ese directorio donde el
-asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
+En `skills/` (raíz del proyecto) están los manuales operativos que le enseñan al
+asistente a usar estas herramientas para tareas reales: facturación, cierre de
+caja, cobranzas, carga de comprobantes, liquidaciones agropecuarias, etc. El
+asistente los lee por MCP con `list_operational_skills` y `get_operational_skill`,
+que muestran solo los de los módulos activos y el país de la instalación. También
+se pueden copiar donde el asistente busque skills (por ejemplo
+`~/.claude/skills/` o `.claude/skills/`).
+
+---
+
+## Módulos: qué herramientas ve el asistente
+
+ALdia es modular y el servidor MCP también. Cada herramienta pertenece a un
+módulo (`stock`, `clientes`, `ventas`, `proveedores`, `gastos`,
+`cuentas_corrientes`, `caja`, `iva`, `liquidaciones_granos`,
+`liquidaciones_hacienda`, `administracion`) o al núcleo (conexión, versión,
+reglas del país, resumen del día, operaciones pendientes y skills), que se ve
+siempre.
+
+El asistente ve una herramienta de consulta si el usuario con el que opera puede
+leer su módulo, y una de operación si puede escribir en él. Lo decide el backend
+(`GET /api/modulos/permisos`) con el mismo control que aplica a cada operación:
+no hay una segunda lista que se pueda desincronizar. Las skills se filtran igual,
+y además por país.
+
+| Situación | Qué ve el asistente |
+| --- | --- |
+| Módulo apagado en la instalación | Ninguna herramienta ni skill de ese módulo. |
+| Usuario `agente` recién creado | Solo consultas; escribe en los módulos que lo nombran en sus roles. |
+| El backend no responde, o es anterior a 2.4.0 | Todo, menos la administración por chat. |
+
+Si el usuario pide algo de un módulo apagado, `check_connection` le dice al
+asistente qué módulo falta y cómo se prende, y llamar a una herramienta oculta
+devuelve la misma explicación.
+
+**Cómo se prenden los módulos.** Desde el panel, en *Administración → Módulos*,
+uno por uno o con un perfil rápido (Comercio, Agro Granos, Agro Hacienda, Agro
+Mixto, Servicios). O con la variable `ALDIA_MODULOS` **del backend**, que los fija
+en cada arranque y acepta perfiles y claves mezclados:
+`ALDIA_MODULOS=comercio,liquidaciones_granos`. Mientras esté definida, el panel
+no puede prenderlos ni apagarlos (sí editar sus roles). Los módulos
+agropecuarios vienen apagados. Después de prender uno, reiniciá el asistente
+para que aparezcan sus herramientas.
+
+**Administración por chat.** Crear y borrar usuarios (`create_user`,
+`delete_user`), prender o apagar módulos (`configure_module`,
+`apply_business_profile`) y borrar movimientos de caja (`delete_cash_movement`)
+viven en el módulo `administracion_por_chat`, apagado por defecto: eso se hace
+desde el panel. Quien lo quiera igual por chat, lo prende ahí.
 
 ---
 
@@ -301,7 +346,7 @@ asistente busque skills (por ejemplo `~/.claude/skills/` o `.claude/skills/`).
 | `void_payment`           | Anula el cobro y también cancela o revierte el cheque asociado.       |
 | `void_vendor_payment`    | Anula el pago y libera/cancela su cheque, revirtiendo el débito si corresponde. |
 | `void_expense`           | Borra el gasto, revierte la deuda y el egreso de caja.                   |
-| `delete_cash_movement` | Borra un movimiento manual de caja.                                      |
+| `delete_cash_movement` | Borra un movimiento manual de caja. Solo con *Administración por chat* prendido. |
 | `void_purchase` | Anula conservando cabecera y renglones, con reversas auditables de stock/deuda. |
 
 Las operaciones destructivas y las financieras nuevas o actualizadas devuelven

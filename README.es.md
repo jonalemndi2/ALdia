@@ -147,6 +147,7 @@ Desde otras terminales:  http://192.168.0.10:8000
 | `ALDIA_PORT` | Usar otro puerto: `ALDIA_PORT=8080 ./iniciar_web.sh` |
 | `ALDIA_HOST` | Abrir a la red local: `ALDIA_HOST=0.0.0.0 ./iniciar_web.sh` (por defecto `127.0.0.1`) |
 | `ALDIA_ADMIN_PASSWORD` | Clave inicial de `admin` en una base nueva (instalaciones automatizadas) |
+| `ALDIA_MODULOS` | Fijar los módulos activos en cada arranque, con perfiles o claves: `ALDIA_MODULOS=comercio,liquidaciones_granos`. Mientras esté definida, el panel no los cambia |
 | `ALDIA_SIN_NAVEGADOR` | `=1` para no abrir el navegador (servidor sin pantalla) |
 | `ALDIA_PYTHON` | Forzar un intérprete si hay varios instalados |
 
