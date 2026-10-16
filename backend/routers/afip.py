@@ -30,8 +30,9 @@ import autorizacion_fiscal as af
 from security import ROL_AGENTE
 from paises import pais_configurado
 from database import get_db
-from dinero import a_pesos, aplicar_alicuota, multiplicar, porcentaje_desde_importes
-from models import Factura, StockMercaderia, Venta
+from dinero import a_pesos, aplicar_alicuota, porcentaje_desde_importes
+from importes import importes_de_venta
+from models import Factura, Venta
 from schemas import CAEResponse, SolicitudCAE
 
 router = APIRouter()
@@ -96,15 +97,10 @@ def _composicion_iva(db: Session, factura: Factura, tipo_comprobante: int) -> di
 
     bases: dict = {}
     if renglones:
-        alicuotas_stock = {
-            s.codigo: (s.iva if s.iva is not None else 21.0)
-            for s in db.query(StockMercaderia).all()
-        }
-        for r in renglones:
-            alicuota = float(alicuotas_stock.get(r.codigo, 21.0))
-            # multiplicar() redondea el renglon una sola vez, en centavos.
-            base = abs(multiplicar(r.precio, r.cantidad))
-            bases[alicuota] = bases.get(alicuota, 0) + base
+        # El mismo calculo con el que se guardo la factura (ver importes.py): por
+        # eso lo que se declara ante AFIP cierra con lo que se le cobro al cliente.
+        importes = importes_de_venta(db, ((r.precio, r.cantidad, r.codigo) for r in renglones))
+        bases = {alicuota: base for alicuota, (base, _) in importes.por_alicuota.items()}
     else:
         neto = abs(factura.subtotal or 0)          # centavos
         iva_importe = abs(factura.iva or 0)        # centavos

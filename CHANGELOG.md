@@ -11,6 +11,42 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.5.0 — 2026-10-16
+
+- **Los importes de factura, remito, notas y gastos los calcula el backend.**
+  Antes la factura guardaba el neto, el IVA y el total que mandaba quien la
+  cargaba (el panel o el asistente, sumando con decimales binarios), y el pedido
+  de CAE los recalculaba con otro criterio: la cuenta corriente del cliente y lo
+  declarado ante AFIP podían diferir en centavos, y con más de 5 centavos AFIP no
+  autorizaba. Ahora hay un solo cálculo (`backend/importes.py`): cada renglón se
+  redondea una vez y el IVA una vez por alícuota, con la alícuota del artículo en
+  el stock. Lo usan la factura, el remito, el pedido de CAE y un endpoint nuevo,
+  `POST /api/facturas/cotizar`, para mostrar el importe antes de emitir.
+- **Un borrador no se confirma por otro importe.** El borrador congela el precio
+  de lista de cada renglón. Si al confirmar el importe ya no es el que vio el
+  usuario (por ejemplo, cambió la alícuota del artículo), se rechaza con
+  `IMPORTES_CAMBIARON` en vez de impactar un importe que nadie aprobó. Un
+  borrador preparado con una versión anterior puede pedir que se lo prepare de
+  nuevo.
+- **Notas por importe con alícuota.** Con `alicuota_iva`, el backend calcula el IVA
+  y el total de una nota de crédito o débito por importe. El panel y el asistente
+  ya lo usan, y la confirmación del panel muestra el total que calculó el backend.
+- **El servidor MCP no hace cuentas con plata.** No multiplica, no aplica
+  alícuotas ni redondea: manda los datos y muestra lo que calculó el backend.
+  Para los resúmenes (resumen del día, movimientos de caja, deudores, chequera,
+  liquidaciones) suma centavos enteros exactos (`aldia_mcp/dinero.py`), y un test
+  impide volver a convertir importes a `float`. La remarcación por porcentaje la
+  calcula el backend (`aumento_pct`) con redondeo comercial: antes, una rebaja
+  del 10 % sobre $10,05 daba $9,04 en lugar de $9,05.
+- **Arreglado: cargar un gasto con conceptos fallaba siempre**
+  ("FOREIGN KEY constraint failed"), desde el panel y desde el asistente. Además,
+  si no se declaran los totales del comprobante, se calculan a partir de los
+  conceptos; si se declaran, se respetan, porque el crédito fiscal es el del
+  comprobante del proveedor.
+- **Remitos sin facturar.** Cada renglón trae su `importe` calculado por el
+  backend, y la herramienta del asistente informa `total_neto_sin_facturar`
+  (antes `total_sin_facturar`).
+
 ## 2.4.0 — 2026-10-16
 
 - **El asistente ve solo las herramientas de los módulos activos.** Cada

@@ -7,6 +7,7 @@ from typing import List
 
 from errores import ErrorDeNegocio
 from database import get_db
+from dinero import ajustar_por_porcentaje
 from migraciones import dependientes
 from models import StockMercaderia
 from schemas import StockCreate, StockUpdate, StockResponse
@@ -50,6 +51,17 @@ def update_stock(codigo: int, item_data: StockUpdate, db: Session = Depends(get_
         raise ErrorDeNegocio("PRODUCTO_NO_EXISTE", "Producto no encontrado")
     
     update_data = item_data.model_dump(exclude_unset=True)
+    aumento = update_data.pop("aumento_pct", None)
+    if aumento is not None:
+        if update_data.get("preven") is not None:
+            raise ErrorDeNegocio("DATOS_INVALIDOS", "Indique preven o aumento_pct, no los dos")
+        if not item.preven:
+            raise ErrorDeNegocio(
+                "DATOS_INVALIDOS",
+                f"'{item.producto}' no tiene precio de venta: no se le puede aplicar "
+                "un aumento porcentual",
+            )
+        update_data["preven"] = ajustar_por_porcentaje(item.preven, aumento)
     for key, value in update_data.items():
         setattr(item, key, value)
     

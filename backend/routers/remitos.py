@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
+from importes import importes_de_venta
 from models import Cliente, Remito, Venta, StockMercaderia
 from schemas import (
     RemitoCreate, RemitoResponse, VentaCreate, VentaResponse,
@@ -66,12 +67,20 @@ def create_remito(remito_data: RemitoCreate, db: Session = Depends(get_db)):
     # Numero de remito desde el contador de la serie. Ver backend/secuencias.py.
     new_id = siguiente_numero(db, "remito")
 
+    # Neto e IVA del remito los calcula el servidor, igual que en la factura
+    # (ver importes.py). Sin renglones se respeta lo declarado.
+    if remito_data.items:
+        importes = importes_de_venta(
+            db, ((i.precio, i.cantidad, i.codigo) for i in remito_data.items))
+        neto, iva = importes.neto, importes.iva
+    else:
+        neto, iva = remito_data.total, remito_data.iva
     new_remito = Remito(
         id=new_id,
         cliente=remito_data.cliente,
         fecha=remito_data.fecha,
-        total=remito_data.total,
-        iva=remito_data.iva,
+        total=neto,
+        iva=iva,
     )
     db.add(new_remito)
 

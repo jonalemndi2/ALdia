@@ -136,6 +136,10 @@ CATALOGO: dict[str, tuple[int, str, str]] = {
     "TIENE_MOVIMIENTOS": (409, ABORTAR,
         "No se puede eliminar la ficha porque tiene comprobantes asociados. Los "
         "comprobantes emitidos no pueden quedar sin titular."),
+    "IMPORTES_CAMBIARON": (409, PREGUNTAR,
+        "Al confirmar, los importes del borrador ya no son los que vio el usuario "
+        "(cambio el precio o la alicuota de un articulo). No se impacta un importe "
+        "que nadie aprobo: preparar un borrador nuevo y volver a mostrarselo."),
     "IMPORTES_NO_CIERRAN": (400, CORREGIR,
         "La suma de los renglones no coincide con el total declarado."),
     "CONFIRMACION_REQUERIDA": (400, PREGUNTAR,

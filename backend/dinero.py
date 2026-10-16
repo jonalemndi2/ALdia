@@ -58,6 +58,7 @@ decimales hacia afuera, para no romper el frontend (Web/js) ni el servidor MCP.
 La traduccion es automatica y esta en un solo lugar: los tipos Pydantic
 `DineroEntrada` / `DineroSalida` del final de este archivo.
 """
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Annotated, Optional, Union
 
@@ -66,6 +67,7 @@ from pydantic import BeforeValidator, PlainSerializer
 __all__ = [
     "a_centavos", "a_centavos_opcional", "a_pesos", "a_pesos_opcional",
     "pesos_decimal", "multiplicar", "aplicar_alicuota", "porcentaje_desde_importes",
+    "ImportesComprobante", "importes_de_renglones", "ajustar_por_porcentaje",
     "DineroEntrada", "DineroEntradaOpc", "DineroSalida", "DineroSalidaOpc",
     "CENTAVOS_POR_PESO",
 ]
@@ -179,6 +181,19 @@ def aplicar_alicuota(base_centavos: Optional[int], alicuota_pct: Numero) -> int:
     return int(exacto.quantize(_UN_ENTERO, rounding=ROUND_HALF_UP))
 
 
+def ajustar_por_porcentaje(base_centavos: int, porcentaje: Numero) -> int:
+    """Un importe aumentado (o rebajado, si el porcentaje es negativo) en un %.
+
+        ajustar_por_porcentaje(100050, 10)  -> 110055   ($1.000,50 + 10 %)
+        ajustar_por_porcentaje(1005, -10)   -> 905      ($10,05 - 10 % = $9,045)
+
+    Se redondea el RESULTADO, una sola vez. Redondear el aumento por separado y
+    sumarlo da otro numero en las rebajas ($10,05 - $1,01 = $9,04).
+    """
+    exacto = Decimal(int(base_centavos)) * (Decimal(100) + _decimal(porcentaje, "porcentaje"))
+    return int((exacto / Decimal(100)).quantize(_UN_ENTERO, rounding=ROUND_HALF_UP))
+
+
 def porcentaje_desde_importes(iva_centavos: int, base_centavos: int) -> float:
     """Deduce la alicuota (%) a partir del importe de IVA y la base imponible.
 
@@ -190,6 +205,52 @@ def porcentaje_desde_importes(iva_centavos: int, base_centavos: int) -> float:
         return 0.0
     pct = (Decimal(int(iva_centavos)) * Decimal(100)) / Decimal(int(base_centavos))
     return float(pct.quantize(_DOS_DECIMALES, rounding=ROUND_HALF_UP))
+
+
+@dataclass(frozen=True)
+class ImportesComprobante:
+    """Neto, IVA y total de un comprobante, en centavos."""
+    netos: tuple[int, ...]                      # neto de cada renglon, en orden
+    por_alicuota: dict[float, tuple[int, int]]  # alicuota -> (base, IVA)
+    neto: int
+    iva: int
+    total: int
+
+
+def importes_de_renglones(renglones) -> ImportesComprobante:
+    """Neto, IVA y total a partir de renglones (precio en centavos, cantidad, alicuota %).
+
+    Es EL calculo de un comprobante de venta, y vive aca para que lo usen todos:
+    la factura al guardarse, el remito, la cotizacion que pide el asistente y el
+    armado del pedido de CAE. Si cada uno sumara a su manera, la cuenta
+    corriente del cliente y lo declarado ante AFIP podian diferir en centavos y
+    AFIP rechazaba el comprobante.
+
+    Criterio (el mismo que espera el WSFEv1): cada renglon se redondea UNA vez
+    (multiplicar) y el IVA se calcula UNA vez por alicuota, sobre la suma de las
+    bases de esa alicuota (aplicar_alicuota). Asi la suma de las alicuotas cierra
+    exactamente con el total.
+    """
+    netos: list[int] = []
+    bases: dict[float, int] = {}
+    for precio_centavos, cantidad, alicuota in renglones:
+        neto = multiplicar(precio_centavos, cantidad)
+        netos.append(neto)
+        clave = float(_decimal(alicuota if alicuota is not None else 0, "alicuota"))
+        bases[clave] = bases.get(clave, 0) + neto
+    por_alicuota = {
+        alicuota: (base, aplicar_alicuota(base, alicuota))
+        for alicuota, base in sorted(bases.items())
+    }
+    neto_total = sum(netos)
+    iva_total = sum(iva for _, iva in por_alicuota.values())
+    return ImportesComprobante(
+        netos=tuple(netos),
+        por_alicuota=por_alicuota,
+        neto=neto_total,
+        iva=iva_total,
+        total=neto_total + iva_total,
+    )
 
 
 # ---------------------------------------------------------------------------

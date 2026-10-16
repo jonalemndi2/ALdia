@@ -1,7 +1,7 @@
 """
 schemas.py - Schemas Pydantic para validación de datos
 """
-from pydantic import BaseModel, ConfigDict, model_validator, field_validator, Field
+from pydantic import BaseModel, ConfigDict, model_validator, field_validator, Field, computed_field
 from typing import Optional, List
 
 # Capa de dinero: la base guarda CENTAVOS (enteros), la API habla PESOS.
@@ -9,8 +9,7 @@ from typing import Optional, List
 # DineroSalida convierte centavos -> pesos al serializar la respuesta.
 # Toda la conversion vive en dinero.py: aca solo se declara el tipo.
 from dinero import (
-    DineroEntrada, DineroEntradaOpc, DineroSalida, DineroSalidaOpc,
-    multiplicar, aplicar_alicuota,
+    DineroEntrada, DineroEntradaOpc, DineroSalida, DineroSalidaOpc, a_pesos, multiplicar,
 )
 from datetime import datetime
 import re
@@ -367,6 +366,9 @@ class StockUpdate(BaseModel):
     cantidad: Optional[float] = Field(default=None, ge=0)
     unidad: Optional[str] = None
     preven: DineroEntradaOpc = Field(default=None, ge=0)
+    # Remarcacion: % sobre el precio de venta actual (negativo = rebaja). El
+    # precio nuevo lo calcula el servidor, con redondeo comercial.
+    aumento_pct: Optional[float] = Field(default=None, gt=-100, allow_inf_nan=False)
     iva: Optional[float] = None                       # ALICUOTA %
     precom: DineroEntradaOpc = Field(default=None, ge=0)
 
@@ -419,6 +421,15 @@ class FacturaCreate(BaseModel):
     total: DineroEntrada = 0
     tipoEmision: Optional[str] = None
     items: List[FacturaItemRef] = []
+    # Con renglones, neto, IVA y total los calcula el servidor (ver importes.py)
+    # y lo declarado arriba no cuenta. Sin renglones (nota por importe), con la
+    # alicuota el IVA tambien lo calcula el servidor sobre el subtotal.
+    alicuota_iva: Optional[float] = None
+
+    @field_validator("alicuota_iva")
+    @classmethod
+    def _alicuota(cls, v):
+        return v if v is None else validar_iva(v)
 
     @model_validator(mode="after")
     def _normalizar(self):
@@ -429,6 +440,19 @@ class FacturaCreate(BaseModel):
         if self.iva is None:
             self.iva = self.ivaTotal if self.ivaTotal is not None else 0
         return self
+
+class CotizacionVenta(BaseModel):
+    """Lo necesario para calcular los importes de un comprobante sin guardarlo."""
+    cliente: Optional[str] = None
+    items: List[FacturaItemRef] = []
+    subtotal: DineroEntradaOpc = None
+    alicuota_iva: Optional[float] = None
+
+    @field_validator("alicuota_iva")
+    @classmethod
+    def _alicuota(cls, v):
+        return v if v is None else validar_iva(v)
+
 
 class FacturaResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -496,7 +520,9 @@ class RemitoItem(BaseModel):
     cantidad: float = 0.0
     precio: DineroEntrada = 0
     unidad: str = "UN"
-    iva: float = 21.0        # ALICUOTA % del renglon, no un importe
+    # ALICUOTA % que informa quien remite. No se usa para los importes: cuenta
+    # la del articulo en el stock, como en la factura (ver importes.py).
+    iva: float = 21.0
 
 
 class RemitoCreate(BaseModel):
@@ -517,20 +543,8 @@ class RemitoCreate(BaseModel):
             self.cliente = self.cliente_cuit
         if not self.cliente:
             raise ValueError("Se requiere 'cliente' (o 'cliente_cuit')")
-        # Aritmetica EN CENTAVOS: `precio` ya llego convertido por
-        # DineroEntrada. Cada renglon se redondea UNA sola vez (en
-        # multiplicar / aplicar_alicuota) y despues solo se suman enteros,
-        # que es exacto. Antes esto se hacia con floats y el remito no
-        # cerraba contra la factura que salia de el.
-        if self.items:
-            lineas = [multiplicar(i.precio, i.cantidad) for i in self.items]
-            if self.total is None:
-                self.total = sum(lineas)
-            if self.iva is None:
-                self.iva = sum(
-                    aplicar_alicuota(base, item.iva)
-                    for base, item in zip(lineas, self.items)
-                )
+        # Con renglones, neto e IVA los calcula routers/remitos.py con
+        # importes.py, igual que la factura que va a salir del remito.
         if self.total is None:
             self.total = 0
         if self.iva is None:
@@ -560,6 +574,12 @@ class RemitoNoFacturadoResponse(BaseModel):
     unidad: Optional[str] = None
     cliente: Optional[str] = None
     fecha: Optional[str] = None
+
+    @computed_field
+    @property
+    def importe(self) -> float:
+        """Neto del renglon (precio x cantidad), redondeado como en la factura."""
+        return a_pesos(multiplicar(self.precio, self.cantidad))
 
 # ==================== VENTAS ====================
 class VentaCreate(BaseModel):

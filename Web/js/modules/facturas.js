@@ -454,7 +454,7 @@ const Facturas = {
             if (pedirCae) await this.solicitarCae(result.facturanumero);
 
             const ok = await Utils.confirm('Factura Generada',
-                `Factura N° <strong>${Utils.escapeHtml(String(result.facturanumero))}</strong><br>Total: <strong>${Utils.formatCurrency(total)}</strong><br>¿Imprimir?`);
+                `Factura N° <strong>${Utils.escapeHtml(String(result.facturanumero))}</strong><br>Total: <strong>${Utils.formatCurrency(result.total)}</strong><br>¿Imprimir?`);
             if (ok) await this.imprimirFactura(result.facturanumero);
 
             await this.emitirFactura();
@@ -632,7 +632,7 @@ const Facturas = {
         }
         const factNum = factura.facturanumero;
 
-        Utils.toast(`Factura N° ${factNum} registrada sin autorización fiscal por ${Utils.formatCurrency(total)}`, 'Facturas', 'success');
+        Utils.toast(`Factura N° ${factNum} registrada sin autorización fiscal por ${Utils.formatCurrency(factura.total)}`, 'Facturas', 'success');
         this.facturaSinEntrega();
     },
 
@@ -797,8 +797,6 @@ const Facturas = {
 
         if (monto <= 0) { Utils.toast('Ingrese un monto mayor a cero', 'Error', 'error'); return; }
 
-        const ivaAmt = Utils.money(monto * (ivaPct / 100));
-        const total = Utils.money(monto + ivaAmt);
         const signo = tipo === 'credito' ? -1 : 1;
 
         // La API no expone las tablas nncv/nndv: la nota se registra como
@@ -811,16 +809,16 @@ const Facturas = {
         try {
             const result = await API.facturas.create({
                 cuit, fecha,
+                // El IVA y el total los calcula el servidor con la alícuota.
                 subtotal: signo * monto,
-                ivaTotal: signo * ivaAmt,
-                total: signo * total,
+                alicuota_iva: ivaPct,
                 tipoEmision: tipo === 'credito' ? 'nota_credito' : 'nota_debito',
                 items: []
             });
 
             const etiqueta = tipo === 'credito' ? 'Nota de Crédito' : 'Nota de Débito';
             Utils.toast(
-                `${etiqueta} N° ${result.facturanumero} registrada por ${Utils.formatCurrency(total)}. ` +
+                `${etiqueta} N° ${result.facturanumero} registrada por ${Utils.formatCurrency(Math.abs(result.total))}. ` +
                 `Atención: la descripción no se guarda (falta el endpoint de notas).`,
                 etiqueta, 'success');
 

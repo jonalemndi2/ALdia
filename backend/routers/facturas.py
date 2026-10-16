@@ -3,20 +3,21 @@ facturas.py - Router para Facturas
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import json
 import uuid
 import math
 from pydantic import BaseModel
 from sqlalchemy import update
-from dinero import a_pesos
+from dinero import a_pesos, aplicar_alicuota
+from importes import importes_de_venta, importes_en_pesos
 from models import BorradorVenta, EmisionFiscalEnCurso
 
 import saldos
 from errores import ErrorDeNegocio
 from database import get_db
 from models import Factura, Venta, Cliente, StockMercaderia
-from schemas import FacturaCreate, FacturaResponse, VentaResponse
+from schemas import CotizacionVenta, FacturaCreate, FacturaResponse, VentaResponse
 from secuencias import siguiente_numero
 
 router = APIRouter()
@@ -53,18 +54,93 @@ def _payload_publico(datos):
     return payload
 
 
+def _renglones_a_cobrar(items, cliente: Optional[str], db: Session) -> list:
+    """(precio en centavos, cantidad, codigo) de cada renglon, ya validado.
+
+    Los renglones de un remito toman precio y cantidad de lo que quedo guardado
+    al remitir: no se le cree al cliente lo que diga de ellos. A los nuevos sin
+    precio se les fija ahora el de lista, para que un borrador no cambie si
+    despues cambia la lista de precios.
+    """
+    ids = [i.id for i in items if i.id is not None]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(422, "Renglones de remito duplicados")
+    renglones = []
+    for item in items:
+        if item.id is not None:
+            linea = db.query(Venta).filter(Venta.id == item.id).first()
+            if not linea or (cliente and linea.cliente != cliente) or linea.idfactura:
+                raise HTTPException(409, "Renglón inexistente, de otro cliente o ya facturado")
+            renglones.append((linea.precio, linea.cantidad, linea.codigo))
+            continue
+        if item.codigo is None or item.cantidad is None or not math.isfinite(item.cantidad) or item.cantidad <= 0:
+            raise HTTPException(422, "Cada renglón nuevo requiere producto y cantidad positiva finita")
+        if item.precio is not None and item.precio < 0:
+            raise HTTPException(422, "El precio no puede ser negativo")
+        producto = db.query(StockMercaderia).filter(StockMercaderia.codigo == item.codigo).first()
+        if not producto:
+            raise HTTPException(
+                status_code=404,
+                detail=f"El producto {item.codigo} no existe: no se puede facturar",
+            )
+        if item.precio is None:
+            item.precio = producto.preven or 0
+        renglones.append((item.precio, item.cantidad, item.codigo))
+    return renglones
+
+
+def _fijar_importes(datos: FacturaCreate, db: Session) -> dict:
+    """Pone en `datos` neto, IVA y total calculados por el servidor. Devuelve el detalle en pesos.
+
+    - Con renglones, salen de los renglones (importes.py): lo que haya declarado
+      el cliente no cuenta. Es el mismo calculo que despues se le declara a AFIP.
+    - Sin renglones y con alicuota_iva (nota por importe), el IVA sale de
+      aplicar la alicuota al subtotal.
+    - Sin renglones ni alicuota (comprobante cargado a mano), se respetan los
+      importes declarados, que tienen que cerrar: total = neto + IVA.
+    """
+    if datos.items:
+        importes = importes_de_venta(db, _renglones_a_cobrar(datos.items, datos.cliente, db))
+        datos.subtotal, datos.iva, datos.total = importes.neto, importes.iva, importes.total
+        return importes_en_pesos(importes)
+    if datos.alicuota_iva is not None:
+        datos.iva = aplicar_alicuota(datos.subtotal, datos.alicuota_iva)
+        datos.total = datos.subtotal + datos.iva
+    elif datos.total != datos.subtotal + (datos.iva or 0):
+        raise HTTPException(422, "El total debe coincidir con subtotal más IVA")
+    return {"neto": a_pesos(datos.subtotal), "iva": a_pesos(datos.iva or 0),
+            "total": a_pesos(datos.total)}
+
+
 @router.post("/borradores")
 def preparar_venta(datos: FacturaCreate, db: Session = Depends(get_db)):
     if not db.query(Cliente).filter(Cliente.cuit == datos.cliente).first():
         raise HTTPException(404, "Cliente no encontrado")
-    if datos.total != datos.subtotal + (datos.iva or 0):
-        raise HTTPException(422, "El total debe coincidir con subtotal más IVA")
+    importes = _fijar_importes(datos, db)
     payload = _payload_publico(datos)
     borrador = BorradorVenta(id=str(uuid.uuid4()), contenido=json.dumps(payload), estado="pendiente")
     db.add(borrador)
     db.commit()
     return {"borrador_id": borrador.id, "estado": "pendiente", "datos": payload,
+            "importes": importes,
             "efectos": "Ninguno: no reserva stock, no genera deuda ni autoriza ante ARCA"}
+
+
+@router.post("/cotizar")
+def cotizar(datos: CotizacionVenta, db: Session = Depends(get_db)):
+    """Neto, IVA y total de un comprobante, calculados como al guardarlo, sin guardar nada.
+
+    Para mostrarle al usuario el importe exacto antes de emitir (por ejemplo, una
+    nota de credito por devolucion de articulos): quien pide no hace cuentas.
+    """
+    if datos.items:
+        return importes_en_pesos(
+            importes_de_venta(db, _renglones_a_cobrar(datos.items, datos.cliente, db)))
+    if datos.subtotal is None:
+        raise HTTPException(422, "Indique los renglones (items) o un subtotal con su alícuota")
+    iva = aplicar_alicuota(datos.subtotal, datos.alicuota_iva or 0)
+    return {"neto": a_pesos(datos.subtotal), "iva": a_pesos(iva),
+            "total": a_pesos(datos.subtotal + iva)}
 
 
 @router.get("/borradores")
@@ -99,7 +175,11 @@ def confirmar_venta(borrador_id: str, datos: ConfirmacionVenta, db: Session = De
         return db.query(Factura).filter(Factura.facturanumero == b.factura_numero).one()
     payload = json.loads(b.contenido)
     payload["confirmar"] = True
-    factura = create_factura(FacturaCreate.model_validate(payload), db, _commit=False)
+    datos = FacturaCreate.model_validate(payload)
+    # Lo que el usuario vio y aprobo. Si al recalcular da otra cosa (cambio la
+    # alicuota de un articulo), no se impacta un importe que nadie confirmo.
+    vistos = (datos.subtotal, datos.iva or 0, datos.total)
+    factura = create_factura(datos, db, _commit=False, _importes_vistos=vistos)
     b.factura_numero = factura.facturanumero
     b.estado = "confirmado"
     db.commit()
@@ -126,23 +206,21 @@ def get_factura(factura_num: int, db: Session = Depends(get_db)):
     return factura
 
 
-def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db), *, _commit: bool = True):
+def create_factura(factura_data: FacturaCreate, db: Session = Depends(get_db), *, _commit: bool = True,
+                   _importes_vistos: Optional[tuple] = None):
     if not factura_data.confirmar:
         raise HTTPException(409, "Requiere confirmar=true; prepare primero /borradores")
-    if factura_data.total != factura_data.subtotal + (factura_data.iva or 0):
-        raise HTTPException(422, "El total debe coincidir con subtotal más IVA")
-    ids = [i.id for i in factura_data.items if i.id is not None]
-    if len(ids) != len(set(ids)):
-        raise HTTPException(422, "Renglones de remito duplicados")
-    for item in factura_data.items:
-        if item.id is not None:
-            linea = db.query(Venta).filter(Venta.id == item.id).first()
-            if not linea or linea.cliente != factura_data.cliente or linea.idfactura:
-                raise HTTPException(409, "Renglón inexistente, de otro cliente o ya facturado")
-        elif item.codigo is None or item.cantidad is None or not math.isfinite(item.cantidad) or item.cantidad <= 0:
-            raise HTTPException(422, "Cada renglón nuevo requiere producto y cantidad positiva finita")
-        elif item.precio is not None and item.precio < 0:
-            raise HTTPException(422, "El precio no puede ser negativo")
+    # Valida los renglones y deja neto, IVA y total calculados por el servidor.
+    _fijar_importes(factura_data, db)
+    calculados = (factura_data.subtotal, factura_data.iva or 0, factura_data.total)
+    if _importes_vistos is not None and calculados != _importes_vistos:
+        raise ErrorDeNegocio(
+            "IMPORTES_CAMBIARON",
+            f"Los importes cambiaron desde que se preparó el borrador (antes "
+            f"{a_pesos(_importes_vistos[2]):.2f}, ahora {a_pesos(calculados[2]):.2f}). "
+            "Prepare uno nuevo y vuelva a confirmarlo.",
+            antes=f"{a_pesos(_importes_vistos[2]):.2f}", ahora=f"{a_pesos(calculados[2]):.2f}",
+        )
     # El cliente tiene que existir. Antes esto no se validaba y la factura se
     # grababa igual con un CUIT cualquiera; ahora ademas hay una clave foranea
     # real contra `clientes`, asi que sin este control el usuario veria un error

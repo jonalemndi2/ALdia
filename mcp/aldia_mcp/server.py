@@ -38,6 +38,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 
 from aldia_mcp.client import ALdiaClient, ALdiaConfigError, ALdiaError
+from aldia_mcp.dinero import centavos, importe, pesos, sumar
 
 class _ServidorPorModulos(MCPServer):
     """Muestra y deja usar solo las herramientas de los modulos activos.
@@ -407,10 +408,6 @@ def _fecha(valor: str | None) -> str:
             f"{_hoy().isoformat()})."
         )
     return valor
-
-
-def _redondear(valor: float) -> float:
-    return round(float(valor or 0.0) + 0.0, 2)
 
 
 def _reglas_del_pais() -> dict[str, Any]:
@@ -845,7 +842,7 @@ def get_customer_balance(cliente: str, limite: int = 10) -> dict[str, Any]:
         "nombre": ficha.get("nombre"),
         "telefono": ficha.get("telefono"),
         "saldo_debe": ficha.get("saldo"),
-        "estado": "AL DIA" if float(ficha.get("saldo") or 0) <= 0 else "CON DEUDA",
+        "estado": "AL DIA" if centavos(ficha.get("saldo")) <= 0 else "CON DEUDA",
         "facturas_recientes": [
             {
                 "numero": f.get("facturanumero"),
@@ -885,7 +882,8 @@ def get_customer_balance(cliente: str, limite: int = 10) -> dict[str, Any]:
 def list_debtors(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dict[str, Any]:
     cli = api()
     morosos = cli.get("/api/admin/morosos") or []
-    morosos = [m for m in morosos if float(m.get("saldo") or 0) >= float(monto_minimo)]
+    minimo = centavos(monto_minimo)
+    morosos = [m for m in morosos if centavos(m.get("saldo")) >= minimo]
 
     hoy = _hoy()
     for m in morosos if con_antiguedad else []:
@@ -906,7 +904,7 @@ def list_debtors(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dic
 
     return {
         "cantidad_de_deudores": len(morosos),
-        "total_adeudado": _redondear(sum(float(m.get("saldo") or 0) for m in morosos)),
+        "total_adeudado": pesos(sumar(m.get("saldo") for m in morosos)),
         "deudores": morosos,
     }
 
@@ -964,8 +962,8 @@ def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
     gastos = del_dia("gastos", "gastos", "/api/gastos/")
     facturas = del_dia("facturas", "ventas", "/api/facturas/")
 
-    ingresos = _redondear(sum(float(m.get("debe") or 0) for m in caja))
-    egresos = _redondear(sum(float(m.get("haber") or 0) for m in caja))
+    ingresos = sumar(m.get("debe") for m in caja)
+    egresos = sumar(m.get("haber") for m in caja)
 
     cobros_efectivo = [c for c in cobros if "cheque" not in (c.get("tipo") or "").lower()]
     cobros_cheque = [c for c in cobros if "cheque" in (c.get("tipo") or "").lower()]
@@ -973,19 +971,19 @@ def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
     return {
         "fecha": dia,
         "totales": {
-            "ingresos_caja": ingresos,
-            "egresos_caja": egresos,
-            "neto_caja_del_dia": _redondear(ingresos - egresos),
-            "cobros_total": _redondear(sum(float(c.get("monto") or 0) for c in cobros)),
-            "cobros_en_efectivo_u_otros": _redondear(
-                sum(float(c.get("monto") or 0) for c in cobros_efectivo)
-            ),
-            "cobros_con_cheque_no_entran_a_caja": _redondear(
-                sum(float(c.get("monto") or 0) for c in cobros_cheque)
-            ),
-            "pagos_total": _redondear(sum(float(p.get("monto") or 0) for p in pagos)),
-            "gastos_total": _redondear(sum(float(g.get("total") or 0) for g in gastos)),
-            "facturado_total": _redondear(sum(float(f.get("total") or 0) for f in facturas)),
+            "ingresos_caja": pesos(ingresos),
+            "egresos_caja": pesos(egresos),
+            "neto_caja_del_dia": pesos(ingresos - egresos),
+            # Lo que no se pudo leer (modulo apagado) va en None, no en 0: no es
+            # que no hubo, es que no se sabe.
+            "cobros_total": _total_o_nada(cobros, "monto", "cobros", no_incluido),
+            "cobros_en_efectivo_u_otros": _total_o_nada(
+                cobros_efectivo, "monto", "cobros", no_incluido),
+            "cobros_con_cheque_no_entran_a_caja": _total_o_nada(
+                cobros_cheque, "monto", "cobros", no_incluido),
+            "pagos_total": _total_o_nada(pagos, "monto", "pagos", no_incluido),
+            "gastos_total": _total_o_nada(gastos, "total", "gastos", no_incluido),
+            "facturado_total": _total_o_nada(facturas, "total", "facturas", no_incluido),
         },
         "movimientos_de_caja": caja,
         "cobros": cobros,
@@ -995,6 +993,13 @@ def get_daily_cash_movements(fecha: str | None = None) -> dict[str, Any]:
         "saldo_acumulado_de_caja": (cli.get("/api/caja/saldo") or {}).get("saldo"),
         **({"no_incluido": no_incluido} if no_incluido else {}),
     }
+
+
+def _total_o_nada(filas: list[dict[str, Any]], campo: str, seccion: str,
+                  no_incluido: dict[str, str]) -> float | None:
+    if seccion in no_incluido:
+        return None
+    return pesos(sumar(f.get(campo) for f in filas))
 
 
 @servidor.tool(
@@ -1017,8 +1022,8 @@ def list_checks(solo_pendientes: bool = False) -> dict[str, Any]:
     emitidos = [c for c in cheques if int(c.get("tipo") or 0) == 0]
     return {
         "cantidad": len(cheques),
-        "total_recibidos_a_cobrar": _redondear(sum(float(c.get("monto") or 0) for c in recibidos)),
-        "total_emitidos": _redondear(sum(float(c.get("monto") or 0) for c in emitidos)),
+        "total_recibidos_a_cobrar": pesos(sumar(c.get("monto") for c in recibidos)),
+        "total_emitidos": pesos(sumar(c.get("monto") for c in emitidos)),
         "cheques_recibidos_de_clientes": recibidos,
         "cheques_propios_emitidos": emitidos,
     }
@@ -1121,10 +1126,10 @@ def list_uninvoiced_delivery_notes(cliente: str | None = None) -> dict[str, Any]
     if cliente:
         cuit = cli.resolver_cliente(cliente).get("cuit")
         lineas = [l for l in lineas if l.get("cliente") == cuit]
-    total = _redondear(
-        sum(float(l.get("cantidad") or 0) * float(l.get("precio") or 0) for l in lineas)
-    )
-    return {"cantidad_de_lineas": len(lineas), "total_sin_facturar": total, "lineas": lineas}
+    # `importe` (precio x cantidad de cada renglon) lo calcula el backend, con el
+    # mismo redondeo que la factura: aca solo se suma. Es el neto, sin IVA.
+    total = pesos(sumar(l.get("importe") for l in lineas))
+    return {"cantidad_de_lineas": len(lineas), "total_neto_sin_facturar": total, "lineas": lineas}
 
 
 @servidor.tool(
@@ -1248,9 +1253,9 @@ def create_product(
             "producto": producto,
             "cantidad": float(cantidad),
             "unidad": unidad or "UN",
-            "preven": float(precio_venta),
+            "preven": importe(precio_venta),
             "iva": float(iva),
-            "precom": float(precio_compra),
+            "precom": importe(precio_compra),
         },
     )
     return {"creado": True, "articulo": _resumen_producto(creado)}
@@ -1265,7 +1270,7 @@ def create_product(
         "unidad, alicuota de IVA o cantidad en stock. Solo se cambian los campos que se "
         "envian; el resto queda como estaba.\n\n"
         "Para una remarcacion por lista use aumento_pct: por ejemplo aumento_pct=12 sube el "
-        "precio de venta un 12% sobre el precio actual (redondeado a 2 decimales). No se "
+        "precio de venta un 12% sobre el precio actual (lo calcula ALdia, al centavo). No se "
         "puede combinar aumento_pct con precio_venta en la misma llamada.\n\n"
         "Ojo: 'cantidad' PISA el stock, no lo suma. Para ingresar mercaderia comprada use "
         "la herramienta de registro de compra a proveedor, que ademas deja el comprobante y "
@@ -1290,17 +1295,17 @@ def update_product(
     cambios: dict[str, Any] = {}
 
     if aumento_pct is not None:
-        base = float(actual.get("preven") or 0.0)
-        if base <= 0:
+        if centavos(actual.get("preven")) <= 0:
             raise ALdiaError(
                 f"El articulo {codigo} ('{actual.get('producto')}') no tiene precio de venta "
                 "cargado: no se le puede aplicar un aumento porcentual. Fije precio_venta."
             )
-        cambios["preven"] = _redondear(base * (1 + float(aumento_pct) / 100.0))
+        # El precio nuevo lo calcula el backend, con redondeo comercial.
+        cambios["aumento_pct"] = float(aumento_pct)
     if precio_venta is not None:
-        cambios["preven"] = float(precio_venta)
+        cambios["preven"] = importe(precio_venta)
     if precio_compra is not None:
-        cambios["precom"] = float(precio_compra)
+        cambios["precom"] = importe(precio_compra)
     if producto is not None:
         cambios["producto"] = producto
     if unidad is not None:
@@ -1537,7 +1542,7 @@ def create_delivery_note(
             avisos.append(
                 f"'{art.get('producto')}' queda con stock negativo: {disponible} - {cantidad}"
             )
-        precio = float(it["precio"]) if it.get("precio") is not None else float(art.get("preven") or 0)
+        precio = importe(it["precio"] if it.get("precio") is not None else art.get("preven"))
         lineas.append(
             {
                 "codigo": int(art["codigo"]),
@@ -1557,16 +1562,16 @@ def create_delivery_note(
     }
     remito = cli.post("/api/remitos/", cuerpo)
 
-    subtotal = _redondear(sum(l["cantidad"] * l["precio"] for l in lineas))
+    # Neto e IVA los calcula el backend con el mismo criterio que la factura.
     return {
         "registrado": True,
         "remito_numero": remito.get("id"),
         "cliente": ficha.get("nombre"),
         "cuit": ficha.get("cuit"),
         "fecha": dia,
-        "subtotal_neto_sin_iva": subtotal,
+        "subtotal_neto_sin_iva": remito.get("total"),
         "iva_estimado": remito.get("iva"),
-        "total_con_iva_estimado": _redondear(subtotal + float(remito.get("iva") or 0)),
+        "total_con_iva_estimado": pesos(centavos(remito.get("total")) + centavos(remito.get("iva"))),
         "items": lineas,
         "avisos": avisos,
         "nota": "El remito solo entrega mercaderia: NO genera deuda en la cuenta corriente ni "
@@ -1600,8 +1605,6 @@ def create_invoice(
     ficha = cli.resolver_cliente(cliente)
     dia = _fecha(fecha)
 
-    subtotal = 0.0
-    iva_total = 0.0
     detalle: list[dict[str, Any]] = []
     payload_items: list[dict[str, Any]] = []
 
@@ -1619,20 +1622,16 @@ def create_invoice(
                     f"La linea de remito {lid} es del cliente {linea.get('cliente')}, no de "
                     f"{ficha.get('cuit')}. No se pueden mezclar clientes en una factura."
                 )
-            neto = float(linea.get("cantidad") or 0) * float(linea.get("precio") or 0)
             try:
                 alicuota = float((cli.producto(int(linea.get("codigo"))) or {}).get("iva") or 21.0)
             except ALdiaError:
                 alicuota = 21.0
-            subtotal += neto
-            iva_total += neto * alicuota / 100.0
             detalle.append(
                 {
                     "origen": f"remito {linea.get('nmov')}",
                     "producto": linea.get("producto"),
                     "cantidad": linea.get("cantidad"),
                     "precio": linea.get("precio"),
-                    "neto": _redondear(neto),
                     "iva_pct": alicuota,
                 }
             )
@@ -1645,18 +1644,14 @@ def create_invoice(
         cantidad = float(it.get("cantidad") or 0)
         if cantidad <= 0:
             raise ALdiaError(f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0.")
-        precio = float(it["precio"]) if it.get("precio") is not None else float(art.get("preven") or 0)
+        precio = importe(it["precio"] if it.get("precio") is not None else art.get("preven"))
         alicuota = float(art.get("iva") or 21.0)
-        neto = cantidad * precio
-        subtotal += neto
-        iva_total += neto * alicuota / 100.0
         detalle.append(
             {
                 "origen": "sin remito",
                 "producto": art.get("producto"),
                 "cantidad": cantidad,
                 "precio": precio,
-                "neto": _redondear(neto),
                 "iva_pct": alicuota,
             }
         )
@@ -1670,21 +1665,15 @@ def create_invoice(
             }
         )
 
-    subtotal = _redondear(subtotal)
-    iva_total = _redondear(iva_total)
-    total = _redondear(subtotal + iva_total)
-
+    # Neto, IVA y total los calcula el backend a partir de los renglones, con el
+    # mismo criterio que despues le declara a AFIP: aca no se hacen cuentas.
     factura = cli.post(
         "/api/facturas/borradores",
-        {
-            "cliente": ficha.get("cuit"),
-            "fecha": dia,
-            "subtotal": subtotal,
-            "iva": iva_total,
-            "total": total,
-            "items": payload_items,
-        },
+        {"cliente": ficha.get("cuit"), "fecha": dia, "items": payload_items},
     )
+    importes = factura.get("importes") or {}
+    for linea, neto in zip(detalle, importes.get("renglones") or []):
+        linea["neto"] = neto
 
     return {
         "emitida": False,
@@ -1694,9 +1683,10 @@ def create_invoice(
         "cliente": ficha.get("nombre"),
         "cuit": ficha.get("cuit"),
         "fecha": dia,
-        "subtotal": subtotal,
-        "iva": iva_total,
-        "total": total,
+        "subtotal": importes.get("neto"),
+        "iva": importes.get("iva"),
+        "total": importes.get("total"),
+        "iva_por_alicuota": importes.get("por_alicuota"),
         "detalle": detalle,
         "nota": "Sin efectos en stock ni deuda. Revise el borrador y use confirm_invoice_draft. No es una factura fiscal.",
     }
@@ -1744,17 +1734,16 @@ def record_payment(
     operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
-    if float(monto) <= 0:
+    if centavos(monto) <= 0:
         raise ALdiaError("El monto del cobro debe ser mayor a 0.")
     ficha = cli.resolver_cliente(cliente)
     _exigir_confirmacion_financiera(confirmar, f"Registrar cobro de {monto} a {ficha.get('nombre')}")
-    saldo_antes = float(ficha.get("saldo") or 0)
 
     cobro = cli.post(
         "/api/cobros/",
         {
             "cliente": ficha.get("cuit"),
-            "monto": float(monto),
+            "monto": importe(monto),
             "fecha": _fecha(fecha),
             "tipo": tipo,
             "referencia": referencia,
@@ -1773,8 +1762,9 @@ def record_payment(
         "monto": cobro.get("monto"),
         "tipo": cobro.get("tipo"),
         "fecha": cobro.get("fecha"),
-        "saldo_cliente_antes": _redondear(saldo_antes),
-        "saldo_cliente_ahora": _redondear(saldo_antes - float(monto)),
+        "saldo_cliente_antes": ficha.get("saldo"),
+        # Se vuelve a leer: el saldo lo dice ALdia, no una resta hecha aca.
+        "saldo_cliente_ahora": cli.resolver_cliente(ficha.get("cuit")).get("saldo"),
         "entro_a_caja": not es_cheque,
         "nota": (
             "Cheque registrado en la chequera; NO suma al saldo de caja hasta que se deposite."
@@ -1816,15 +1806,14 @@ def record_vendor_payment(
     operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
-    if float(monto) <= 0:
+    if centavos(monto) <= 0:
         raise ALdiaError("El monto del pago debe ser mayor a 0.")
     ficha = cli.resolver_proveedor(proveedor)
     _exigir_confirmacion_financiera(confirmar, f"Registrar pago de {monto} a {ficha.get('nombre')}")
-    saldo_antes = float(ficha.get("saldo") or 0)
 
     cuerpo: dict[str, Any] = {
         "proveedor": ficha.get("cuit"),
-        "monto": float(monto),
+        "monto": importe(monto),
         "fecha": _fecha(fecha),
         "tipo": tipo,
         "referencia": referencia,
@@ -1845,8 +1834,8 @@ def record_vendor_payment(
         "monto": pago.get("monto"),
         "tipo": pago.get("tipo"),
         "fecha": pago.get("fecha"),
-        "saldo_proveedor_antes": _redondear(saldo_antes),
-        "saldo_proveedor_ahora": _redondear(saldo_antes - float(monto)),
+        "saldo_proveedor_antes": ficha.get("saldo"),
+        "saldo_proveedor_ahora": cli.resolver_proveedor(ficha.get("cuit")).get("saldo"),
         "salio_de_caja": not es_cheque,
     }
 
@@ -1884,8 +1873,8 @@ def record_cash_movement(
     operation_id: str | None = None,
 ) -> dict[str, Any]:
     cli = api()
-    ingreso = float(ingreso or 0)
-    egreso = float(egreso or 0)
+    ingreso = importe(ingreso)
+    egreso = importe(egreso)
     if ingreso < 0 or egreso < 0:
         raise ALdiaError("Los importes van siempre en positivo: use 'ingreso' o 'egreso'.")
     if ingreso == 0 and egreso == 0:
@@ -1970,32 +1959,23 @@ def record_expense(
     _exigir_confirmacion_financiera(confirmar, f"Devengar gasto a {ficha.get('nombre')}")
 
     items: list[dict[str, Any]] = []
-    subtotal = 0.0
-    iva_total = 0.0
     for c in conceptos:
-        monto = float(c.get("monto") or 0)
+        monto = importe(c.get("monto"))
         if monto < 0:
             raise ALdiaError("Los montos de los conceptos no pueden ser negativos.")
         alicuota = _validar_iva(float(c.get("iva", 21.0)))
-        subtotal += monto
-        iva_total += monto * alicuota / 100.0
         items.append(
             {"descripcion": c.get("descripcion", ""), "monto": monto, "iva": alicuota}
         )
 
-    subtotal = _redondear(subtotal)
-    iva_total = _redondear(iva_total)
-    total = _redondear(subtotal + iva_total)
-
+    # Sin totales declarados, neto, IVA y total los calcula el backend a partir
+    # de los conceptos (el IVA una vez por alicuota, como en una factura).
     gasto = cli.post(
         "/api/gastos/",
         {
             "proveedor": ficha.get("cuit"),
             "numfactura": numero_factura,
             "fecha": _fecha(fecha),
-            "subtotal": subtotal,
-            "iva": iva_total,
-            "total": total,
             "descripcion": descripcion,
             "items": items,
         },
@@ -2007,9 +1987,9 @@ def record_expense(
         "proveedor": ficha.get("nombre"),
         "numero_factura": gasto.get("numfactura"),
         "fecha": gasto.get("fecha"),
-        "subtotal": subtotal,
-        "iva": iva_total,
-        "total": total,
+        "subtotal": gasto.get("subtotal"),
+        "iva": gasto.get("iva"),
+        "total": gasto.get("total"),
         "conceptos": items,
         "nota": "Se devengo la deuda con el proveedor. No salio dinero: el pago se registra aparte.",
     }
@@ -2060,7 +2040,7 @@ def record_purchase(
         cantidad = float(it.get("cantidad") or 0)
         if cantidad <= 0:
             raise ALdiaError(f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0.")
-        precio = float(it.get("precio") if it.get("precio") is not None else art.get("precom") or 0)
+        precio = importe(it["precio"] if it.get("precio") is not None else art.get("precom"))
         lineas.append(
             {
                 "codigo": int(art["codigo"]),
@@ -2248,15 +2228,14 @@ def get_invoice(numero: int) -> dict[str, Any]:
     except ALdiaError:
         sugerido = {}
 
-    total = float(factura.get("total") or 0)
     return {
         "factura_numero": factura.get("facturanumero"),
         "cliente_cuit": factura.get("cliente"),
         "fecha": factura.get("fecha"),
         "subtotal": factura.get("subtotal"),
         "iva": factura.get("iva"),
-        "total": total,
-        "es_nota_de_credito": total < 0,
+        "total": factura.get("total"),
+        "es_nota_de_credito": centavos(factura.get("total")) < 0,
         "estado_fiscal": estado,
         "cae": factura.get("cae"),
         "cae_vencimiento": factura.get("cae_vencimiento"),
@@ -2323,8 +2302,7 @@ def create_credit_note(
 
     detalle: list[dict[str, Any]] = []
     if items:
-        alicuotas: set[float] = set()
-        neto = 0.0
+        renglones: list[dict[str, Any]] = []
         for it in items:
             if "codigo" not in it:
                 raise ALdiaError(f"Falta 'codigo' en el item {it}.")
@@ -2334,30 +2312,32 @@ def create_credit_note(
                 raise ALdiaError(
                     f"La cantidad del articulo {art.get('codigo')} debe ser mayor a 0."
                 )
-            precio = (
-                float(it["precio"]) if it.get("precio") is not None
-                else float(art.get("preven") or 0)
-            )
-            alicuota = float(art.get("iva") or 21.0)
-            alicuotas.add(alicuota)
-            neto += cantidad * precio
+            precio = importe(it["precio"] if it.get("precio") is not None else art.get("preven"))
+            renglones.append({"codigo": int(art["codigo"]), "cantidad": cantidad, "precio": precio})
             detalle.append({
                 "codigo": int(art["codigo"]),
                 "producto": art.get("producto"),
                 "cantidad": cantidad,
                 "precio": precio,
-                "iva_pct": alicuota,
+                "iva_pct": float(art.get("iva") or 21.0),
             })
+        # El neto de los articulos devueltos lo calcula el backend (cotizar), con
+        # el mismo redondeo que la factura original: aca no se multiplica plata.
+        cotizacion = cli.post("/api/facturas/cotizar", {"items": renglones})
+        alicuotas = cotizacion.get("por_alicuota") or []
         if len(alicuotas) > 1:
-            listado = ", ".join(f"{a:g}%" for a in sorted(alicuotas))
+            listado = ", ".join(f"{a['alicuota']:g}%" for a in alicuotas)
             raise ALdiaError(
                 f"Los articulos de la nota de credito tienen alicuotas distintas ({listado}). "
                 "Emita una nota de credito por cada alicuota: el comprobante se registra sin "
                 "renglones y AFIP no puede deducir dos alicuotas de un solo importe."
             )
-        alicuota_final = alicuotas.pop()
+        for linea, neto_linea in zip(detalle, cotizacion.get("renglones") or []):
+            linea["neto"] = neto_linea
+        neto = centavos(cotizacion.get("neto"))
+        alicuota_final = float(alicuotas[0]["alicuota"]) if alicuotas else 0.0
     elif importe_neto is not None:
-        neto = float(importe_neto)
+        neto = centavos(importe_neto)
         if neto <= 0:
             raise ALdiaError(
                 "El importe de la nota de credito va en POSITIVO: el signo negativo lo pone "
@@ -2370,22 +2350,19 @@ def create_credit_note(
             "(bonificacion o ajuste), con su alicuota de IVA."
         )
 
-    neto = _redondear(neto)
-    iva_importe = _redondear(neto * alicuota_final / 100.0)
-    total = _redondear(neto + iva_importe)
-
+    # El IVA y el total los calcula el backend con la alicuota.
     nota = cli.post(
         "/api/facturas/",
         {
             "confirmar": True,
             "cliente": ficha.get("cuit"),
             "fecha": dia,
-            "subtotal": -neto,
-            "iva": -iva_importe,
-            "total": -total,
+            "subtotal": -pesos(neto),
+            "alicuota_iva": alicuota_final,
             "items": [],
         },
     )
+    total = abs(centavos(nota.get("total")))
 
     devueltos: list[dict[str, Any]] = []
     if reingresa_stock and detalle:
@@ -2413,15 +2390,15 @@ def create_credit_note(
         "fecha": dia,
         "motivo": motivo,
         "factura_original_declarada": factura_original,
-        "neto": neto,
-        "iva": iva_importe,
-        "total_acreditado": total,
+        "neto": pesos(neto),
+        "iva": abs(nota.get("iva") or 0),
+        "total_acreditado": pesos(total),
         "iva_pct": alicuota_final,
         "detalle": detalle,
         "stock_reingresado": devueltos,
         "tipo_comprobante_para_cae": tipo_cae,
         "nota": (
-            f"El saldo del cliente bajo {total:.2f}. El comprobante quedo con importes "
+            f"El saldo del cliente bajo {pesos(total):.2f}. El comprobante quedo con importes "
             f"negativos, que es como ALdia registra una nota de credito. Para autorizarla "
             f"ante AFIP pida el CAE indicando tipo_comprobante={tipo_cae} "
             f"({TIPOS_COMPROBANTE.get(tipo_cae)}). "
@@ -2467,17 +2444,15 @@ def create_debit_note(
     cli = api()
     if not (concepto or "").strip():
         raise ALdiaError("Falta el concepto de la nota de debito: es lo que se factura.")
-    neto = float(importe_neto)
+    neto = importe(importe_neto)
     if neto <= 0:
         raise ALdiaError("El importe de la nota de debito debe ser mayor a 0.")
     alicuota = _validar_iva(iva_pct)
 
     ficha = cli.resolver_cliente(cliente)
     dia = _fecha(fecha)
-    neto = _redondear(neto)
-    iva_importe = _redondear(neto * alicuota / 100.0)
-    total = _redondear(neto + iva_importe)
 
+    # El IVA y el total los calcula el backend con la alicuota.
     nota = cli.post(
         "/api/facturas/",
         {
@@ -2485,11 +2460,11 @@ def create_debit_note(
             "cliente": ficha.get("cuit"),
             "fecha": dia,
             "subtotal": neto,
-            "iva": iva_importe,
-            "total": total,
+            "alicuota_iva": alicuota,
             "items": [],
         },
     )
+    total = nota.get("total")
 
     clase = _clase_comprobante(_condicion_del_negocio(), ficha.get("condicion_iva"))
     tipo_cae = _tipo_comprobante(clase, "nota_debito")
@@ -2503,13 +2478,13 @@ def create_debit_note(
         "fecha": dia,
         "concepto": concepto,
         "factura_original_declarada": factura_original,
-        "neto": neto,
-        "iva": iva_importe,
+        "neto": nota.get("subtotal"),
+        "iva": nota.get("iva"),
         "total_debitado": total,
         "iva_pct": alicuota,
         "tipo_comprobante_para_cae": tipo_cae,
         "nota": (
-            f"El saldo del cliente subio {total:.2f}. Para autorizarla ante AFIP pida el CAE "
+            f"El saldo del cliente subio {pesos(centavos(total)):.2f}. Para autorizarla ante AFIP pida el CAE "
             f"pasando tipo_comprobante={tipo_cae} ({TIPOS_COMPROBANTE.get(tipo_cae)}): si no "
             "se indica, el sistema la tomaria como una factura porque el importe es positivo. "
             "LIMITACION: ALdia no guarda el vinculo con la factura original."
@@ -2658,13 +2633,12 @@ def get_vendor_balance(proveedor: str, limite: int = 10) -> dict[str, Any]:
 
     mayor = cli.get(f"/api/proveedores/{cuit}/cuenta-corriente", page_size=limite) or {}
 
-    saldo = float(ficha.get("saldo") or 0)
     return {
         "cuit": cuit,
         "nombre": ficha.get("nombre"),
         "telefono": ficha.get("telefono"),
-        "saldo_a_pagar": saldo,
-        "estado": "AL DIA" if saldo <= 0 else "CON DEUDA",
+        "saldo_a_pagar": ficha.get("saldo"),
+        "estado": "AL DIA" if centavos(ficha.get("saldo")) <= 0 else "CON DEUDA",
         "moneda": mayor.get("moneda"),
         "movimientos_recientes": mayor.get("movimientos", []),
     }
@@ -2770,8 +2744,8 @@ def record_vendor_return(
             raise ALdiaError(
                 f"El articulo {art.get('codigo')} no coincide con el renglon {compra_id}."
             )
-        precio = float(origen.get("precio") or 0)
-        if it.get("precio") is not None and abs(float(it["precio"]) - precio) > 0.000001:
+        precio = origen.get("precio")
+        if it.get("precio") is not None and centavos(it["precio"]) != centavos(precio):
             raise ALdiaError(
                 f"El precio del renglon {compra_id} es {precio}; no puede modificarse en la devolucion."
             )
@@ -2794,7 +2768,7 @@ def record_vendor_return(
          "fecha": dia, "motivo": motivo, "items": lineas},
         operation_id=operation_id,
     )
-    saldo_ahora = float(cli.resolver_proveedor(ficha.get("cuit")).get("saldo") or 0)
+    saldo_ahora = cli.resolver_proveedor(ficha.get("cuit")).get("saldo")
 
     return {
         "registrada": True,
@@ -2807,7 +2781,7 @@ def record_vendor_return(
         "iva": devolucion.get("iva"),
         "total_acreditado": devolucion.get("total"),
         "items": lineas,
-        "saldo_proveedor_ahora": _redondear(saldo_ahora),
+        "saldo_proveedor_ahora": saldo_ahora,
         "nota": "Stock descontado y deuda con el proveedor reducida. No se movio la caja.",
     }
 
@@ -2882,12 +2856,12 @@ def record_vendor_credit_note(
 ) -> dict[str, Any]:
     """[OPERACION DE DINERO] Reduce deuda sin mover mercadería."""
     ficha = api().resolver_proveedor(proveedor)
-    if float(monto) <= 0:
+    if centavos(monto) <= 0:
         raise ALdiaError("El monto debe ser mayor a cero.")
     _exigir_confirmacion_financiera(confirmar, f"Acreditar {monto} de {ficha.get('nombre')}")
     return api().post(
         "/api/compras/notas-credito-financieras",
-        {"proveedor": ficha.get("cuit"), "fecha": _fecha(fecha), "monto": float(monto),
+        {"proveedor": ficha.get("cuit"), "fecha": _fecha(fecha), "monto": importe(monto),
          "referencia": referencia, "descripcion": descripcion},
         operation_id=operation_id,
     )
@@ -3383,9 +3357,7 @@ def list_settlements(
     ) or []
     return {
         "cantidad": len(filas),
-        "total_neto_liquidado": _redondear(
-            sum(float(f.get("neto_liquidado") or 0) for f in filas)
-        ),
+        "total_neto_liquidado": pesos(sumar(f.get("neto_liquidado") for f in filas)),
         "liquidaciones": filas,
     }
 
@@ -3476,10 +3448,10 @@ def create_settlement_draft(
         alicuota_item = _validar_iva(
             float(it.get("iva_alicuota") if it.get("iva_alicuota") is not None else it.get("iva", 10.5))
         )
-        precio_unit = float(
+        precio_unit = importe(
             it.get("precio_unitario")
             if it.get("precio_unitario") is not None
-            else it.get("precio") or 0.0
+            else it.get("precio")
         )
         cant_bruta = float(
             it.get("cantidad_bruta")
@@ -3506,10 +3478,10 @@ def create_settlement_draft(
         alicuota_ded = _validar_iva(
             float(d.get("iva_alicuota") if d.get("iva_alicuota") is not None else d.get("iva", 21.0))
         )
-        base_imp = float(
+        base_imp = importe(
             d.get("base_imponible")
             if d.get("base_imponible") is not None
-            else d.get("monto") or 0.0
+            else d.get("monto")
         )
         deducciones_payload.append(
             {
@@ -3522,14 +3494,14 @@ def create_settlement_draft(
 
     retenciones_payload: list[dict[str, Any]] = []
     for r in retenciones or []:
-        imp_ret = float(
-            r.get("importe") if r.get("importe") is not None else r.get("monto") or 0.0
+        imp_ret = importe(
+            r.get("importe") if r.get("importe") is not None else r.get("monto")
         )
         retenciones_payload.append(
             {
                 "tipo": str(r.get("tipo") or "iva"),
                 "descripcion": str(r.get("descripcion") or ""),
-                "base_calculo": float(r.get("base_calculo") or 0.0),
+                "base_calculo": importe(r.get("base_calculo")),
                 "alicuota": float(r.get("alicuota") or 0.0),
                 "importe": imp_ret,
                 "certificado": str(r.get("certificado") or ""),
@@ -3748,7 +3720,7 @@ def get_daily_briefing() -> dict[str, Any]:
             resumen[nombre] = _seccion_o_error(str(e))
 
     seccion("caja", "caja", lambda: {
-        "saldo_disponible": _redondear(float((cli.get("/api/caja/saldo") or {}).get("saldo") or 0)),
+        "saldo_disponible": (cli.get("/api/caja/saldo") or {}).get("saldo"),
     })
     seccion("cuentas_por_cobrar", "clientes",
             lambda: _con_saldo(cli.get("/api/clientes/") or [], "deudores", "a_cobrar"))
@@ -3770,19 +3742,15 @@ def get_daily_briefing() -> dict[str, Any]:
 def _con_saldo(fichas: list[dict[str, Any]], quienes: str, total: str) -> dict[str, Any]:
     """Las fichas con saldo a favor, ordenadas de mayor a menor."""
     con_saldo = sorted(
-        [f for f in fichas if float(f.get("saldo") or 0) > 0],
-        key=lambda x: float(x.get("saldo") or 0),
+        [f for f in fichas if centavos(f.get("saldo")) > 0],
+        key=lambda x: centavos(x.get("saldo")),
         reverse=True,
     )
     return {
         f"cantidad_{quienes}": len(con_saldo),
-        f"total_{total}": _redondear(sum(float(f.get("saldo") or 0) for f in con_saldo)),
+        f"total_{total}": pesos(sumar(f.get("saldo") for f in con_saldo)),
         f"principales_{quienes}": [
-            {
-                "cuit": f.get("cuit"),
-                "nombre": f.get("nombre"),
-                "saldo": _redondear(float(f.get("saldo") or 0)),
-            }
+            {"cuit": f.get("cuit"), "nombre": f.get("nombre"), "saldo": f.get("saldo")}
             for f in con_saldo[:5]
         ],
     }

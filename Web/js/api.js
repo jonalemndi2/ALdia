@@ -163,12 +163,15 @@ const API = {
                 let pendiente = JSON.parse(sessionStorage.getItem('aldia_venta_pendiente') || 'null');
                 if (!pendiente || pendiente.huella !== huella) {
                     const b = await API.post('/facturas/borradores', data);
-                    pendiente = {huella, id: b.borrador_id};
+                    // El total lo calcula el servidor a partir de los renglones:
+                    // es el que se confirma, aunque la pantalla haya sumado distinto.
+                    pendiente = {huella, id: b.borrador_id, total: (b.importes || {}).total};
                     sessionStorage.setItem('aldia_venta_pendiente', JSON.stringify(pendiente));
                 }
+                const total = pendiente.total !== undefined ? pendiente.total : data.total;
                 const ok = await Utils.confirm('Confirmar operación comercial',
                     `Cliente: ${Utils.escapeHtml(String(data.cliente || data.cuit))}<br>` +
-                    `Total: ${Utils.escapeHtml(String(data.total))}<br>` +
+                    `Total: ${Utils.escapeHtml(Utils.formatCurrency(total))}<br>` +
                     'Esta confirmación genera deuda y puede descontar stock. No autoriza ante ARCA.');
                 if (!ok) throw new Error('Borrador conservado sin efectos. Puede retomarlo en Remitir Factura.');
                 const resultado = await API.post(`/facturas/borradores/${pendiente.id}/confirmar`, {confirmar: true});

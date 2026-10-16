@@ -94,6 +94,9 @@ MENSAJES: dict[str, dict[str, str]] = {
             "Esta instalación está configurada para {pais}, donde los comprobantes "
             "no requieren autorización previa de ningún organismo.",
         "PAIS_NO_SOPORTADO": "No hay reglas fiscales para el país {pais}.",
+        "IMPORTES_CAMBIARON":
+            "Los importes cambiaron desde que se preparó el borrador (antes {antes}, "
+            "ahora {ahora}). Prepare uno nuevo y vuelva a confirmarlo.",
         "MODULOS_FIJADOS_POR_ENTORNO":
             "Los módulos activos los fija la variable ALDIA_MODULOS: se cambian ahí y se "
             "reinicia ALdia. Desde acá solo se pueden editar los roles de cada módulo.",
@@ -132,6 +135,9 @@ MENSAJES: dict[str, dict[str, str]] = {
             "This installation is configured for {pais}, where documents do not require "
             "prior authorization from any agency.",
         "PAIS_NO_SOPORTADO": "There are no tax rules for country {pais}.",
+        "IMPORTES_CAMBIARON":
+            "The amounts changed since the draft was prepared (was {antes}, now "
+            "{ahora}). Prepare a new one and confirm it again.",
         "MODULOS_FIJADOS_POR_ENTORNO":
             "Active modules are set by the ALDIA_MODULOS variable: change it there and "
             "restart ALdia. Only each module's roles can be edited here.",

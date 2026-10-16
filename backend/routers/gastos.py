@@ -7,7 +7,7 @@ from typing import List
 
 import saldos
 from database import get_db
-from dinero import a_pesos
+from dinero import a_pesos, importes_de_renglones
 from models import GastoFactura, CompraGasto, Proveedor
 from schemas import GastoCreate, GastoResponse
 from secuencias import siguiente_numero
@@ -42,9 +42,22 @@ def create_gasto(gasto_data: GastoCreate, db: Session = Depends(get_db)):
     # Ver backend/secuencias.py.
     new_id = siguiente_numero(db, "gasto")
 
+    # Sin importes declarados, neto, IVA y total salen de los conceptos con el
+    # mismo criterio que una factura (el IVA una vez por alicuota). Si vienen
+    # declarados se respetan: son los del comprobante del proveedor, que es el
+    # que vale para el credito fiscal.
+    if gasto_data.items and not ({"subtotal", "iva", "total"} & gasto_data.model_fields_set):
+        importes = importes_de_renglones((c.monto, 1, c.iva) for c in gasto_data.items)
+        gasto_data.subtotal, gasto_data.iva, gasto_data.total = (
+            importes.neto, importes.iva, importes.total)
+
     datos = gasto_data.model_dump(exclude={"items"})
     new_gasto = GastoFactura(id=new_id, **datos)
     db.add(new_gasto)
+    # Los renglones apuntan a la cabecera por clave foranea, y sin relationship()
+    # SQLAlchemy no sabe que tiene que insertarla primero: sin este flush, todo
+    # gasto CON conceptos fallaba con "FOREIGN KEY constraint failed".
+    db.flush()
 
     # 1) Renglones del gasto, ahora persistidos de verdad.
     for item in gasto_data.items:
