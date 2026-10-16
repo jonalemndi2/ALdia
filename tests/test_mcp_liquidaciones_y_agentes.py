@@ -224,6 +224,44 @@ def test_daily_briefing_estructura_y_sin_rutas_admin(srv, monkeypatch):
     assert not any("/api/admin/" in r for r in rutas)
 
 
+def test_daily_briefing_informa_error_en_vez_de_lista_vacia(srv, monkeypatch):
+    falsa = ApiFalsaLiquidaciones()
+    get_original = falsa.get
+
+    def get_con_falla(ruta, **params):
+        if ruta in ("/api/liquidaciones/", "/api/pendientes/"):
+            raise srv.ALdiaError("HTTP 503: servicio no disponible")
+        return get_original(ruta, **params)
+
+    falsa.get = get_con_falla
+    monkeypatch.setattr(srv, "api", lambda: falsa)
+
+    resumen = fn(srv.get_daily_briefing)()
+    for clave in ("liquidaciones_en_borrador", "operaciones_pendientes_aclaracion"):
+        seccion = resumen[clave]
+        assert seccion["cantidad"] is None
+        assert "No se pudo consultar" in seccion["error"]
+        assert "503" in seccion["error"]
+    assert resumen["caja"]["saldo_disponible"] == 3250000.0
+
+
+def test_hoy_usa_la_zona_del_negocio_y_no_la_del_servidor(srv, monkeypatch):
+    from datetime import date, datetime, timezone
+
+    class RelojUTC(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            # 23:30 UTC del 16/10 = 20:30 del 16/10 en Cordoba.
+            return datetime(2026, 10, 16, 23, 30, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(srv, "datetime", RelojUTC)
+    monkeypatch.delenv("ALDIA_ZONA_HORARIA", raising=False)
+    assert srv._hoy() == date(2026, 10, 16)
+
+    monkeypatch.setenv("ALDIA_ZONA_HORARIA", "Zona/Inexistente")
+    with pytest.raises(srv.ALdiaConfigError, match="ALDIA_ZONA_HORARIA"):
+        srv._hoy()
+
 def test_descubrimiento_y_lectura_de_skills_operativas(srv):
     listado = fn(srv.list_operational_skills)()
     assert listado["cantidad"] >= 10

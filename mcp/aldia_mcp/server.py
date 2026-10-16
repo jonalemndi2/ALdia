@@ -26,14 +26,15 @@ import functools
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mcp.server.mcpserver import MCPServer
 from mcp_types import ToolAnnotations
 
-from aldia_mcp.client import ALdiaClient, ALdiaError
+from aldia_mcp.client import ALdiaClient, ALdiaConfigError, ALdiaError
 
 servidor = MCPServer(
     name="aldia",
@@ -212,16 +213,41 @@ def _adjuntar_aviso(resultado: Any) -> Any:
 
 _RE_FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+ZONA_HORARIA_POR_DEFECTO = "America/Argentina/Cordoba"
+# Argentina no tiene horario de verano desde 2009: UTC-3 fijo es exacto. Sirve
+# de respaldo en Windows, donde Python no trae la base de zonas sin `tzdata`.
+_UTC_MENOS_3 = timezone(timedelta(hours=-3), "ART")
+
+
+def _hoy() -> date:
+    """Fecha de hoy en la zona del negocio, no en la del servidor.
+
+    Un servidor en UTC cambia de dia a las 21 hs de Argentina: sin esto, el
+    resumen de la noche saldria con la fecha de manana.
+    """
+    nombre = os.getenv("ALDIA_ZONA_HORARIA", "").strip() or ZONA_HORARIA_POR_DEFECTO
+    try:
+        zona = ZoneInfo(nombre)
+    except (ZoneInfoNotFoundError, ValueError):
+        if not nombre.startswith("America/Argentina/"):
+            raise ALdiaConfigError(
+                f"Zona horaria desconocida en ALDIA_ZONA_HORARIA: '{nombre}'. "
+                "Use un nombre IANA (ejemplo: America/New_York) e instale el "
+                "paquete tzdata si el servidor corre en Windows."
+            )
+        zona = _UTC_MENOS_3
+    return datetime.now(zona).date()
+
 
 def _fecha(valor: str | None) -> str:
     """Normaliza una fecha YYYY-MM-DD; si viene vacia, devuelve la de hoy."""
     if valor in (None, ""):
-        return date.today().isoformat()
+        return _hoy().isoformat()
     valor = str(valor).strip()
     if not _RE_FECHA.match(valor):
         raise ALdiaError(
             f"Fecha invalida: '{valor}'. Use el formato YYYY-MM-DD (ejemplo: "
-            f"{date.today().isoformat()})."
+            f"{_hoy().isoformat()})."
         )
     return valor
 
@@ -505,7 +531,7 @@ def check_connection() -> dict[str, Any]:
         "usuario": usuario.get("username"),
         "rol": usuario.get("rol"),
         "modulos_accesibles": claves,
-        "fecha_de_hoy": date.today().isoformat(),
+        "fecha_de_hoy": _hoy().isoformat(),
     }
 
 
@@ -671,7 +697,7 @@ def list_debtors(monto_minimo: float = 0.0, con_antiguedad: bool = False) -> dic
     morosos = cli.get("/api/admin/morosos") or []
     morosos = [m for m in morosos if float(m.get("saldo") or 0) >= float(monto_minimo)]
 
-    hoy = date.today()
+    hoy = _hoy()
     for m in morosos if con_antiguedad else []:
         cuit = m.get("cuit")
         facturas = cli.get("/api/facturas/", cliente=cuit) or []
@@ -3408,18 +3434,21 @@ def _extraer_frontmatter_skill(texto: str) -> dict[str, str]:
 )
 def get_daily_briefing() -> dict[str, Any]:
     cli = api()
-    hoy = date.today().isoformat()
+    hoy = _hoy().isoformat()
     caja = cli.get("/api/caja/saldo") or {}
     clientes = cli.get("/api/clientes/") or []
     proveedores = cli.get("/api/proveedores/") or []
+    # Si una consulta falla, se informa el error en vez de una lista vacia: si
+    # no, el agente le diria al usuario "no tenes nada pendiente" sin saberlo.
+    error_borradores = error_pendientes = None
     try:
         borradores = cli.get("/api/liquidaciones/", estado="borrador", limite=10) or []
-    except ALdiaError:
-        borradores = []
+    except ALdiaError as e:
+        borradores, error_borradores = [], str(e)
     try:
         pendientes_raw = cli.get("/api/pendientes/") or {}
-    except ALdiaError:
-        pendientes_raw = {}
+    except ALdiaError as e:
+        pendientes_raw, error_pendientes = {}, str(e)
 
     deudores = sorted(
         [c for c in clientes if float(c.get("saldo") or 0) > 0],
@@ -3475,14 +3504,21 @@ def get_daily_briefing() -> dict[str, Any]:
                 for p in acreedores[:5]
             ],
         },
-        "liquidaciones_en_borrador": {
-            "cantidad": len(borradores),
-            "borradores": borradores,
-        },
-        "operaciones_pendientes_aclaracion": {
-            "cantidad": len(pendientes),
-            "pendientes": pendientes,
-        },
+        "liquidaciones_en_borrador": _seccion_o_error(
+            error_borradores, cantidad=len(borradores), borradores=borradores
+        ),
+        "operaciones_pendientes_aclaracion": _seccion_o_error(
+            error_pendientes, cantidad=len(pendientes), pendientes=pendientes
+        ),
+    }
+
+
+def _seccion_o_error(error: str | None, **datos: Any) -> dict[str, Any]:
+    if error is None:
+        return datos
+    return {
+        "cantidad": None,
+        "error": f"No se pudo consultar: {error}. No informar que no hay ninguno.",
     }
 
 

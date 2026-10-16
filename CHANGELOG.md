@@ -11,6 +11,17 @@ El sistema lee este archivo para mostrar las novedades en la pantalla
 "Actualizar sistema" y para avisarle al asistente de IA que hay una versión
 nueva. Mantener el formato de los títulos: `## X.Y.Z — AAAA-MM-DD`.
 
+## 2.3.1 — 2026-10-16
+
+- **El resumen matutino ya no oculta fallas.** Si `get_daily_briefing` no
+  puede consultar las liquidaciones en borrador o las operaciones pendientes,
+  lo informa como error en vez de devolver una lista vacía. Antes el asistente
+  podía decir "no tenés nada pendiente" sin haberlo podido consultar.
+- **La fecha de hoy se calcula en la zona del negocio.** El servidor MCP usa
+  `America/Argentina/Cordoba` (configurable con `ALDIA_ZONA_HORARIA`) en vez
+  de la hora del servidor. Con el servidor en UTC, después de las 21 hs el
+  resumen salía con la fecha del día siguiente.
+
 ## 2.3.0 — 2026-10-16
 
 - **Perfiles de negocio y módulos verticales instalables.** Nuevos módulos

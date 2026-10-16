@@ -92,6 +92,7 @@ python -m venv .venv
 | `ALDIA_USER`      | **sí**      | Usuario de ALdia con el que opera el asistente.                   |
 | `ALDIA_PASSWORD`  | **sí**      | Contraseña de ese usuario.                                          |
 | `ALDIA_TIMEOUT`   | no          | Timeout HTTP en segundos (por defecto 30).                         |
+| `ALDIA_ZONA_HORARIA` | no       | Zona IANA para calcular "hoy". Por defecto `America/Argentina/Cordoba`. |
 
 El servidor hace el login solo, guarda el token JWT en memoria y lo **renueva
 automáticamente** antes de que venza (el token de ALdia dura 8 horas). Si el
